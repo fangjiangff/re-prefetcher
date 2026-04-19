@@ -7,7 +7,7 @@ import csv
 # SRC = "triggerThreshold-x86.cc"
 # OUT = "bin/triggerThreshold-x86"
 SRC = "triggerThreshold-arm.cc"
-OUT = "bin/triggerThreshold-arm"
+OUT = "../bin/triggerThreshold-arm"
 
 # configs = [(1,1), (1,0), (0,1), (0,0)]
 # configs = [ (0,0), (1,0)]

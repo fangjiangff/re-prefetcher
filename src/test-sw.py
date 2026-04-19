@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 SRC = "triggerThreshold-arm.cc"
-OUT = "bin/triggerThreshold-arm"
+OUT = "../bin/triggerThreshold-arm"
 
 TEST_ON_SW = 1
 
