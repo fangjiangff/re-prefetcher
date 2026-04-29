@@ -24,7 +24,8 @@ PRFM_MODES = [
     "PSTL3STRM",
 ]
 
-micro_arch = "CortexA76"
+CPU_ID=0
+micro_arch = f"Cortex-core{CPU_ID}-disable-sti-sts-region-pf"
 
 wb = openpyxl.Workbook()
 
@@ -52,7 +53,7 @@ for mode in PRFM_MODES:
         continue
 
     run = subprocess.run(
-        ["taskset", "-c", "0", "./" + OUT],
+        ["taskset", "-c", str(CPU_ID), "./" + OUT],
         capture_output=True,
         text=True
     )
@@ -92,7 +93,7 @@ if "Sheet" in wb.sheetnames:
     del wb["Sheet"]
 
 os.makedirs("res", exist_ok=True)
-xlsx_path = f"res/threshold-{micro_arch}.xlsx"
+xlsx_path = f"res/sw-{micro_arch}.xlsx"
 wb.save(xlsx_path)
 
 print(f"Excel saved to {xlsx_path}")
@@ -104,8 +105,8 @@ print(f"Excel saved to {xlsx_path}")
 fig, axes = plt.subplots(2, 6, figsize=(24, 8))
 
 # 固定范围（关键）
-vmin = 20
-vmax = 600
+vmin = 50
+vmax = 300
 
 im = None
 
@@ -121,7 +122,7 @@ for idx, mode in enumerate(PRFM_MODES):
         aspect='auto',
         vmin=vmin,
         vmax=vmax,
-        cmap='viridis'   # 推荐：对 latency 很直观
+        cmap='RdYlBu_r'   # 推荐：对 latency 很直观
     )
 
     ax.set_title(mode, fontsize=10)
@@ -143,7 +144,7 @@ fig.colorbar(im, cax=cbar_ax)
 plt.tight_layout(rect=[0, 0, 0.9, 1])  
 # 留出右侧空间给 colorbar
 
-png_path = f"res/heatmap-{micro_arch}.png"
+png_path = f"res/sw-{micro_arch}.png"
 plt.savefig(png_path, dpi=200)
 
 print(f"Heatmap saved to {png_path}")

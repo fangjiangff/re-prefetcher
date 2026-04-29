@@ -8,18 +8,17 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-# SRC = "triggerThreshold.cc"
-# SRC = "triggerThreshold-x86.cc"
-# OUT = "bin/triggerThreshold-x86"
-SRC = "triggerThreshold-arm.cc"
-OUT = "../bin/triggerThreshold-arm"
+
+SRC = "test-single.cc"
+OUT = "bin/test-single"
 
 # configs = [(1,1), (1,0), (0,1), (0,0)]
 # configs = [ (0,0), (1,0)]
 # // (0,0,0)miss load, (0,1,0) miss store; (1,0,0) hit load,(0,0,1) miss prefetch.
-configs = [(0,0,0), (0,1,0), (1,0,0), (0,0,1)]
+configs = [(0,0,1)]
 # micro_arch = "CascadeLake"
-micro_arch = "CortexA76-disable-sti-sts-region-pf"
+micro_arch = "CortexA76"
+date=26042801
 wb = openpyxl.Workbook()
 PLOT_ONLY = False
 # timestamp = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
@@ -35,9 +34,9 @@ if not PLOT_ONLY:
             "-std=gnu11",
             "-O0",
             "-static",
-            f"-DTEST_ON_HIT={hit}",
-            f"-DTEST_ON_ST={st}",
-            f"-DTEST_ON_SW={sw}",
+            # f"-DTEST_ON_HIT={hit}",
+            # f"-DTEST_ON_ST={st}",
+            # f"-DTEST_ON_SW={sw}",
             "-o",
             OUT,
             SRC
@@ -61,7 +60,8 @@ if not PLOT_ONLY:
 
         output = run.stdout
 
-        sheet_name = f"HIT{hit}-ST{st}-SW{sw}"
+        # sheet_name = f"HIT{hit}-ST{st}-SW{sw}"
+        sheet_name = f"test-single"
         ws = wb.create_sheet(sheet_name)
 
 
@@ -84,16 +84,17 @@ if not PLOT_ONLY:
 
 
     del wb["Sheet"]
-    wb.save(f"res/threshold-{micro_arch}.xlsx")
+    wb.save(f"res/sw-{micro_arch}.xlsx")
 
 
-INPUT_FILE = f"res/threshold-{micro_arch}.xlsx"
+INPUT_FILE = f"res/sw-{micro_arch}.xlsx"
 
 TARGET_SHEETS = [
-    "HIT0-ST0-SW0",  # Miss Load
-    "HIT0-ST1-SW0",  # Miss Store
-    "HIT1-ST0-SW0",  # Hit Load
-    "HIT0-ST0-SW1",  # Miss Prefetch
+    'test-single'
+    # "HIT0-ST0-SW0",  # Miss Load
+    # "HIT0-ST1-SW0",  # Miss Store
+    # "HIT1-ST0-SW0",  # Hit Load
+    # "HIT0-ST0-SW1",  # Miss Prefetch
 ]
 
 def plot_heatmaps():
@@ -151,7 +152,7 @@ def plot_heatmaps():
             ax.text(0.5, 0.5, "Error", ha='center', va='center')
 
     plt.tight_layout()
-    output_path = os.path.join("res/heatmaps", f"{micro_arch}.png")
+    output_path = os.path.join("res/heatmaps", f"{micro_arch}-{date}.png")
     plt.savefig(output_path, dpi=300)
     plt.close()
     print(f"Saved combined heatmap to {output_path}")

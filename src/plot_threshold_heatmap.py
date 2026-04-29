@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import os
 
 # 配置部分
-INPUT_FILE = "../res/threshold-CortexA76.xlsx"
-OUTPUT_DIR = "../res/heatmaps"
+INPUT_FILE = "res/threshold-CortexA76-disable-prefetch.xlsx"
+OUTPUT_DIR = "res/heatmaps"
 
 # 指定需要生成热力图的工作表名称列表
 # 这些名称对应 testThreshold.py 生成的 sheet_name
