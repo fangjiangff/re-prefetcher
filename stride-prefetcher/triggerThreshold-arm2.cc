@@ -197,8 +197,7 @@ int main(){
               for(int i=0;i<100;i++) nop(); mfence();
 
               //test the different position.
-              // probe_addr = array2 + (pos * stride);
-            
+              probe_addr = array2 + (pos * stride);
               // // // /* READ TIMER */
               time1 = timestamp();
               mfence();

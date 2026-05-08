@@ -20,7 +20,7 @@ OUT = "bin/triggerThreshold-arm2"
 # configs = [(0,0,0), (0,1,0), (1,0,0), (0,0,1)]
 configs = [(0,0,0), (0,0,1)]
 # micro_arch = "CascadeLake"
-micro_arch = "CortexA55-stride=10"
+micro_arch = "CortexA76-stride=10"
 wb = openpyxl.Workbook()
 PLOT_ONLY = False
 # timestamp = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
