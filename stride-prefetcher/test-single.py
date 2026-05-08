@@ -17,7 +17,7 @@ OUT = "bin/test-single"
 # // (0,0,0)miss load, (0,1,0) miss store; (1,0,0) hit load,(0,0,1) miss prefetch.
 configs = [(0,0,1)]
 # micro_arch = "CascadeLake"
-micro_arch = "CortexA76"
+micro_arch = "CortexA55"
 date=26042801
 wb = openpyxl.Workbook()
 PLOT_ONLY = False

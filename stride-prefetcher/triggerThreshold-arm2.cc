@@ -60,18 +60,18 @@ void mprefetch(void *p) {
     );
 }
 
-// static inline __attribute__((always_inline))
-// uint64_t timestamp(void)
-// {
-//     asm volatile("DSB SY");
-//     asm volatile("ISB");
-//     struct timespec t1;
-//     clock_gettime(CLOCK_MONOTONIC, &t1);
-//     uint64_t res = t1.tv_sec * 1000 * 1000 * 1000ULL + t1.tv_nsec;
-//     asm volatile("ISB");
-//     asm volatile("DSB SY");
-//     return res;
-// }
+static inline __attribute__((always_inline))
+uint64_t timestamp(void)
+{
+    asm volatile("DSB SY");
+    asm volatile("ISB");
+    struct timespec t1;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    uint64_t res = t1.tv_sec * 1000 * 1000 * 1000ULL + t1.tv_nsec;
+    asm volatile("ISB");
+    asm volatile("DSB SY");
+    return res;
+}
 
 
 // static inline __attribute__((always_inline)) uint64_t timestamp() {
@@ -80,29 +80,29 @@ void mprefetch(void *p) {
 //     return value;
 // }
 
-static inline __attribute__((always_inline)) uint64_t timestamp() {
-    uint64_t value;
-    asm volatile("DSB SY\nISB\n"
-                 "MRS %0, PMCCNTR_EL0\n"
-                 "ISB\n"
-                 : "=r" (value));
-    return value;
-}
+// static inline __attribute__((always_inline)) uint64_t timestamp() {
+//     uint64_t value;
+//     asm volatile("DSB SY\nISB\n"
+//                  "MRS %0, PMCCNTR_EL0\n"
+//                  "ISB\n"
+//                  : "=r" (value));
+//     return value;
+// }
 
-static inline __attribute__((always_inline)) uint64_t victim_probe(void *p) {
-    register uint64_t start, end;
-    // DEBUG("probing victim buffer at offset %zu\n", offset);
-    mfence();
-    // DEBUG("accessing victim buffer at offset %zu\n", offset);
-    start = timestamp();
-    // DEBUG("probing victim buffer at offset %zu\n", offset);
-    mfence();
-    maccess(p);
-    mfence();
-    end = timestamp();
-    mfence();  
-    return end - start;
-}
+// static inline __attribute__((always_inline)) uint64_t victim_probe(void *p) {
+//     register uint64_t start, end;
+//     // DEBUG("probing victim buffer at offset %zu\n", offset);
+//     mfence();
+//     // DEBUG("accessing victim buffer at offset %zu\n", offset);
+//     start = timestamp();
+//     // DEBUG("probing victim buffer at offset %zu\n", offset);
+//     mfence();
+//     maccess(p);
+//     mfence();
+//     end = timestamp();
+//     mfence();  
+//     return end - start;
+// }
 
 
 uint8_t array1[100*LINE_SIZE]={0};
@@ -200,17 +200,17 @@ int main(){
               // probe_addr = array2 + (pos * stride);
             
               // // // /* READ TIMER */
-              // time1 = timestamp();
-              // mfence();
-              // /* MEMORY ACCESS TO TIME */
-              // junk = *probe_addr;
-              // mfence();
-              // /* READ TIMER */
-              // time2 = timestamp() - time1;
-              // res2[train_step][pos] += time2;
-
-              time2 = victim_probe(array2 + (pos * stride));
+              time1 = timestamp();
+              mfence();
+              /* MEMORY ACCESS TO TIME */
+              junk = *probe_addr;
+              mfence();
+              /* READ TIMER */
+              time2 = timestamp() - time1;
               res2[train_step][pos] += time2;
+
+              // time2 = victim_probe(array2 + (pos * stride));
+              // res2[train_step][pos] += time2;
 
               if(pos < train_step) res2[train_step][pos] = 0;//these positions are all cache hit, no need to test.
           } 
