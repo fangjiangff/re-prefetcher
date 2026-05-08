@@ -1,0 +1,18 @@
+# stride=640 rounds=100 page_size=16384 base_prefetch_pc=0x0000000500000120 target_buffer=0x0000000600000000
+# target_train_step=8 competitor_accesses=one_load_each probe_offset=14720 pc_spacing=0x20
+# competitors	latency_ns
+0	80
+1	82
+2	86
+3	127
+4	115
+5	181
+6	199
+7	164
+8	197
+9	251
+10	269
+11	217
+12	219
+13	202
+14	191
