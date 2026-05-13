@@ -96,6 +96,12 @@ __attribute__((noinline)) static void chain_sw_prefetch(void *addr) {
     asm volatile("prfm pldl1keep, [%0]\n\t" :: "r"(addr) : "memory");
 }
 
+__attribute__((noinline)) static void *chain_step(void *addr) {
+    void *next;
+    asm volatile("ldr %0, [%1]\n\t" : "=r"(next) : "r"(addr) : "memory");
+    return next;
+}
+
 static inline void chain_access(void *addr) {
     if (use_sw_prefetch) {
         chain_sw_prefetch(addr);
@@ -106,6 +112,15 @@ static inline void chain_access(void *addr) {
 
 static uint8_t *addr_for_node(struct node n) {
     return mapping + n.page * PAGE_SIZE + n.line * CACHE_LINE_SIZE;
+}
+
+static void init_pointer_chain(void) {
+    const size_t chain_count = sizeof(chain_nodes) / sizeof(chain_nodes[0]);
+
+    for (size_t i = 0; i < chain_count; i++) {
+        uint8_t *next = addr_for_node(chain_nodes[(i + 1) % chain_count]);
+        memcpy(addr_for_node(chain_nodes[i]), &next, sizeof(next));
+    }
 }
 
 static uint64_t timestamp_ns(void) {
@@ -204,8 +219,12 @@ static void train_cmc_sequence(int training_replays) {
 
     for (int replay = 0; replay < training_replays; replay++) {
         flush_nodes(chain_nodes, chain_count);
+        void *addr = addr_for_node(chain_nodes[0]);
         for (size_t i = 0; i < chain_count; i++) {
-            chain_access(addr_for_node(chain_nodes[i]));
+            if (use_sw_prefetch) {
+                chain_sw_prefetch(addr);
+            }
+            addr = chain_step(addr);
         }
         mfence();
     }
@@ -228,7 +247,10 @@ static void run_test(int rounds, uint64_t hit_threshold_ns,
         flush_nodes(chain_nodes, chain_count);
         flush_nodes(control_nodes, control_count);
 
-        chain_access(addr_for_node(chain_nodes[0]));
+        if (use_sw_prefetch) {
+            chain_sw_prefetch(addr_for_node(chain_nodes[0]));
+        }
+        (void)chain_step(addr_for_node(chain_nodes[0]));
         mfence();
 
         size_t target = (size_t)round % target_count;
@@ -248,7 +270,7 @@ static void run_test(int rounds, uint64_t hit_threshold_ns,
 
     printf("# CMC existence test\n");
     printf("# access mode: %s\n",
-           use_sw_prefetch ? "software prefetch (prfm pldl1keep)" : "load (ldrb)");
+           use_sw_prefetch ? "software prefetch plus pointer load" : "pointer load (ldr)");
     printf("# rounds=%d threshold_ns=%lu training_replays=%d\n",
            rounds, (unsigned long)hit_threshold_ns, training_replays);
     printf("# trigger: node=0 page=%zu line=%zu\n",
@@ -334,6 +356,7 @@ int main(int argc, char **argv) {
     }
 
     memset(mapping, 0xff, mapping_size);
+    init_pointer_chain();
     touch_region(mapping, mapping_size);
     flush_nodes(chain_nodes, sizeof(chain_nodes) / sizeof(chain_nodes[0]));
     flush_nodes(control_nodes, sizeof(control_nodes) / sizeof(control_nodes[0]));

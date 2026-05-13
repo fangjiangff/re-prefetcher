@@ -1,0 +1,36 @@
+# CMC existence test
+# access mode: load (ldrb)
+# rounds=64 threshold_ns=150 training_replays=2
+# trigger: node=0 page=7 line=11
+# chain nodes use one line per page with irregular page deltas;
+# sustained hits on chain nodes above controls suggest CMC/history prefetching.
+
+[chain_after_trigger]
+# idx	page	line	role	hits	per_1000
+ 1	 43	 3	expected_cmc	    0	   0
+ 2	 91	37	expected_cmc	    0	   0
+ 3	 18	52	expected_cmc	    0	   0
+ 4	133	 9	expected_cmc	    0	   0
+ 5	 56	27	expected_cmc	    0	   0
+ 6	199	60	expected_cmc	    0	   0
+ 7	 25	14	expected_cmc	    0	   0
+ 8	166	45	expected_cmc	    0	   0
+ 9	 72	 6	expected_cmc	    0	   0
+10	213	33	expected_cmc	    0	   0
+11	109	58	expected_cmc	    0	   0
+12	240	21	expected_cmc	    0	   0
+13	  5	49	expected_cmc	    0	   0
+14	151	 2	expected_cmc	    0	   0
+15	117	40	expected_cmc	    0	   0
+16	224	17	expected_cmc	    0	   0
+
+[controls]
+# idx	page	line	role	hits	per_1000
+ 0	 31	23	control		    0	   0
+ 1	 64	51	control		    0	   0
+ 2	 98	 8	control		    0	   0
+ 3	125	35	control		    0	   0
+ 4	182	12	control		    0	   0
+ 5	232	54	control		    0	   0
+ 6	 14	30	control		    0	   0
+ 7	207	 4	control		    0	   0
