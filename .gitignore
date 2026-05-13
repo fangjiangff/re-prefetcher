@@ -1,0 +1,15 @@
+# Ignore build outputs and generated binaries
+/sms/bin/
+/stride-prefetcher/bin
+/cmc/bin
+
+# Ignore local editor/OS files
+*.swp
+*.swo
+*.bak
+.DS_Store
+*.tmp
+*~
+
+# Ignore other untracked files you don't want to commit
+# Add more patterns below as needed

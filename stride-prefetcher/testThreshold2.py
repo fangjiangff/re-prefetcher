@@ -2,92 +2,38 @@ import subprocess
 import itertools
 import openpyxl
 import csv
+import argparse
 
 import os
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 # SRC = "triggerThreshold.cc"
 # SRC = "triggerThreshold-x86.cc"
 # OUT = "bin/triggerThreshold-x86"
 SRC = "triggerThreshold-arm2.cc"
 OUT = "bin/triggerThreshold-arm2"
+DEFAULT_ARCH = "CortexA76"
+DEFAULT_STRIDE = 30
 
 # configs = [(1,1), (1,0), (0,1), (0,0)]
 # configs = [ (0,0), (1,0)]
 # // (0,0,0)miss load, (0,1,0) miss store; (1,0,0) hit load,(0,0,1) miss prefetch.
 # configs = [(0,0,0), (0,1,0), (1,0,0), (0,0,1)]
 configs = [(0,0,0), (0,0,1)]
-# micro_arch = "CascadeLake"
-micro_arch = "CortexA76-stride=10"
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE,
+                        help=f"Stride in cache lines. Default: {DEFAULT_STRIDE}")
+    parser.add_argument("--arch", default=DEFAULT_ARCH,
+                        help=f"Architecture name used in output filenames. Default: {DEFAULT_ARCH}")
+    parser.add_argument("--plot-only", action="store_true",
+                        help="Only plot from an existing result workbook.")
+    return parser.parse_args()
+
+
+args = parse_args()
+micro_arch = f"{args.arch}-stride={args.stride}"
 wb = openpyxl.Workbook()
-PLOT_ONLY = False
-# timestamp = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
-# print(f"Start testing at {timestamp}")
-if not PLOT_ONLY:
-    for hit,st, sw in configs:
-        print("="*60)
-        print(f"TEST_ON_HIT={hit}, TEST_ON_ST={st}, TEST_ON_SW={sw}")
-        # print(f"TEST_ON_HIT={hit}, TEST_ON_SW={sw}")
-
-        compile_cmd = [
-            "g++",
-            "-std=gnu11",
-            "-O0",
-            "-static",
-            f"-DTEST_ON_HIT={hit}",
-            f"-DTEST_ON_ST={st}",
-            f"-DTEST_ON_SW={sw}",
-            "-o",
-            OUT,
-            SRC
-        ]
-
-        res = subprocess.run(compile_cmd)
-
-        if res.returncode != 0:
-            print("Compile failed")
-            continue
-
-        run = subprocess.run(
-            ["taskset", "-c", "0", "./" + OUT],
-            capture_output=True,
-            text=True
-        )
-
-        if run.returncode != 0:
-            print("Execution failed")
-            continue
-
-        output = run.stdout
-
-        sheet_name = f"HIT{hit}-ST{st}-SW{sw}"
-        ws = wb.create_sheet(sheet_name)
-
-
-        # 读第一行，确定列数
-        # first = output.readline().strip().split('\t')
-        first = output.splitlines()[0].strip().split('\t')
-        n = len(first)
-        # 写表头
-        ws.append(["Stride"] + [f"pos{i}" for i in range(0, n)])
-
-        # 写第一行数据
-        ws.append([1] + first)
-
-        # 写后续行
-        # for idx, line in enumerate(output, start=2):
-        #     ws.append([idx] + line.strip().split('\t'))
-        # 修复后代码
-        for idx, line in enumerate(output.splitlines()[1:], start=2):
-            ws.append([idx] + line.strip().split('	'))
-
-
-    del wb["Sheet"]
-    wb.save(f"res/threshold-{micro_arch}.xlsx")
-
-
+PLOT_ONLY = args.plot_only
 INPUT_FILE = f"res/threshold-{micro_arch}.xlsx"
 
 TARGET_SHEETS = [
@@ -104,6 +50,10 @@ title_map = {
 }
 
 def plot_heatmaps():
+    import pandas as pd
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+
     # 检查输入文件是否存在
     if not os.path.exists(INPUT_FILE):
         print(f"Error: Input file '{INPUT_FILE}' not found.")
@@ -165,6 +115,77 @@ def plot_heatmaps():
     print("All done.")
 
 
+def run_tests():
+    if PLOT_ONLY:
+        return
+
+    for hit,st, sw in configs:
+        print("="*60)
+        print(f"TEST_ON_HIT={hit}, TEST_ON_ST={st}, TEST_ON_SW={sw}, STRIDE={args.stride}")
+        # print(f"TEST_ON_HIT={hit}, TEST_ON_SW={sw}")
+
+        compile_cmd = [
+            "g++",
+            "-std=gnu11",
+            "-O0",
+            "-static",
+            f"-DTEST_ON_HIT={hit}",
+            f"-DTEST_ON_ST={st}",
+            f"-DTEST_ON_SW={sw}",
+            f"-DSTRIDE={args.stride}",
+            "-o",
+            OUT,
+            SRC
+        ]
+
+        res = subprocess.run(compile_cmd)
+
+        if res.returncode != 0:
+            print("Compile failed")
+            continue
+
+        run = subprocess.run(
+            ["taskset", "-c", "0", "./" + OUT],
+            capture_output=True,
+            text=True
+        )
+
+        if run.returncode != 0:
+            print("Execution failed")
+            continue
+
+        output = run.stdout
+        lines = output.splitlines()
+        if not lines:
+            print("Execution produced no output")
+            continue
+
+        sheet_name = f"HIT{hit}-ST{st}-SW{sw}"
+        ws = wb.create_sheet(sheet_name)
+
+        # 读第一行，确定列数
+        # first = output.readline().strip().split('\t')
+        first = lines[0].strip().split('\t')
+        n = len(first)
+        # 写表头
+        ws.append(["Stride"] + [f"pos{i}" for i in range(0, n)])
+
+        # 写第一行数据
+        ws.append([1] + first)
+
+        # 写后续行
+        # for idx, line in enumerate(output, start=2):
+        #     ws.append([idx] + line.strip().split('\t'))
+        # 修复后代码
+        for idx, line in enumerate(lines[1:], start=2):
+            ws.append([idx] + line.strip().split('\t'))
+
+    if "Sheet" in wb.sheetnames:
+        del wb["Sheet"]
+    wb.save(INPUT_FILE)
+
+
 if __name__ == "__main__":
+    run_tests()
     plot_heatmaps()
 # print("All done.")

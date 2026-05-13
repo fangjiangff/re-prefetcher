@@ -1,0 +1,140 @@
+# SMS same-PC same-memory test
+# access mode: software prefetch (prfm pldl1keep)
+# training lines: 4, 1, 6, 7, 3, 11, 15; trigger line: 4
+# expected SMS prefetch lines after trigger: 1, 3, 6, 7, 11, 15
+
+[without_extra_region_accesses]
+# rounds=40000 threshold_ns=150
+# line	role	hits	per_1000
+ 0	.                	    0	   0
+ 1	expected_prefetch	    0	   0
+ 2	.                	    0	   0
+ 3	expected_prefetch	    2	   3
+ 4	trigger          	  559	 894
+ 5	.                	    0	   0
+ 6	expected_prefetch	    1	   1
+ 7	expected_prefetch	    2	   3
+ 8	.                	    2	   3
+ 9	.                	    2	   3
+10	.                	    0	   0
+11	expected_prefetch	    4	   6
+12	.                	    1	   1
+13	.                	    0	   0
+14	.                	    1	   1
+15	expected_prefetch	    0	   0
+16	.                	    1	   1
+17	.                	    0	   0
+18	.                	    1	   1
+19	.                	    0	   0
+20	.                	    0	   0
+21	.                	    0	   0
+22	.                	    0	   0
+23	.                	    0	   0
+24	.                	    1	   1
+25	.                	    1	   1
+26	.                	    0	   0
+27	.                	    0	   0
+28	.                	    1	   1
+29	.                	    1	   1
+30	.                	    0	   0
+31	.                	    0	   0
+32	.                	    1	   1
+33	.                	    0	   0
+34	.                	    1	   1
+35	.                	    2	   3
+36	.                	    0	   0
+37	.                	    0	   0
+38	.                	    0	   0
+39	.                	    1	   1
+40	.                	    1	   1
+41	.                	    2	   3
+42	.                	    0	   0
+43	.                	    0	   0
+44	.                	    1	   1
+45	.                	    1	   1
+46	.                	    1	   1
+47	.                	    0	   0
+48	.                	    1	   1
+49	.                	    1	   1
+50	.                	    0	   0
+51	.                	    0	   0
+52	.                	    0	   0
+53	.                	    0	   0
+54	.                	    1	   1
+55	.                	    0	   0
+56	.                	    1	   1
+57	.                	    1	   1
+58	.                	    0	   0
+59	.                	    0	   0
+60	.                	    1	   1
+61	.                	    0	   0
+62	.                	    0	   0
+63	.                	    1	   1
+
+[with_16_extra_region_accesses]
+# rounds=40000 threshold_ns=150
+# line	role	hits	per_1000
+ 0	.                	    1	   1
+ 1	expected_prefetch	  536	 857
+ 2	.                	    1	   1
+ 3	expected_prefetch	  517	 827
+ 4	trigger          	  541	 865
+ 5	.                	    1	   1
+ 6	expected_prefetch	  534	 854
+ 7	expected_prefetch	  536	 857
+ 8	.                	    1	   1
+ 9	.                	    1	   1
+10	.                	    1	   1
+11	expected_prefetch	  508	 812
+12	.                	    0	   0
+13	.                	    0	   0
+14	.                	    1	   1
+15	expected_prefetch	  525	 840
+16	.                	    0	   0
+17	.                	    2	   3
+18	.                	    0	   0
+19	.                	    0	   0
+20	.                	    1	   1
+21	.                	    1	   1
+22	.                	    0	   0
+23	.                	    0	   0
+24	.                	    2	   3
+25	.                	    0	   0
+26	.                	    2	   3
+27	.                	    0	   0
+28	.                	    0	   0
+29	.                	    0	   0
+30	.                	    2	   3
+31	.                	    0	   0
+32	.                	    0	   0
+33	.                	    0	   0
+34	.                	    0	   0
+35	.                	    0	   0
+36	.                	    0	   0
+37	.                	    0	   0
+38	.                	    0	   0
+39	.                	    0	   0
+40	.                	    0	   0
+41	.                	    0	   0
+42	.                	    2	   3
+43	.                	    0	   0
+44	.                	    0	   0
+45	.                	    0	   0
+46	.                	    1	   1
+47	.                	    0	   0
+48	.                	    1	   1
+49	.                	    1	   1
+50	.                	    1	   1
+51	.                	    0	   0
+52	.                	    0	   0
+53	.                	    0	   0
+54	.                	    0	   0
+55	.                	    0	   0
+56	.                	    1	   1
+57	.                	    1	   1
+58	.                	    0	   0
+59	.                	    0	   0
+60	.                	    0	   0
+61	.                	    0	   0
+62	.                	    2	   3
+63	.                	    1	   1

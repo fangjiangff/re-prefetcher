@@ -13,7 +13,9 @@
 #define CPU_ID 0
 #define LINE_SIZE 64
 // #define Items 256
+#ifndef Items
 #define Items 2048
+#endif
 #define Prefetch_Threshold 200
 
 #ifndef TEST_ON_HIT
@@ -26,6 +28,14 @@
 
 #ifndef TEST_ON_ST
 #define TEST_ON_ST 0
+#endif
+
+#ifndef STRIDE
+#define STRIDE 30
+#endif
+
+#ifndef PROBE_POSITIONS
+#define PROBE_POSITIONS 60
 #endif
 
 
@@ -156,10 +166,10 @@ int main(){
   int rounds = 1000;
 
   // for(int stride = 64; stride <= 4096; stride+=64){
-    int stride = 10 * 64;
+    int stride = STRIDE * LINE_SIZE;
       // printf("Stride %d*64:\t%d\t\t",stride/64,stride);
       for(int train_step = 1; train_step <= 40 ; train_step++){
-        for(int pos = 0;pos < 60; pos++){//test one position
+        for(int pos = 0;pos < PROBE_POSITIONS; pos++){//test one position
             for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
               dummyAccesses();//for dummy accesses , reset the prefetcher state         
               for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
