@@ -90,7 +90,7 @@ def parse_result(output):
 
 def summarize(output):
     sections = parse_result(output)
-    chain = sections.get("chain_after_trigger", [])
+    chain = sections.get("depth_next", [])
     controls = sections.get("controls", [])
     chain_avg = sum(row["per_1000"] for row in chain) / len(chain) if chain else 0.0
     control_avg = sum(row["per_1000"] for row in controls) / len(controls) if controls else 0.0
@@ -115,7 +115,7 @@ def plot_result(output, path, title):
         return False
 
     sections = parse_result(output)
-    chain = sections.get("chain_after_trigger", [])
+    chain = sections.get("depth_next", [])
     controls = sections.get("controls", [])
     if not chain and not controls:
         print("No plottable data found.", file=sys.stderr)
@@ -124,7 +124,7 @@ def plot_result(output, path, title):
     fig, axes = plt.subplots(2, 1, figsize=(8.0, 5.2), constrained_layout=True)
 
     for ax, name, rows, color in [
-        (axes[0], "CMC-chain candidates after trigger", chain, "#0072B2"),
+        (axes[0], "Next node after executed pointer-chain depth", chain, "#0072B2"),
         (axes[1], "Controls", controls, "#B8BCC2"),
     ]:
         x = [row["idx"] for row in rows]
@@ -177,7 +177,7 @@ def main():
     )
     parser.add_argument("--rounds", type=int, default=40000)
     parser.add_argument("--threshold-ns", type=int, default=150)
-    parser.add_argument("--training-replays", type=int, default=32)
+    parser.add_argument("--training-replays", type=int, default=128)
     parser.add_argument("--core", type=int, default=0)
     parser.add_argument("--access", choices=["load", "sw"], default="load")
     parser.add_argument("--compiler", default=default_compiler())

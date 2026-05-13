@@ -16,7 +16,7 @@
 #define MAPPING_PAGES 256
 #define DEFAULT_ROUNDS 40000
 #define DEFAULT_THRESHOLD_NS 150
-#define DEFAULT_TRAINING_REPLAYS 32
+#define DEFAULT_TRAINING_REPLAYS 128
 
 struct node {
     size_t page;
@@ -235,10 +235,10 @@ static void run_test(int rounds, uint64_t hit_threshold_ns,
     const size_t chain_count = sizeof(chain_nodes) / sizeof(chain_nodes[0]);
     const size_t target_count = chain_count - 1;
     const size_t control_count = sizeof(control_nodes) / sizeof(control_nodes[0]);
-    int chain_hits[sizeof(chain_nodes) / sizeof(chain_nodes[0]) - 1];
+    int depth_hits[sizeof(chain_nodes) / sizeof(chain_nodes[0]) - 1];
     int control_hits[sizeof(control_nodes) / sizeof(control_nodes[0])];
 
-    memset(chain_hits, 0, sizeof(chain_hits));
+    memset(depth_hits, 0, sizeof(depth_hits));
     memset(control_hits, 0, sizeof(control_hits));
 
     for (int round = 0; round < rounds; round++) {
@@ -247,17 +247,20 @@ static void run_test(int rounds, uint64_t hit_threshold_ns,
         flush_nodes(chain_nodes, chain_count);
         flush_nodes(control_nodes, control_count);
 
-        if (use_sw_prefetch) {
-            chain_sw_prefetch(addr_for_node(chain_nodes[0]));
+        size_t depth = 1 + ((size_t)round % target_count);
+        void *addr = addr_for_node(chain_nodes[0]);
+        for (size_t step = 0; step < depth; step++) {
+            if (use_sw_prefetch) {
+                chain_sw_prefetch(addr);
+            }
+            addr = chain_step(addr);
         }
-        (void)chain_step(addr_for_node(chain_nodes[0]));
         mfence();
 
-        size_t target = (size_t)round % target_count;
         delay_before_probe();
-        uint64_t t = reload_time_ns(addr_for_node(chain_nodes[target + 1]));
+        uint64_t t = reload_time_ns(addr_for_node(chain_nodes[depth]));
         if (t <= hit_threshold_ns) {
-            chain_hits[target]++;
+            depth_hits[depth - 1]++;
         }
 
         size_t control = (size_t)round % control_count;
@@ -276,26 +279,27 @@ static void run_test(int rounds, uint64_t hit_threshold_ns,
     printf("# trigger: node=0 page=%zu line=%zu\n",
            chain_nodes[0].page, chain_nodes[0].line);
     printf("# chain nodes use one line per page with irregular page deltas;\n");
-    printf("# sustained hits on chain nodes above controls suggest CMC/history prefetching.\n");
+    printf("# each row executes depth dependent loads, then probes the next chain node.\n");
+    printf("# sustained next-node hits above controls suggest CMC/history prefetching.\n");
 
-    int probes_per_chain_node = rounds / (int)target_count;
+    int probes_per_depth = rounds / (int)target_count;
     int probes_per_control_node = rounds / (int)control_count;
-    if (probes_per_chain_node <= 0) {
-        probes_per_chain_node = 1;
+    if (probes_per_depth <= 0) {
+        probes_per_depth = 1;
     }
     if (probes_per_control_node <= 0) {
         probes_per_control_node = 1;
     }
 
-    printf("\n[chain_after_trigger]\n");
-    printf("# idx\tpage\tline\trole\thits\tper_1000\n");
-    for (size_t i = 0; i < target_count; i++) {
-        printf("%2zu\t%3zu\t%2zu\texpected_cmc\t%5d\t%4d\n",
-               i + 1,
-               chain_nodes[i + 1].page,
-               chain_nodes[i + 1].line,
-               chain_hits[i],
-               chain_hits[i] * 1000 / probes_per_chain_node);
+    printf("\n[depth_next]\n");
+    printf("# depth\tpage\tline\trole\thits\tper_1000\n");
+    for (size_t depth = 1; depth <= target_count; depth++) {
+        printf("%2zu\t%3zu\t%2zu\tnext_after_depth\t%5d\t%4d\n",
+               depth,
+               chain_nodes[depth].page,
+               chain_nodes[depth].line,
+               depth_hits[depth - 1],
+               depth_hits[depth - 1] * 1000 / probes_per_depth);
     }
 
     printf("\n[controls]\n");
