@@ -26,39 +26,32 @@ struct node {
 /*
  * One trigger followed by an irregular temporal miss chain.
  *
- * The nodes intentionally live in different pages and use non-monotonic page
+ * The nodes intentionally live in nearby-but-different pages and use non-monotonic page
  * deltas. That keeps this test away from same-region/SMS-style prefetching and
  * away from regular-stride prefetching.
  */
 static const struct node chain_nodes[] = {
     {  7, 11}, /* trigger */
-    { 43,  3},
-    { 91, 37},
-    { 18, 52},
-    {133,  9},
-    { 56, 27},
-    {199, 60},
-    { 25, 14},
-    {166, 45},
-    { 72,  6},
-    {213, 33},
-    {109, 58},
-    {240, 21},
-    {  5, 49},
-    {151,  2},
-    {117, 40},
-    {224, 17},
+    { 29,  3},
+    { 12, 37},
+    { 51, 52},
+    { 23,  9},
+    { 44, 27},
+    { 16, 60},
+    { 57, 14},
+    { 34, 45},
+    {  9,  6},
+    { 48, 33},
+    { 26, 58},
 };
 
 static const struct node control_nodes[] = {
-    { 31, 23},
-    { 64, 51},
-    { 98,  8},
-    {125, 35},
-    {182, 12},
-    {232, 54},
-    { 14, 30},
-    {207,  4},
+    {  3, 23},
+    { 19, 51},
+    { 37,  8},
+    { 55, 35},
+    { 41, 12},
+    { 31, 54},
 };
 
 static uint8_t delay_array[100 * CACHE_LINE_SIZE] = {0};
@@ -118,7 +111,10 @@ static void init_pointer_chain(void) {
     const size_t chain_count = sizeof(chain_nodes) / sizeof(chain_nodes[0]);
 
     for (size_t i = 0; i < chain_count; i++) {
-        uint8_t *next = addr_for_node(chain_nodes[(i + 1) % chain_count]);
+        uint8_t *next = NULL;
+        if (i + 1 < chain_count) {
+            next = addr_for_node(chain_nodes[i + 1]);
+        }
         memcpy(addr_for_node(chain_nodes[i]), &next, sizeof(next));
     }
 }
@@ -236,10 +232,12 @@ static void run_test(int rounds, uint64_t hit_threshold_ns,
     const size_t target_count = chain_count - 1;
     const size_t control_count = sizeof(control_nodes) / sizeof(control_nodes[0]);
     int depth_hits[sizeof(chain_nodes) / sizeof(chain_nodes[0]) - 1];
-    int control_hits[sizeof(control_nodes) / sizeof(control_nodes[0])];
+    uint64_t control_latency_ns[sizeof(control_nodes) / sizeof(control_nodes[0])];
+    int control_probes[sizeof(control_nodes) / sizeof(control_nodes[0])];
 
     memset(depth_hits, 0, sizeof(depth_hits));
-    memset(control_hits, 0, sizeof(control_hits));
+    memset(control_latency_ns, 0, sizeof(control_latency_ns));
+    memset(control_probes, 0, sizeof(control_probes));
 
     for (int round = 0; round < rounds; round++) {
         train_cmc_sequence(training_replays);
@@ -266,9 +264,8 @@ static void run_test(int rounds, uint64_t hit_threshold_ns,
         size_t control = (size_t)round % control_count;
         delay_before_probe();
         t = reload_time_ns(addr_for_node(control_nodes[control]));
-        if (t <= hit_threshold_ns) {
-            control_hits[control]++;
-        }
+        control_latency_ns[control] += t;
+        control_probes[control]++;
     }
 
     printf("# CMC existence test\n");
@@ -278,17 +275,13 @@ static void run_test(int rounds, uint64_t hit_threshold_ns,
            rounds, (unsigned long)hit_threshold_ns, training_replays);
     printf("# trigger: node=0 page=%zu line=%zu\n",
            chain_nodes[0].page, chain_nodes[0].line);
-    printf("# chain nodes use one line per page with irregular page deltas;\n");
+    printf("# chain nodes use one line per page with compact irregular page deltas;\n");
     printf("# each row executes depth dependent loads, then probes the next chain node.\n");
-    printf("# sustained next-node hits above controls suggest CMC/history prefetching.\n");
+    printf("# sustained next-node hits with high control latency suggest CMC/history prefetching.\n");
 
     int probes_per_depth = rounds / (int)target_count;
-    int probes_per_control_node = rounds / (int)control_count;
     if (probes_per_depth <= 0) {
         probes_per_depth = 1;
-    }
-    if (probes_per_control_node <= 0) {
-        probes_per_control_node = 1;
     }
 
     printf("\n[depth_next]\n");
@@ -303,14 +296,18 @@ static void run_test(int rounds, uint64_t hit_threshold_ns,
     }
 
     printf("\n[controls]\n");
-    printf("# idx\tpage\tline\trole\thits\tper_1000\n");
+    printf("# idx\tpage\tline\trole\tavg_latency_ns\n");
     for (size_t i = 0; i < control_count; i++) {
-        printf("%2zu\t%3zu\t%2zu\tcontrol\t\t%5d\t%4d\n",
+        uint64_t avg_latency_ns = 0;
+        if (control_probes[i] > 0) {
+            avg_latency_ns = control_latency_ns[i] / (uint64_t)control_probes[i];
+        }
+
+        printf("%2zu\t%3zu\t%2zu\tcontrol\t\t%5lu\n",
                i,
                control_nodes[i].page,
                control_nodes[i].line,
-               control_hits[i],
-               control_hits[i] * 1000 / probes_per_control_node);
+               (unsigned long)avg_latency_ns);
     }
 }
 

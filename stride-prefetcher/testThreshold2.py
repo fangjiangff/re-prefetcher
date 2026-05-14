@@ -11,8 +11,9 @@ import os
 # OUT = "bin/triggerThreshold-x86"
 SRC = "triggerThreshold-arm2.cc"
 OUT = "bin/triggerThreshold-arm2"
-DEFAULT_ARCH = "CortexA76"
+DEFAULT_ARCH = "CortexA78"
 DEFAULT_STRIDE = 30
+DEFAULT_CORE = 5
 
 # configs = [(1,1), (1,0), (0,1), (0,0)]
 # configs = [ (0,0), (1,0)]
@@ -23,15 +24,22 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE,
                         help=f"Stride in cache lines. Default: {DEFAULT_STRIDE}")
+    parser.add_argument("--core", type=int, default=DEFAULT_CORE,
+                        help=f"CPU core used by taskset. Default: {DEFAULT_CORE}")
     parser.add_argument("--arch", default=DEFAULT_ARCH,
                         help=f"Architecture name used in output filenames. Default: {DEFAULT_ARCH}")
     parser.add_argument("--plot-only", action="store_true",
                         help="Only plot from an existing result workbook.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.stride < 1:
+        parser.error("--stride must be >= 1")
+    if args.core < 0:
+        parser.error("--core must be >= 0")
+    return args
 
 
 args = parse_args()
-micro_arch = f"{args.arch}-stride={args.stride}"
+micro_arch = f"{args.arch}-core{args.core}-stride={args.stride}"
 wb = openpyxl.Workbook()
 PLOT_ONLY = args.plot_only
 INPUT_FILE = f"res/threshold-{micro_arch}.xlsx"
@@ -121,7 +129,8 @@ def run_tests():
 
     for hit,st, sw in configs:
         print("="*60)
-        print(f"TEST_ON_HIT={hit}, TEST_ON_ST={st}, TEST_ON_SW={sw}, STRIDE={args.stride}")
+        print(f"TEST_ON_HIT={hit}, TEST_ON_ST={st}, TEST_ON_SW={sw}, "
+              f"STRIDE={args.stride}, CORE={args.core}")
         # print(f"TEST_ON_HIT={hit}, TEST_ON_SW={sw}")
 
         compile_cmd = [
@@ -145,7 +154,7 @@ def run_tests():
             continue
 
         run = subprocess.run(
-            ["taskset", "-c", "0", "./" + OUT],
+            ["taskset", "-c", str(args.core), "./" + OUT],
             capture_output=True,
             text=True
         )

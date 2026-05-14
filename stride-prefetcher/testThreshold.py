@@ -2,6 +2,7 @@ import subprocess
 import itertools
 import openpyxl
 import csv
+import argparse
 
 import os
 import pandas as pd
@@ -19,16 +20,49 @@ OUT = "../bin/triggerThreshold-arm"
 # // (0,0,0)miss load, (0,1,0) miss store; (1,0,0) hit load,(0,0,1) miss prefetch.
 # configs = [(0,0,0), (0,1,0), (1,0,0), (0,0,1)]
 configs = [(0,0,0), (0,0,1)]
+DEFAULT_ARCH = "CortexA78"
+DEFAULT_CORE = 5
+DEFAULT_PROBE_POSITION = 1
+
+def ordinal(n):
+    if 10 <= n % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--probe-position", type=int, default=DEFAULT_PROBE_POSITION,
+                        help=f"Probe the Nth expected prefetched position. Default: {DEFAULT_PROBE_POSITION}")
+    parser.add_argument("--core", type=int, default=DEFAULT_CORE,
+                        help=f"CPU core used by taskset and CPU_ID. Default: {DEFAULT_CORE}")
+    parser.add_argument("--arch", default=DEFAULT_ARCH,
+                        help=f"Architecture name used in output filenames. Default: {DEFAULT_ARCH}")
+    parser.add_argument("--plot-only", action="store_true",
+                        help="Only plot from an existing result workbook.")
+    args = parser.parse_args()
+    if args.probe_position < 1:
+        parser.error("--probe-position must be >= 1")
+    if args.core < 0:
+        parser.error("--core must be >= 0")
+    return args
+
+args = parse_args()
 # micro_arch = "CascadeLake"
-micro_arch = "CortexA76-probe-1st-PMCCNTR"
+micro_arch = f"{args.arch}-core-{args.core}-probe-{ordinal(args.probe_position)}"
 wb = openpyxl.Workbook()
-PLOT_ONLY = False
+PLOT_ONLY = args.plot_only
 # timestamp = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
 # print(f"Start testing at {timestamp}")
-if not PLOT_ONLY:
+def run_tests():
+    if PLOT_ONLY:
+        return
+
     for hit,st, sw in configs:
         print("="*60)
-        print(f"TEST_ON_HIT={hit}, TEST_ON_ST={st}, TEST_ON_SW={sw}")
+        print(f"TEST_ON_HIT={hit}, TEST_ON_ST={st}, TEST_ON_SW={sw}, "
+              f"PROBE_POSITION={args.probe_position}, CORE={args.core}")
         # print(f"TEST_ON_HIT={hit}, TEST_ON_SW={sw}")
 
         compile_cmd = [
@@ -39,6 +73,8 @@ if not PLOT_ONLY:
             f"-DTEST_ON_HIT={hit}",
             f"-DTEST_ON_ST={st}",
             f"-DTEST_ON_SW={sw}",
+            f"-DPROBE_POSITION={args.probe_position}",
+            f"-DCPU_ID={args.core}",
             "-o",
             OUT,
             SRC
@@ -51,16 +87,21 @@ if not PLOT_ONLY:
             continue
 
         run = subprocess.run(
-            ["taskset", "-c", "0", "./" + OUT],
+            ["taskset", "-c", str(args.core), "./" + OUT],
             capture_output=True,
             text=True
         )
 
         if run.returncode != 0:
             print("Execution failed")
+            print(run.stderr)
             continue
 
         output = run.stdout
+        lines = output.splitlines()
+        if not lines:
+            print("Execution produced no output")
+            continue
 
         sheet_name = f"HIT{hit}-ST{st}-SW{sw}"
         ws = wb.create_sheet(sheet_name)
@@ -68,7 +109,7 @@ if not PLOT_ONLY:
 
         # 读第一行，确定列数
         # first = output.readline().strip().split('\t')
-        first = output.splitlines()[0].strip().split('\t')
+        first = lines[0].strip().split('\t')
         n = len(first)
         # 写表头
         ws.append(["Stride"] + [f"pos{i}" for i in range(1, n+1)])
@@ -80,11 +121,12 @@ if not PLOT_ONLY:
         # for idx, line in enumerate(output, start=2):
         #     ws.append([idx] + line.strip().split('\t'))
         # 修复后代码
-        for idx, line in enumerate(output.splitlines()[1:], start=2):
+        for idx, line in enumerate(lines[1:], start=2):
             ws.append([idx] + line.strip().split('	'))
 
 
-    del wb["Sheet"]
+    if "Sheet" in wb.sheetnames:
+        del wb["Sheet"]
     wb.save(f"res/threshold-{micro_arch}.xlsx")
 
 
@@ -160,5 +202,6 @@ def plot_heatmaps():
 
 
 if __name__ == "__main__":
+    run_tests()
     plot_heatmaps()
 # print("All done.")

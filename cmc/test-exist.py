@@ -73,17 +73,32 @@ def parse_result(output):
             continue
 
         parts = line.split()
-        if len(parts) != 6 or not parts[0].isdigit():
+        if current == "depth_next":
+            if len(parts) != 6 or not parts[0].isdigit():
+                continue
+
+            sections[current].append({
+                "idx": int(parts[0]),
+                "page": int(parts[1]),
+                "line": int(parts[2]),
+                "role": parts[3],
+                "hits": int(parts[4]),
+                "per_1000": int(parts[5]),
+            })
             continue
 
-        sections[current].append({
-            "idx": int(parts[0]),
-            "page": int(parts[1]),
-            "line": int(parts[2]),
-            "role": parts[3],
-            "hits": int(parts[4]),
-            "per_1000": int(parts[5]),
-        })
+        if current == "controls":
+            if len(parts) != 5 or not parts[0].isdigit():
+                continue
+
+            sections[current].append({
+                "idx": int(parts[0]),
+                "page": int(parts[1]),
+                "line": int(parts[2]),
+                "role": parts[3],
+                "avg_latency_ns": int(parts[4]),
+            })
+            continue
 
     return sections
 
@@ -93,16 +108,18 @@ def summarize(output):
     chain = sections.get("depth_next", [])
     controls = sections.get("controls", [])
     chain_avg = sum(row["per_1000"] for row in chain) / len(chain) if chain else 0.0
-    control_avg = sum(row["per_1000"] for row in controls) / len(controls) if controls else 0.0
     chain_max = max((row["per_1000"] for row in chain), default=0)
-    control_max = max((row["per_1000"] for row in controls), default=0)
+    control_latency_avg = (
+        sum(row["avg_latency_ns"] for row in controls) / len(controls)
+        if controls else 0.0
+    )
+    control_latency_min = min((row["avg_latency_ns"] for row in controls), default=0)
 
     return {
         "chain_avg": chain_avg,
-        "control_avg": control_avg,
-        "chain_minus_control": chain_avg - control_avg,
         "chain_max": chain_max,
-        "control_max": control_max,
+        "control_latency_avg": control_latency_avg,
+        "control_latency_min": control_latency_min,
     }
 
 
@@ -123,18 +140,35 @@ def plot_result(output, path, title):
 
     fig, axes = plt.subplots(2, 1, figsize=(8.0, 5.2), constrained_layout=True)
 
-    for ax, name, rows, color in [
-        (axes[0], "Next node after executed pointer-chain depth", chain, "#0072B2"),
-        (axes[1], "Controls", controls, "#B8BCC2"),
+    for ax, name, rows, color, metric, ylabel in [
+        (
+            axes[0],
+            "Next node after executed pointer-chain depth",
+            chain,
+            "#0072B2",
+            "per_1000",
+            "Hit rate\n(per 1000 probes)",
+        ),
+        (
+            axes[1],
+            "Controls",
+            controls,
+            "#B8BCC2",
+            "avg_latency_ns",
+            "Average latency\n(ns)",
+        ),
     ]:
         x = [row["idx"] for row in rows]
-        y = [row["per_1000"] for row in rows]
+        y = [row[metric] for row in rows]
         labels = [f"p{row['page']}:l{row['line']}" for row in rows]
         ax.bar(x, y, color=color, edgecolor="black", linewidth=0.25, width=0.82)
         ax.set_title(name, loc="left", pad=4)
-        ax.set_ylabel("Hit rate\n(per 1000 probes)")
-        ax.set_ylim(0, 1050)
-        ax.set_yticks([0, 250, 500, 750, 1000])
+        ax.set_ylabel(ylabel)
+        if metric == "per_1000":
+            ax.set_ylim(0, 1050)
+            ax.set_yticks([0, 250, 500, 750, 1000])
+        elif y:
+            ax.set_ylim(0, max(y) * 1.15)
         ax.grid(axis="y", color="#D9D9D9", linewidth=0.7)
         ax.set_axisbelow(True)
         ax.spines["top"].set_visible(False)
@@ -227,10 +261,9 @@ def main():
     print(
         "Summary: "
         f"chain_avg={summary['chain_avg']:.2f}/1000, "
-        f"control_avg={summary['control_avg']:.2f}/1000, "
-        f"delta={summary['chain_minus_control']:.2f}/1000, "
         f"chain_max={summary['chain_max']}/1000, "
-        f"control_max={summary['control_max']}/1000"
+        f"control_latency_avg={summary['control_latency_avg']:.2f} ns, "
+        f"control_latency_min={summary['control_latency_min']} ns"
     )
 
     if not args.no_plot:
