@@ -10,7 +10,9 @@
 #include "time.h"
 
 
+#ifndef CPU_ID
 #define CPU_ID 0
+#endif
 #define LINE_SIZE 64
 // #define Items 256
 #define Items 2048
@@ -26,6 +28,10 @@
 
 #ifndef TEST_ON_ST
 #define TEST_ON_ST 0
+#endif
+
+#ifndef PROBE_POSITION
+#define PROBE_POSITION 1
 #endif
 
 #if TEST_ON_ST == 1
@@ -78,24 +84,24 @@ void mprefetch(void *p) {
         : "memory"
     );
 }
-// static inline __attribute__((always_inline))
-// uint64_t timestamp(void)
-// {
-//   asm volatile("DSB SY");
-//     asm volatile("ISB");
-//     struct timespec t1;
-//     clock_gettime(CLOCK_MONOTONIC, &t1);
-//     uint64_t res = t1.tv_sec * 1000 * 1000 * 1000ULL + t1.tv_nsec;
-//     asm volatile("ISB");
-//     asm volatile("DSB SY");
-//     return res;
-// }
-
-static inline __attribute__((always_inline)) uint64_t timestamp() {
-    uint64_t value;
-    asm volatile("mrs %0, PMCCNTR_EL0" : "=r" (value));
-    return value;
+static inline __attribute__((always_inline))
+uint64_t timestamp(void)
+{
+  asm volatile("DSB SY");
+    asm volatile("ISB");
+    struct timespec t1;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    uint64_t res = t1.tv_sec * 1000 * 1000 * 1000ULL + t1.tv_nsec;
+    asm volatile("ISB");
+    asm volatile("DSB SY");
+    return res;
 }
+
+// static inline __attribute__((always_inline)) uint64_t timestamp() {
+//     uint64_t value;
+//     asm volatile("mrs %0, PMCCNTR_EL0" : "=r" (value));
+//     return value;
+// }
 
 static inline __attribute__((always_inline)) uint64_t victim_probe(void *p) {
     register uint64_t start, end;
@@ -136,10 +142,20 @@ int main(){
   volatile uint8_t * probe_addr;
   unsigned int junk = 0;
 
-  // PinCore(CPU_ID);
+  PinCore(CPU_ID);
   // victim_init();
   struct timespec const t_req{ .tv_sec = 0, .tv_nsec = 1 /* 1µs */ };//秒0，纳秒1us
   struct timespec t_rem;
+
+  if (PROBE_POSITION < 1) {
+    fprintf(stderr, "PROBE_POSITION must be >= 1\n");
+    return 1;
+  }
+
+  if ((20 + PROBE_POSITION - 1) * 4096 >= Items * LINE_SIZE) {
+    fprintf(stderr, "PROBE_POSITION=%d is out of array2 bounds for max stride\n", PROBE_POSITION);
+    return 1;
+  }
 
   // printf("test_on_hit %d, test_on_sw %d\n", TEST_ON_HIT, TEST_ON_SW);
 
@@ -220,37 +236,16 @@ int main(){
                 mfence();
               }
               for(int i=0;i<100;i++) nop(); mfence();
-              //test the first excpected prefetched address
-              // probe_addr = array2 + (train_step * stride);
-              // test the second excpected prefetched address
-              // probe_addr = array2 + ((train_step+1) * stride);
-              // test the thrid excepted prefetched address
-              // probe_addr = array2 + ((train_step+2) * stride);
-              // test the fourth excepted prefetched address
-              // probe_addr = array2 + ((train_step+3) * stride);
-              // test the fifth excepted prefetched address
-              // probe_addr = array2 + ((train_step+4) * stride);
-              // test the sixth excepted prefetched address
-              // probe_addr = array2 + ((train_step+5) * stride);
-              // test the seventh excepted prefetched address
-              // probe_addr = array2 + ((train_step+6) * stride);
-               // test the 8th excepted prefetched address
-              // probe_addr = array2 + ((train_step+7) * stride);
-               // test the 9th excepted prefetched address
-              // probe_addr = array2 + ((train_step+8) * stride);
-              // probe_addr = array2 + ((train_step+11) * stride);
-              
+              // test the Nth expected prefetched address.
+              probe_addr = array2 + ((train_step + PROBE_POSITION - 1) * stride);
+              /* READ TIMER */
+              time1 = timestamp();
+              /* MEMORY ACCESS TO TIME */
+              junk = *probe_addr;
+              /* READ TIMER */
+              time2 = timestamp() - time1;
 
-
-              // test the 10th excepted prefetched address
-              // probe_addr = array2 + ((train_step+9) * stride);
-              // /* READ TIMER */
-              // time1 = timestamp();
-              // /* MEMORY ACCESS TO TIME */
-              // junk = *probe_addr;
-              // /* READ TIMER */
-              // time2 = timestamp() - time1;
-              time2 = victim_probe(array2 + ((train_step) * stride));
+              // time2 = victim_probe(array2 + ((train_step) * stride));
               res2[stride/64][train_step] += time2;
           } 
           printf("%lld\t", res2[stride/64][train_step]/rounds);

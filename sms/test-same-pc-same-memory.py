@@ -17,6 +17,7 @@ SRC = HERE / "test-same-pc-same-memory.c"
 BIN_DIR = HERE / "bin"
 BIN = BIN_DIR / "test-same-pc-same-memory"
 RES_DIR = HERE / "res"
+DEFAULT_ARCH = "CortexA76"
 
 plt.rcParams.update({
     "figure.dpi": 150,
@@ -232,9 +233,9 @@ def plot_combined(results_by_mode, path, title):
     return True
 
 
-def output_path_for_mode(path_arg, mode, timestamp, suffix):
+def output_path_for_mode(path_arg, arch, mode, timestamp, suffix):
     if path_arg is None:
-        return RES_DIR / f"same-pc-same-memory-{mode}-{timestamp}.{suffix}"
+        return RES_DIR / f"{arch}-same-pc-same-memory-{mode}-{timestamp}.{suffix}"
 
     path = Path(path_arg)
     if suffix == "txt":
@@ -248,9 +249,9 @@ def output_path_for_mode(path_arg, mode, timestamp, suffix):
     return path.with_name(f"{path.stem}-{mode}{path.suffix}")
 
 
-def combined_plot_path(path_arg, timestamp):
+def combined_plot_path(path_arg, arch, timestamp):
     if path_arg is None:
-        return RES_DIR / f"same-pc-same-memory-combined-{timestamp}.png"
+        return RES_DIR / f"{arch}-same-pc-same-memory-combined-{timestamp}.png"
 
     path = Path(path_arg)
     if path.suffix != ".png":
@@ -279,8 +280,8 @@ def run_one_mode(args, mode, timestamp, save_individual_plot):
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
 
-    result_path = output_path_for_mode(args.output, mode, timestamp, "txt")
-    plot_path = output_path_for_mode(args.plot, mode, timestamp, "png")
+    result_path = output_path_for_mode(args.output, args.arch, mode, timestamp, "txt")
+    plot_path = output_path_for_mode(args.plot, args.arch, mode, timestamp, "png")
 
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(result.stdout)
@@ -288,7 +289,7 @@ def run_one_mode(args, mode, timestamp, save_individual_plot):
 
     plot_path.parent.mkdir(parents=True, exist_ok=True)
     if save_individual_plot:
-        plotted = plot_result(result.stdout, plot_path, f"test-same-pc-same-memory ({pretty_mode_name(mode)})")
+        plotted = plot_result(result.stdout, plot_path, f"test-same-pc-same-memory [{args.arch}] ({pretty_mode_name(mode)})")
         print(f"Saved plot to {plot_path}")
         if not plotted:
             print("Plot was not generated.", file=sys.stderr)
@@ -303,6 +304,7 @@ def main():
     parser.add_argument("--rounds", type=int, default=40000)
     parser.add_argument("--threshold-ns", type=int, default=150)
     parser.add_argument("--core", type=int, default=0)
+    parser.add_argument("--arch", default=DEFAULT_ARCH)
     parser.add_argument("--access", choices=["both", "load", "sw"], default="both")
     parser.add_argument("--output", default=None)
     parser.add_argument("--plot", default=None)
@@ -342,9 +344,9 @@ def main():
         outputs[mode] = run_one_mode(args, mode, timestamp, args.individual_plots or len(modes) == 1)
 
     if len(outputs) > 1:
-        plot_path = combined_plot_path(args.plot, timestamp)
+        plot_path = combined_plot_path(args.plot, args.arch, timestamp)
         plot_path.parent.mkdir(parents=True, exist_ok=True)
-        plotted = plot_combined(outputs, plot_path, "test-same-pc-same-memory (load vs software prefetch)")
+        plotted = plot_combined(outputs, plot_path, f"test-same-pc-same-memory [{args.arch}] (load vs software prefetch)")
         print(f"Saved combined plot to {plot_path}")
         if not plotted:
             print("Combined plot was not generated.", file=sys.stderr)
