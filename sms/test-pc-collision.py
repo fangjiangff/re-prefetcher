@@ -16,6 +16,7 @@ SRC = HERE / "test-pc-collision.c"
 BIN_DIR = HERE / "bin"
 BIN = BIN_DIR / "test-pc-collision"
 RES_DIR = HERE / "res"
+DEFAULT_ARCH = "CortexA76"
 
 plt.rcParams.update({
     "figure.dpi": 150,
@@ -183,6 +184,7 @@ def main():
     parser.add_argument("--min-bits", type=int, default=5)
     parser.add_argument("--max-bits", type=int, default=24)
     parser.add_argument("--prefetch-min", type=int, default=100)
+    parser.add_argument("--arch", default=DEFAULT_ARCH)
     parser.add_argument("--access", choices=["both", "load", "sw"], default="both")
     parser.add_argument("--output-prefix", default=None)
     parser.add_argument("--no-build", action="store_true")
@@ -203,7 +205,7 @@ def main():
 
     RES_DIR.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    prefix = args.output_prefix or f"pc-collision-{timestamp}"
+    prefix = args.output_prefix or f"{args.arch}-pc-collision-{timestamp}"
     modes = ["load", "sw"] if args.access == "both" else [args.access]
 
     summaries = []
@@ -237,7 +239,7 @@ def main():
     print(f"Saved summary to {summary_path}")
 
     plot_path = RES_DIR / f"{prefix}-combined.png"
-    plot_summary(plot_path, summaries, "test-pc-collision (load vs software prefetch)")
+    plot_summary(plot_path, summaries, f"test-pc-collision [{args.arch}] (load vs software prefetch)")
     print(f"Saved plot to {plot_path}")
 
     return 0
