@@ -24,8 +24,8 @@ PRFM_MODES = [
     "PSTL3STRM",
 ]
 
-CPU_ID=0
-micro_arch = f"Cortex-core{CPU_ID}-disable-sti-sts-region-pf"
+CPU_ID=5
+micro_arch = f"X925-core{CPU_ID}"
 
 wb = openpyxl.Workbook()
 

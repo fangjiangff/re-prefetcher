@@ -1,0 +1,1 @@
+python testThreshold2.py --stride 5 --core 0 --arch A725

@@ -112,7 +112,7 @@ def run_tests():
         first = lines[0].strip().split('\t')
         n = len(first)
         # 写表头
-        ws.append(["Stride"] + [f"pos{i}" for i in range(1, n+1)])
+        ws.append(["Stride"] + [f"{i}" for i in range(1, n+1)])
 
         # 写第一行数据
         ws.append([1] + first)
@@ -183,7 +183,7 @@ def plot_heatmaps():
                 df.set_index(df.columns[0], inplace=True)
 
             # 绘制热力图
-            sns.heatmap(df, cmap="viridis", annot=False, ax=ax, vmin=20, vmax=600, cbar=(i == num_sheets - 1), yticklabels=(i == 0))
+            sns.heatmap(df, cmap="RdYlBu_r", annot=False, ax=ax, vmin=20, vmax=300, cbar=(i == num_sheets - 1), yticklabels=(i == 0))
             
             ax.set_title(f"{sheet_name}")
             ax.set_xlabel("Access Sequence")

@@ -17,7 +17,7 @@
 #define DEFAULT_ROUNDS 40000
 #define DEFAULT_THRESHOLD_NS 150
 
-static const size_t training_lines[] = {4, 1, 6, 7, 3, 11, 15};
+static const size_t training_lines[] = {4, 19, 6, 27, 13, 1, 15};
 static const size_t trigger_line = 4;
 
 static uint8_t delay_array[100 * CACHE_LINE_SIZE] = {0};

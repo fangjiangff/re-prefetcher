@@ -105,7 +105,7 @@ def plot_heatmaps():
                 df.set_index(df.columns[0], inplace=True)
 
             # 绘制热力图
-            sns.heatmap(df, cmap="viridis", annot=False, ax=ax, vmin=20, vmax=400, cbar=(i == num_sheets - 1), yticklabels=(i == 0),linewidths=0.35, linecolor='gray')
+            sns.heatmap(df, cmap="RdYlBu_r", annot=False, ax=ax, vmin=20, vmax=300, cbar=(i == num_sheets - 1), yticklabels=(i == 0),linewidths=0.35, linecolor='gray')
             
             ax.set_title(f"{title_map.get(sheet_name, sheet_name)}", fontsize=14)
             ax.set_xlabel("Test Position (i * Stride)")
