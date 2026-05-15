@@ -178,7 +178,7 @@ def main():
     parser.add_argument("--rounds", type=int, default=40000)
     parser.add_argument("--threshold-ns", type=int, default=150)
     parser.add_argument("--training-replays", type=int, default=128)
-    parser.add_argument("--core", type=int, default=0)
+    parser.add_argument("--core", type=int, default=5)
     parser.add_argument("--access", choices=["load", "sw"], default="load")
     parser.add_argument("--compiler", default=default_compiler())
     parser.add_argument("--runner", default=None,
