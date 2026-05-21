@@ -18,8 +18,8 @@ BIN_DIR = HERE / "bin"
 BIN = BIN_DIR / "cmc_probe"
 RES_DIR = HERE / "res"
 
-ARCHES = ["A78", "A55"]
-CORES = [4, 1]
+ARCHES = ["A78", "A55", "A725", "X925"]
+CORES = [4, 1, 4, 6]
 
 
 FIXED_RE = re.compile(r"fixed pass\s+(\d+):\s+([0-9.]+)\s+ns/load")
