@@ -1,0 +1,31 @@
+cmc_probe: nodes=32768 spacing=4096 working_set=128.0 MiB per list passes=8 timer_freq=1000000000 Hz
+pattern: random one-cache-line-per-4096B pointer cycle; fixed-repeat vs reshuffled-control
+
+Fixed repeated temporal stream:
+  fixed pass  0:   109.79 ns/load
+  fixed pass  1:   109.82 ns/load  speedup_vs_pass0= 1.00x
+  fixed pass  2:   109.86 ns/load  speedup_vs_pass0= 1.00x
+  fixed pass  3:   109.33 ns/load  speedup_vs_pass0= 1.00x
+  fixed pass  4:   110.10 ns/load  speedup_vs_pass0= 1.00x
+  fixed pass  5:   111.28 ns/load  speedup_vs_pass0= 0.99x
+  fixed pass  6:   111.49 ns/load  speedup_vs_pass0= 0.98x
+  fixed pass  7:   111.23 ns/load  speedup_vs_pass0= 0.99x
+
+Reshuffled negative control, one traversal per new random cycle:
+  ctrl  pass  0:   100.12 ns/load
+  ctrl  pass  1:    99.50 ns/load
+  ctrl  pass  2:    97.26 ns/load
+  ctrl  pass  3:    97.94 ns/load
+  ctrl  pass  4:    98.42 ns/load
+  ctrl  pass  5:    97.34 ns/load
+  ctrl  pass  6:    96.48 ns/load
+  ctrl  pass  7:    99.65 ns/load
+
+Summary:
+  fixed pass0             :   109.79 ns/load
+  fixed warm avg last half:   111.02 ns/load
+  reshuffled control avg  :    98.34 ns/load
+  warm speedup vs pass0   :     0.99x
+  warm speedup vs control :     0.89x
+  verdict: no clear timing signal. CMC may be disabled/throttled, evicted, not present, or hidden by TLB/DRAM noise.
+sink=0
