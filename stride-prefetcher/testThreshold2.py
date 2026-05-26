@@ -7,13 +7,18 @@ import argparse
 import os
 
 # SRC = "triggerThreshold.cc"
-# SRC = "triggerThreshold-x86.cc"
-# OUT = "bin/triggerThreshold-x86"
-SRC = "triggerThreshold-arm2.cc"
-OUT = "bin/triggerThreshold-arm2"
-DEFAULT_ARCH = "CortexA78"
+SRC = "triggerThreshold-x86.cc"
+OUT = "bin/triggerThreshold-x86"
+# SRC = "triggerThreshold-arm2.cc"
+# OUT = "bin/triggerThreshold-arm2"
+ARCHES = ["RaptorCove", "Gracemont"]
+CORES = [0, 16]
+if len(ARCHES) != len(CORES):
+    raise ValueError("ARCHES and CORES must have the same length")
+
+ARCH_CORE_MAP = dict(zip(ARCHES, CORES))
+DEFAULT_ARCH = ARCHES[0]
 DEFAULT_STRIDE = 30
-DEFAULT_CORE = 5
 
 # configs = [(1,1), (1,0), (0,1), (0,0)]
 # configs = [ (0,0), (1,0)]
@@ -24,15 +29,19 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE,
                         help=f"Stride in cache lines. Default: {DEFAULT_STRIDE}")
-    parser.add_argument("--core", type=int, default=DEFAULT_CORE,
-                        help=f"CPU core used by taskset. Default: {DEFAULT_CORE}")
-    parser.add_argument("--arch", default=DEFAULT_ARCH,
-                        help=f"Architecture name used in output filenames. Default: {DEFAULT_ARCH}")
+    parser.add_argument("--core", type=int, default=None,
+                        help="Override CPU core used by taskset and CPU_ID. "
+                             "Default is selected from --arch.")
+    parser.add_argument("--arch", default=DEFAULT_ARCH, choices=ARCHES,
+                        help=f"Architecture to run. Choices: {', '.join(ARCHES)}. "
+                             f"Default: {DEFAULT_ARCH}")
     parser.add_argument("--plot-only", action="store_true",
                         help="Only plot from an existing result workbook.")
     args = parser.parse_args()
     if args.stride < 1:
         parser.error("--stride must be >= 1")
+    if args.core is None:
+        args.core = ARCH_CORE_MAP[args.arch]
     if args.core < 0:
         parser.error("--core must be >= 0")
     return args
@@ -58,9 +67,17 @@ title_map = {
 }
 
 def plot_heatmaps():
-    import pandas as pd
-    import seaborn as sns
-    import matplotlib.pyplot as plt
+    try:
+        import pandas as pd
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+    except ModuleNotFoundError as exc:
+        print(f"Skipping heatmap: missing Python package '{exc.name}'.")
+        print("Install plotting dependencies with:")
+        print("  sudo apt install python3-pandas python3-openpyxl python3-seaborn python3-matplotlib")
+        print("or, for the current Python environment:")
+        print("  python3 -m pip install pandas openpyxl seaborn matplotlib")
+        return
 
     # 检查输入文件是否存在
     if not os.path.exists(INPUT_FILE):
@@ -71,14 +88,14 @@ def plot_heatmaps():
     print(f"Reading data from {INPUT_FILE}...")
     try:
         # 加载 Excel 文件
-        xls = pd.ExcelFile(INPUT_FILE)
+        workbook = openpyxl.load_workbook(INPUT_FILE, data_only=True, read_only=True)
     except Exception as e:
         print(f"Failed to open Excel file: {e}")
         return
 
     valid_sheets = []
     for sheet_name in TARGET_SHEETS:
-        if sheet_name in xls.sheet_names:
+        if sheet_name in workbook.sheetnames:
             valid_sheets.append(sheet_name)
         else:
             print(f"Warning: Sheet '{sheet_name}' not found in workbook. Skipping.")
@@ -98,11 +115,17 @@ def plot_heatmaps():
         ax = axes[i]
         try:
             # 读取工作表数据
-            df = pd.read_excel(xls, sheet_name=sheet_name)
+            rows = list(workbook[sheet_name].iter_rows(values_only=True))
+            if not rows:
+                print(f"Warning: Sheet '{sheet_name}' is empty. Skipping.")
+                continue
+            df = pd.DataFrame(rows[1:], columns=rows[0])
             
             # 将第一列 'Stride' 设为索引
             if not df.empty:
                 df.set_index(df.columns[0], inplace=True)
+            df = df.apply(pd.to_numeric, errors="coerce")
+            df = df.dropna(how="all").dropna(axis=1, how="all")
 
             # 绘制热力图
             sns.heatmap(df, cmap="RdYlBu_r", annot=False, ax=ax, vmin=20, vmax=300, cbar=(i == num_sheets - 1), yticklabels=(i == 0),linewidths=0.35, linecolor='gray')
@@ -115,6 +138,7 @@ def plot_heatmaps():
             print(f"Error processing {sheet_name}: {e}")
             ax.text(0.5, 0.5, "Error", ha='center', va='center')
 
+    workbook.close()
     plt.tight_layout()
     output_path = os.path.join("res/heatmaps", f"{micro_arch}.png")
     plt.savefig(output_path, dpi=300)
@@ -130,7 +154,7 @@ def run_tests():
     for hit,st, sw in configs:
         print("="*60)
         print(f"TEST_ON_HIT={hit}, TEST_ON_ST={st}, TEST_ON_SW={sw}, "
-              f"STRIDE={args.stride}, CORE={args.core}")
+              f"ARCH={args.arch}, STRIDE={args.stride}, CORE={args.core}")
         # print(f"TEST_ON_HIT={hit}, TEST_ON_SW={sw}")
 
         compile_cmd = [
@@ -142,6 +166,7 @@ def run_tests():
             f"-DTEST_ON_ST={st}",
             f"-DTEST_ON_SW={sw}",
             f"-DSTRIDE={args.stride}",
+            f"-DCPU_ID={args.core}",
             "-o",
             OUT,
             SRC
