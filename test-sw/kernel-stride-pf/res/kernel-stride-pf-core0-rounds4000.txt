@@ -1,0 +1,411 @@
+# kernel-array stride prefetch probe from user mode
+# kernel_array2_va=0xffff8ee70ad74000
+# stride_lines=11 stride_bytes=704 train_step=15 train_repeats=5 rounds=4000 probe_lines=200
+
+# test: user prefetch(kernel_va)
+# access mode: user prefetcht0(kernel_va)
+# line	offset_bytes	avg_cycles	role
+  0	           0	       411	train_input
+  1	          64	       419	probe
+  2	         128	       560	probe
+  3	         192	       487	probe
+  4	         256	       514	probe
+  5	         320	       442	probe
+  6	         384	       443	probe
+  7	         448	       585	probe
+  8	         512	       450	probe
+  9	         576	       473	probe
+ 10	         640	       422	probe
+ 11	         704	       455	train_input
+ 12	         768	       459	probe
+ 13	         832	       517	probe
+ 14	         896	       461	probe
+ 15	         960	       466	probe
+ 16	        1024	       466	probe
+ 17	        1088	       444	probe
+ 18	        1152	       492	probe
+ 19	        1216	       451	probe
+ 20	        1280	       515	probe
+ 21	        1344	       461	probe
+ 22	        1408	       517	train_input
+ 23	        1472	       561	probe
+ 24	        1536	       449	probe
+ 25	        1600	       464	probe
+ 26	        1664	       419	probe
+ 27	        1728	       444	probe
+ 28	        1792	       466	probe
+ 29	        1856	       544	probe
+ 30	        1920	       490	probe
+ 31	        1984	       458	probe
+ 32	        2048	       437	probe
+ 33	        2112	       510	train_input
+ 34	        2176	       467	probe
+ 35	        2240	       479	probe
+ 36	        2304	       519	probe
+ 37	        2368	       466	probe
+ 38	        2432	       462	probe
+ 39	        2496	       520	probe
+ 40	        2560	       417	probe
+ 41	        2624	       461	probe
+ 42	        2688	       442	probe
+ 43	        2752	       443	probe
+ 44	        2816	       473	train_input
+ 45	        2880	       577	probe
+ 46	        2944	       456	probe
+ 47	        3008	       486	probe
+ 48	        3072	       410	probe
+ 49	        3136	       413	probe
+ 50	        3200	       445	probe
+ 51	        3264	       446	probe
+ 52	        3328	       443	probe
+ 53	        3392	       544	probe
+ 54	        3456	       436	probe
+ 55	        3520	       448	train_input
+ 56	        3584	       426	probe
+ 57	        3648	       427	probe
+ 58	        3712	       422	probe
+ 59	        3776	       423	probe
+ 60	        3840	       477	probe
+ 61	        3904	       460	probe
+ 62	        3968	       542	probe
+ 63	        4032	       528	probe
+ 64	        4096	       511	probe
+ 65	        4160	       512	probe
+ 66	        4224	       471	train_input
+ 67	        4288	       495	probe
+ 68	        4352	       451	probe
+ 69	        4416	       496	probe
+ 70	        4480	       497	probe
+ 71	        4544	       478	probe
+ 72	        4608	       408	probe
+ 73	        4672	       440	probe
+ 74	        4736	       420	probe
+ 75	        4800	       435	probe
+ 76	        4864	       443	probe
+ 77	        4928	       439	train_input
+ 78	        4992	       441	probe
+ 79	        5056	       443	probe
+ 80	        5120	       447	probe
+ 81	        5184	       462	probe
+ 82	        5248	       456	probe
+ 83	        5312	       488	probe
+ 84	        5376	       472	probe
+ 85	        5440	       466	probe
+ 86	        5504	       462	probe
+ 87	        5568	       506	probe
+ 88	        5632	       436	train_input
+ 89	        5696	       450	probe
+ 90	        5760	       433	probe
+ 91	        5824	       436	probe
+ 92	        5888	       479	probe
+ 93	        5952	       460	probe
+ 94	        6016	       465	probe
+ 95	        6080	       516	probe
+ 96	        6144	       549	probe
+ 97	        6208	       611	probe
+ 98	        6272	       501	probe
+ 99	        6336	       638	train_input
+100	        6400	       469	probe
+101	        6464	       449	probe
+102	        6528	       473	probe
+103	        6592	       512	probe
+104	        6656	       435	probe
+105	        6720	       519	probe
+106	        6784	       448	probe
+107	        6848	       434	probe
+108	        6912	       498	probe
+109	        6976	       469	probe
+110	        7040	       476	train_input
+111	        7104	       470	probe
+112	        7168	       423	probe
+113	        7232	       606	probe
+114	        7296	       552	probe
+115	        7360	       637	probe
+116	        7424	       453	probe
+117	        7488	       503	probe
+118	        7552	       451	probe
+119	        7616	       504	probe
+120	        7680	       419	probe
+121	        7744	       418	train_input
+122	        7808	       409	probe
+123	        7872	       412	probe
+124	        7936	       460	probe
+125	        8000	       442	probe
+126	        8064	       444	probe
+127	        8128	       449	probe
+128	        8192	       536	probe
+129	        8256	       512	probe
+130	        8320	       481	probe
+131	        8384	       659	probe
+132	        8448	       460	train_input
+133	        8512	       469	probe
+134	        8576	       455	probe
+135	        8640	       477	probe
+136	        8704	       434	probe
+137	        8768	       411	probe
+138	        8832	       427	probe
+139	        8896	       409	probe
+140	        8960	       495	probe
+141	        9024	       449	probe
+142	        9088	       478	probe
+143	        9152	       468	train_input
+144	        9216	       413	probe
+145	        9280	       522	probe
+146	        9344	       401	probe
+147	        9408	       531	probe
+148	        9472	       432	probe
+149	        9536	       437	probe
+150	        9600	       435	probe
+151	        9664	       471	probe
+152	        9728	       420	probe
+153	        9792	       417	probe
+154	        9856	       414	train_input
+155	        9920	       426	probe
+156	        9984	       510	probe
+157	       10048	       454	probe
+158	       10112	       507	probe
+159	       10176	       445	probe
+160	       10240	       451	probe
+161	       10304	       487	probe
+162	       10368	       451	probe
+163	       10432	       537	probe
+164	       10496	       437	probe
+165	       10560	       486	stride_prediction
+166	       10624	       449	probe
+167	       10688	       501	probe
+168	       10752	       419	probe
+169	       10816	       434	probe
+170	       10880	       420	probe
+171	       10944	       468	probe
+172	       11008	       512	probe
+173	       11072	       443	probe
+174	       11136	       473	probe
+175	       11200	       447	probe
+176	       11264	       482	stride_prediction
+177	       11328	       456	probe
+178	       11392	       434	probe
+179	       11456	       461	probe
+180	       11520	       458	probe
+181	       11584	       459	probe
+182	       11648	       455	probe
+183	       11712	       460	probe
+184	       11776	       427	probe
+185	       11840	       429	probe
+186	       11904	       426	probe
+187	       11968	       433	stride_prediction
+188	       12032	       530	probe
+189	       12096	       474	probe
+190	       12160	       440	probe
+191	       12224	       464	probe
+192	       12288	       404	probe
+193	       12352	       491	probe
+194	       12416	       493	probe
+195	       12480	       549	probe
+196	       12544	       441	probe
+197	       12608	       436	probe
+198	       12672	       446	stride_prediction
+199	       12736	       451	probe
+
+# control: kernel load(array2 + step * stride)
+# access mode: kernel load(kernel_va)
+# line	offset_bytes	avg_cycles	role
+  0	           0	        51	train_input
+  1	          64	        76	probe
+  2	         128	        93	probe
+  3	         192	       405	probe
+  4	         256	       518	probe
+  5	         320	       434	probe
+  6	         384	       584	probe
+  7	         448	       441	probe
+  8	         512	       412	probe
+  9	         576	       505	probe
+ 10	         640	        58	probe
+ 11	         704	        50	train_input
+ 12	         768	        58	probe
+ 13	         832	        58	probe
+ 14	         896	       461	probe
+ 15	         960	       457	probe
+ 16	        1024	       429	probe
+ 17	        1088	       426	probe
+ 18	        1152	       423	probe
+ 19	        1216	       425	probe
+ 20	        1280	       528	probe
+ 21	        1344	       455	probe
+ 22	        1408	        50	train_input
+ 23	        1472	        58	probe
+ 24	        1536	        77	probe
+ 25	        1600	       532	probe
+ 26	        1664	       427	probe
+ 27	        1728	       525	probe
+ 28	        1792	       477	probe
+ 29	        1856	       440	probe
+ 30	        1920	       466	probe
+ 31	        1984	       449	probe
+ 32	        2048	        58	probe
+ 33	        2112	        51	train_input
+ 34	        2176	        94	probe
+ 35	        2240	        95	probe
+ 36	        2304	       526	probe
+ 37	        2368	       464	probe
+ 38	        2432	       515	probe
+ 39	        2496	       473	probe
+ 40	        2560	       395	probe
+ 41	        2624	       463	probe
+ 42	        2688	       431	probe
+ 43	        2752	       474	probe
+ 44	        2816	        51	train_input
+ 45	        2880	        58	probe
+ 46	        2944	        77	probe
+ 47	        3008	       477	probe
+ 48	        3072	       407	probe
+ 49	        3136	       413	probe
+ 50	        3200	       415	probe
+ 51	        3264	       408	probe
+ 52	        3328	       966	probe
+ 53	        3392	       438	probe
+ 54	        3456	        57	probe
+ 55	        3520	        50	train_input
+ 56	        3584	        77	probe
+ 57	        3648	        76	probe
+ 58	        3712	       430	probe
+ 59	        3776	       506	probe
+ 60	        3840	       450	probe
+ 61	        3904	       459	probe
+ 62	        3968	       428	probe
+ 63	        4032	       432	probe
+ 64	        4096	       416	probe
+ 65	        4160	       417	probe
+ 66	        4224	        50	train_input
+ 67	        4288	        58	probe
+ 68	        4352	        58	probe
+ 69	        4416	       442	probe
+ 70	        4480	       471	probe
+ 71	        4544	       446	probe
+ 72	        4608	       405	probe
+ 73	        4672	       411	probe
+ 74	        4736	       413	probe
+ 75	        4800	       410	probe
+ 76	        4864	        58	probe
+ 77	        4928	        50	train_input
+ 78	        4992	        58	probe
+ 79	        5056	        58	probe
+ 80	        5120	       417	probe
+ 81	        5184	       441	probe
+ 82	        5248	       412	probe
+ 83	        5312	       411	probe
+ 84	        5376	       512	probe
+ 85	        5440	       458	probe
+ 86	        5504	       418	probe
+ 87	        5568	       473	probe
+ 88	        5632	        51	train_input
+ 89	        5696	        58	probe
+ 90	        5760	        78	probe
+ 91	        5824	       484	probe
+ 92	        5888	       456	probe
+ 93	        5952	       465	probe
+ 94	        6016	       456	probe
+ 95	        6080	       454	probe
+ 96	        6144	       418	probe
+ 97	        6208	       418	probe
+ 98	        6272	        59	probe
+ 99	        6336	        51	train_input
+100	        6400	        79	probe
+101	        6464	        77	probe
+102	        6528	       498	probe
+103	        6592	       498	probe
+104	        6656	       433	probe
+105	        6720	       446	probe
+106	        6784	       433	probe
+107	        6848	       433	probe
+108	        6912	       520	probe
+109	        6976	       467	probe
+110	        7040	        50	train_input
+111	        7104	        57	probe
+112	        7168	        76	probe
+113	        7232	       422	probe
+114	        7296	       429	probe
+115	        7360	       438	probe
+116	        7424	       568	probe
+117	        7488	       466	probe
+118	        7552	       458	probe
+119	        7616	       442	probe
+120	        7680	        58	probe
+121	        7744	        50	train_input
+122	        7808	        75	probe
+123	        7872	        92	probe
+124	        7936	       604	probe
+125	        8000	       439	probe
+126	        8064	       419	probe
+127	        8128	       423	probe
+128	        8192	       437	probe
+129	        8256	       430	probe
+130	        8320	       455	probe
+131	        8384	       434	probe
+132	        8448	        50	train_input
+133	        8512	        58	probe
+134	        8576	        58	probe
+135	        8640	       496	probe
+136	        8704	       437	probe
+137	        8768	       426	probe
+138	        8832	       426	probe
+139	        8896	       410	probe
+140	        8960	       558	probe
+141	        9024	       451	probe
+142	        9088	        58	probe
+143	        9152	        51	train_input
+144	        9216	        58	probe
+145	        9280	        58	probe
+146	        9344	       412	probe
+147	        9408	       437	probe
+148	        9472	       493	probe
+149	        9536	       453	probe
+150	        9600	       499	probe
+151	        9664	       476	probe
+152	        9728	       421	probe
+153	        9792	       469	probe
+154	        9856	        51	train_input
+155	        9920	        58	probe
+156	        9984	        58	probe
+157	       10048	       448	probe
+158	       10112	       451	probe
+159	       10176	       453	probe
+160	       10240	       407	probe
+161	       10304	       443	probe
+162	       10368	       415	probe
+163	       10432	       414	probe
+164	       10496	        58	probe
+165	       10560	        50	stride_prediction
+166	       10624	        58	probe
+167	       10688	        76	probe
+168	       10752	       420	probe
+169	       10816	       495	probe
+170	       10880	       421	probe
+171	       10944	       428	probe
+172	       11008	       440	probe
+173	       11072	       448	probe
+174	       11136	       448	probe
+175	       11200	       452	probe
+176	       11264	       435	stride_prediction
+177	       11328	       427	probe
+178	       11392	       432	probe
+179	       11456	       450	probe
+180	       11520	       508	probe
+181	       11584	       465	probe
+182	       11648	       463	probe
+183	       11712	       460	probe
+184	       11776	       426	probe
+185	       11840	       445	probe
+186	       11904	       411	probe
+187	       11968	       433	stride_prediction
+188	       12032	       503	probe
+189	       12096	       464	probe
+190	       12160	       445	probe
+191	       12224	       464	probe
+192	       12288	       407	probe
+193	       12352	       431	probe
+194	       12416	       444	probe
+195	       12480	       447	probe
+196	       12544	       509	probe
+197	       12608	       440	probe
+198	       12672	       616	stride_prediction
+199	       12736	       478	probe
