@@ -73,7 +73,51 @@ def parse_result(output):
             continue
 
         parts = line.split()
+        if current == "node_next":
+            if len(parts) != 9 or not parts[0].isdigit():
+                continue
+
+            sections[current].append({
+                "idx": int(parts[0]),
+                "next": int(parts[1]),
+                "page": int(parts[2]),
+                "line": int(parts[3]),
+                "role": parts[4],
+                "probes": int(parts[5]),
+                "hits": int(parts[6]),
+                "per_1000": int(parts[7]),
+                "avg_latency_ns": int(parts[8]),
+            })
+            continue
+
         if current == "depth_next":
+            if not parts[0].isdigit():
+                continue
+
+            if len(parts) == 7:
+                sections[current].append({
+                    "idx": int(parts[0]),
+                    "loads": int(parts[1]),
+                    "role": parts[2],
+                    "probes": int(parts[3]),
+                    "hits": int(parts[4]),
+                    "per_1000": int(parts[5]),
+                    "avg_latency_ns": int(parts[6]),
+                })
+            elif len(parts) == 8:
+                sections[current].append({
+                    "idx": int(parts[0]),
+                    "page": int(parts[1]),
+                    "line": int(parts[2]),
+                    "role": parts[3],
+                    "probes": int(parts[4]),
+                    "hits": int(parts[5]),
+                    "per_1000": int(parts[6]),
+                    "avg_latency_ns": int(parts[7]),
+                })
+            continue
+
+        if current == "controls":
             if len(parts) != 6 or not parts[0].isdigit():
                 continue
 
@@ -82,21 +126,8 @@ def parse_result(output):
                 "page": int(parts[1]),
                 "line": int(parts[2]),
                 "role": parts[3],
-                "hits": int(parts[4]),
-                "per_1000": int(parts[5]),
-            })
-            continue
-
-        if current == "controls":
-            if len(parts) != 5 or not parts[0].isdigit():
-                continue
-
-            sections[current].append({
-                "idx": int(parts[0]),
-                "page": int(parts[1]),
-                "line": int(parts[2]),
-                "role": parts[3],
-                "avg_latency_ns": int(parts[4]),
+                "probes": int(parts[4]),
+                "avg_latency_ns": int(parts[5]),
             })
             continue
 
@@ -105,7 +136,7 @@ def parse_result(output):
 
 def summarize(output):
     sections = parse_result(output)
-    chain = sections.get("depth_next", [])
+    chain = sections.get("node_next", sections.get("depth_next", []))
     controls = sections.get("controls", [])
     chain_avg = sum(row["per_1000"] for row in chain) / len(chain) if chain else 0.0
     chain_max = max((row["per_1000"] for row in chain), default=0)
@@ -132,18 +163,25 @@ def plot_result(output, path, title):
         return False
 
     sections = parse_result(output)
-    chain = sections.get("depth_next", [])
+    chain = sections.get("node_next", sections.get("depth_next", []))
     controls = sections.get("controls", [])
     if not chain and not controls:
         print("No plottable data found.", file=sys.stderr)
         return False
+
+    if "node_next" in sections:
+        chain_title = "Next node after one trained node access"
+    elif chain and chain[0].get("role") == "next_after_window":
+        chain_title = "Next node after K predecessor accesses"
+    else:
+        chain_title = "Next node after executed pointer-chain depth"
 
     fig, axes = plt.subplots(2, 1, figsize=(8.0, 5.2), constrained_layout=True)
 
     for ax, name, rows, color, metric, ylabel in [
         (
             axes[0],
-            "Next node after executed pointer-chain depth",
+            chain_title,
             chain,
             "#0072B2",
             "per_1000",
@@ -160,7 +198,12 @@ def plot_result(output, path, title):
     ]:
         x = [row["idx"] for row in rows]
         y = [row[metric] for row in rows]
-        labels = [f"p{row['page']}:l{row['line']}" for row in rows]
+        labels = [
+            f"p{row['page']}:l{row['line']}"
+            if "page" in row and "line" in row else
+            str(row["idx"])
+            for row in rows
+        ]
         ax.bar(x, y, color=color, edgecolor="black", linewidth=0.25, width=0.82)
         ax.set_title(name, loc="left", pad=4)
         ax.set_ylabel(ylabel)
@@ -190,7 +233,7 @@ def build_run_command(args):
         str(args.rounds),
         str(args.threshold_ns),
         str(args.training_replays),
-        args.access,
+        args.mode,
     ]
 
     if args.runner:
@@ -212,8 +255,11 @@ def main():
     parser.add_argument("--rounds", type=int, default=40000)
     parser.add_argument("--threshold-ns", type=int, default=150)
     parser.add_argument("--training-replays", type=int, default=128)
+    parser.add_argument("--mode", choices=["node", "depth", "window"], default="node",
+                        help="node: access node[n] then probe node[n+1]; depth: access node0..node(depth-1) then probe node(depth); window: access node[n-K]..node[n] then probe node[n+1].")
     parser.add_argument("--core", type=int, default=5)
-    parser.add_argument("--access", choices=["load", "sw"], default="load")
+    parser.add_argument("--access", choices=["load"], default="load",
+                        help="Access mode label; the C test currently supports load only.")
     parser.add_argument("--compiler", default=default_compiler())
     parser.add_argument("--runner", default=None,
                         help="Optional runner prefix, for example: qemu-aarch64 -L /usr/aarch64-linux-gnu")
@@ -240,18 +286,20 @@ def main():
 
     RES_DIR.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    result_path = Path(args.output) if args.output else RES_DIR / f"exist-{args.access}-{timestamp}.txt"
-    plot_path = Path(args.plot) if args.plot else RES_DIR / f"exist-{args.access}-{timestamp}.png"
+    result_path = Path(args.output) if args.output else RES_DIR / f"exist-{args.access}-{args.mode}-{timestamp}.txt"
+    plot_path = Path(args.plot) if args.plot else RES_DIR / f"exist-{args.access}-{args.mode}-{timestamp}.png"
 
     cmd = build_run_command(args)
     env = os.environ.copy()
     env.setdefault("LC_ALL", "C")
-    result = subprocess.run(cmd, check=True, env=env, capture_output=True, text=True)
+    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
 
     if result.stdout:
         print(result.stdout, end="")
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
+    if result.returncode != 0:
+        return result.returncode
 
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(result.stdout)

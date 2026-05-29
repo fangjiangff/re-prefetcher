@@ -53,8 +53,7 @@ def compile_probe(compiler, static):
         "-x",
         "c",
         "-std=gnu11",
-        "-O2",
-        "-march=armv8.2-a",
+        "-O0",
         "-fno-tree-vectorize",
         "-fno-prefetch-loop-arrays",
         "-Wall",
@@ -281,8 +280,8 @@ def main():
     if args.core is None:
         args.core = core_for_arch(args.arch)
 
-    if args.nodes < 1024 or args.passes < 3:
-        raise SystemExit("nodes must be >= 1024 and passes must be >= 3")
+    # if args.nodes < 1024 or args.passes < 3:
+    #     raise SystemExit("nodes must be >= 1024 and passes must be >= 3")
     if args.spacing < 8 or args.spacing % 64 != 0:
         raise SystemExit("spacing must be >= 8 and a multiple of 64")
 

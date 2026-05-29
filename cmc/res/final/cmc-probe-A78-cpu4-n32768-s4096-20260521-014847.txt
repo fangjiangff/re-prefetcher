@@ -1,0 +1,31 @@
+cmc_probe: nodes=32768 spacing=4096 working_set=128.0 MiB per list passes=8 timer_freq=13000000 Hz
+pattern: random one-cache-line-per-4096B pointer cycle; fixed-repeat vs reshuffled-control
+
+Fixed repeated temporal stream:
+  fixed pass  0:   138.34 ns/load
+  fixed pass  1:   117.23 ns/load  speedup_vs_pass0= 1.18x
+  fixed pass  2:    75.84 ns/load  speedup_vs_pass0= 1.82x
+  fixed pass  3:    76.02 ns/load  speedup_vs_pass0= 1.82x
+  fixed pass  4:    75.91 ns/load  speedup_vs_pass0= 1.82x
+  fixed pass  5:    76.80 ns/load  speedup_vs_pass0= 1.80x
+  fixed pass  6:    75.89 ns/load  speedup_vs_pass0= 1.82x
+  fixed pass  7:    76.46 ns/load  speedup_vs_pass0= 1.81x
+
+Reshuffled negative control, one traversal per new random cycle:
+  ctrl  pass  0:   145.30 ns/load
+  ctrl  pass  1:   143.67 ns/load
+  ctrl  pass  2:   143.75 ns/load
+  ctrl  pass  3:   145.62 ns/load
+  ctrl  pass  4:   143.72 ns/load
+  ctrl  pass  5:   143.19 ns/load
+  ctrl  pass  6:   142.70 ns/load
+  ctrl  pass  7:   142.57 ns/load
+
+Summary:
+  fixed pass0             :   138.34 ns/load
+  fixed warm avg last half:    76.26 ns/load
+  reshuffled control avg  :   143.82 ns/load
+  warm speedup vs pass0   :     1.81x
+  warm speedup vs control :     1.89x
+  verdict: strong timing signal consistent with CMC/temporal prefetching.
+sink=0

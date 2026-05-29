@@ -1,0 +1,18 @@
+{
+  "files.watcherExclude": {
+    "**/.git/**": true,
+    "**/__pycache__/**": true,
+    "**/cmc/res/**": true,
+    "**/bin/**": true
+  },
+  "search.exclude": {
+    "**/__pycache__/**": true,
+    "**/cmc/res/**": true,
+    "**/bin/**": true
+  },
+  "python.analysis.exclude": [
+    "**/__pycache__",
+    "**/cmc/res",
+    "**/bin"
+  ]
+}

@@ -1,0 +1,157 @@
+# CMC next-node timing test
+# access mode: pointer load only; software prefetch path removed
+# timer: cntvct_el0, cntfrq_el0=13000000 Hz
+# rounds=40000 threshold_ns=150 training_replays=128
+# chain_nodes=128 control_nodes=16 mapping_pages=512
+# trigger: node=0 page=29 line=35
+# dummy: page=392 line=52; one same-PC chain_step is issued before each target probe
+# each depth executes pointer loads node0..node(depth-1), then a same-PC dummy load, then probes node(depth).
+
+[depth_next]
+# depth	page	line	role		probes	hits	per_1000	avg_latency_ns
+  1	505	36	next_after_depth	   315	    0	   0		  191
+  2	 97	33	next_after_depth	   315	    0	   0		  185
+  3	468	26	next_after_depth	   315	    0	   0		  180
+  4	472	17	next_after_depth	   315	    0	   0		  187
+  5	424	39	next_after_depth	   315	    0	   0		  186
+  6	 81	57	next_after_depth	   315	    0	   0		  179
+  7	418	19	next_after_depth	   315	    0	   0		  184
+  8	 14	21	next_after_depth	   315	    0	   0		  187
+  9	234	22	next_after_depth	   315	    0	   0		  187
+ 10	 95	34	next_after_depth	   315	    0	   0		  195
+ 11	215	15	next_after_depth	   315	    0	   0		  180
+ 12	315	27	next_after_depth	   315	    0	   0		  183
+ 13	 34	32	next_after_depth	   315	    0	   0		  186
+ 14	347	 1	next_after_depth	   315	    0	   0		  183
+ 15	483	52	next_after_depth	   315	    0	   0		  188
+ 16	268	49	next_after_depth	   315	    0	   0		  183
+ 17	334	59	next_after_depth	   315	    0	   0		  184
+ 18	414	 0	next_after_depth	   315	    0	   0		  184
+ 19	207	 9	next_after_depth	   315	    0	   0		  178
+ 20	254	57	next_after_depth	   315	    0	   0		  179
+ 21	456	44	next_after_depth	   315	    0	   0		  179
+ 22	493	32	next_after_depth	   315	    0	   0		  187
+ 23	504	 4	next_after_depth	   315	    0	   0		  189
+ 24	442	16	next_after_depth	   315	    0	   0		  186
+ 25	 33	 7	next_after_depth	   315	    0	   0		  185
+ 26	141	53	next_after_depth	   315	    0	   0		  186
+ 27	386	62	next_after_depth	   315	    0	   0		  180
+ 28	257	60	next_after_depth	   315	    0	   0		  179
+ 29	455	46	next_after_depth	   315	    0	   0		  180
+ 30	166	27	next_after_depth	   315	    0	   0		  184
+ 31	444	60	next_after_depth	   315	    0	   0		  178
+ 32	396	29	next_after_depth	   315	    0	   0		  177
+ 33	142	56	next_after_depth	   315	    0	   0		  180
+ 34	282	52	next_after_depth	   315	    0	   0		  191
+ 35	476	48	next_after_depth	   315	    0	   0		  185
+ 36	162	44	next_after_depth	   315	    0	   0		  180
+ 37	199	51	next_after_depth	   315	    0	   0		  178
+ 38	329	40	next_after_depth	   315	    0	   0		  178
+ 39	 38	14	next_after_depth	   315	    0	   0		  178
+ 40	390	25	next_after_depth	   315	    0	   0		  183
+ 41	510	 2	next_after_depth	   315	    0	   0		  189
+ 42	364	19	next_after_depth	   315	    0	   0		  183
+ 43	 21	57	next_after_depth	   315	    0	   0		  181
+ 44	447	51	next_after_depth	   315	    0	   0		  182
+ 45	509	38	next_after_depth	   315	    0	   0		  184
+ 46	 89	38	next_after_depth	   315	    0	   0		  186
+ 47	302	31	next_after_depth	   315	    0	   0		  180
+ 48	508	47	next_after_depth	   315	    0	   0		  180
+ 49	 90	21	next_after_depth	   315	    0	   0		  187
+ 50	179	45	next_after_depth	   315	    0	   0		  181
+ 51	296	 3	next_after_depth	   315	    0	   0		  182
+ 52	358	 4	next_after_depth	   315	    0	   0		  191
+ 53	 12	 5	next_after_depth	   315	    0	   0		  187
+ 54	  4	41	next_after_depth	   315	    0	   0		  182
+ 55	212	37	next_after_depth	   315	    0	   0		  189
+ 56	107	27	next_after_depth	   315	    0	   0		  180
+ 57	 26	26	next_after_depth	   315	    0	   0		  179
+ 58	308	51	next_after_depth	   315	    0	   0		  187
+ 59	411	14	next_after_depth	   315	    0	   0		  179
+ 60	198	40	next_after_depth	   315	    0	   0		  177
+ 61	108	48	next_after_depth	   315	    0	   0		  185
+ 62	154	36	next_after_depth	   315	    0	   0		  188
+ 63	247	12	next_after_depth	   315	    0	   0		  181
+ 64	136	43	next_after_depth	   315	    0	   0		  185
+ 65	 94	58	next_after_depth	   315	    0	   0		  183
+ 66	  7	24	next_after_depth	   315	    0	   0		  180
+ 67	 79	58	next_after_depth	   315	    0	   0		  181
+ 68	416	19	next_after_depth	   315	    0	   0		  186
+ 69	145	59	next_after_depth	   315	    0	   0		  179
+ 70	328	22	next_after_depth	   315	    0	   0		  188
+ 71	369	63	next_after_depth	   315	    0	   0		  180
+ 72	289	11	next_after_depth	   315	    0	   0		  181
+ 73	209	31	next_after_depth	   315	    0	   0		  183
+ 74	265	41	next_after_depth	   315	    0	   0		  178
+ 75	106	51	next_after_depth	   315	    0	   0		  183
+ 76	276	20	next_after_depth	   315	    0	   0		  187
+ 77	161	63	next_after_depth	   315	    0	   0		  181
+ 78	449	61	next_after_depth	   315	    0	   0		  180
+ 79	361	53	next_after_depth	   315	    0	   0		  190
+ 80	197	 3	next_after_depth	   315	    0	   0		  184
+ 81	407	16	next_after_depth	   315	    0	   0		  187
+ 82	481	47	next_after_depth	   315	    0	   0		  179
+ 83	243	55	next_after_depth	   315	    0	   0		  188
+ 84	304	10	next_after_depth	   315	    0	   0		  180
+ 85	389	 3	next_after_depth	   315	    0	   0		  186
+ 86	258	43	next_after_depth	   315	    0	   0		  179
+ 87	130	53	next_after_depth	   315	    0	   0		  187
+ 88	280	46	next_after_depth	   315	    0	   0		  178
+ 89	 45	31	next_after_depth	   315	    0	   0		  178
+ 90	253	 2	next_after_depth	   315	    0	   0		  182
+ 91	391	42	next_after_depth	   315	    0	   0		  183
+ 92	351	 6	next_after_depth	   315	    0	   0		  189
+ 93	375	 4	next_after_depth	   315	    0	   0		  188
+ 94	114	55	next_after_depth	   315	    0	   0		  187
+ 95	134	50	next_after_depth	   315	    3	   9		  185
+ 96	 64	13	next_after_depth	   315	   19	  60		  170
+ 97	175	18	next_after_depth	   315	   21	  66		  177
+ 98	123	55	next_after_depth	   315	   13	  41		  186
+ 99	259	14	next_after_depth	   315	   16	  50		  175
+100	408	39	next_after_depth	   315	   13	  41		  180
+101	433	62	next_after_depth	   315	    6	  19		  175
+102	429	40	next_after_depth	   315	   32	 101		  165
+103	 68	51	next_after_depth	   315	   26	  82		  171
+104	251	51	next_after_depth	   315	   53	 168		  163
+105	297	32	next_after_depth	   315	   33	 104		  170
+106	352	18	next_after_depth	   315	  106	 336		  142
+107	 67	50	next_after_depth	   315	  116	 368		  140
+108	451	51	next_after_depth	   315	  114	 361		  134
+109	193	10	next_after_depth	   315	  110	 349		  130
+110	270	25	next_after_depth	   315	  148	 469		  122
+111	423	60	next_after_depth	   315	  157	 498		  119
+112	201	15	next_after_depth	   315	  184	 584		  106
+113	299	31	next_after_depth	   315	  159	 504		  116
+114	310	 7	next_after_depth	   315	  161	 511		  114
+115	417	 9	next_after_depth	   315	  181	 574		  112
+116	462	14	next_after_depth	   315	  147	 466		  122
+117	357	15	next_after_depth	   315	  189	 600		  120
+118	478	37	next_after_depth	   315	  215	 682		   98
+119	474	49	next_after_depth	   315	  109	 346		  145
+120	370	52	next_after_depth	   315	  224	 711		   92
+121	343	61	next_after_depth	   315	  174	 552		  112
+122	214	39	next_after_depth	   315	  190	 603		  106
+123	453	39	next_after_depth	   314	  250	 796		   83
+124	415	51	next_after_depth	   314	  271	 863		   74
+125	464	 8	next_after_depth	   314	  285	 907		   68
+126	192	 5	next_after_depth	   314	  299	 952		   62
+127	432	 8	next_after_depth	   314	  302	 961		   60
+
+[controls]
+# idx	page	line	role		probes	avg_latency_ns
+ 0	117	35	control		  2500	  178
+ 1	436	42	control		  2500	  175
+ 2	480	31	control		  2500	  177
+ 3	 28	30	control		  2500	  174
+ 4	490	26	control		  2500	  174
+ 5	291	 2	control		  2500	  177
+ 6	445	 5	control		  2500	  182
+ 7	 35	 7	control		  2500	  181
+ 8	502	18	control		  2500	  180
+ 9	224	 7	control		  2500	  182
+10	 56	49	control		  2500	  177
+11	  2	56	control		  2500	  173
+12	448	20	control		  2500	  183
+13	 98	 7	control		  2500	  180
+14	293	28	control		  2500	  175
+15	104	27	control		  2500	  175

@@ -2,6 +2,7 @@
 /sms/bin/
 /stride-prefetcher/bin
 /cmc/bin
+/cmc/__pycache__/
 
 # Ignore local editor/OS files
 *.swp

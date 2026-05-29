@@ -225,10 +225,10 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (n < 1024 || passes < 3) {
-        fprintf(stderr, "Use at least -n 1024 and -p 3.\n");
-        return 1;
-    }
+    // if (n < 1024 || passes < 3) {
+    //     fprintf(stderr, "Use at least -n 1024 and -p 3.\n");
+    //     return 1;
+    // }
     if (spacing < sizeof(struct Node) || (spacing % CACHELINE) != 0) {
         fprintf(stderr, "spacing must be >= %zu and a multiple of %llu.\n",
                 sizeof(struct Node), (unsigned long long)CACHELINE);
