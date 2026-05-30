@@ -23,32 +23,13 @@
 #define TEST_ON_SW 0
 #endif
 
-#ifndef TEST_ON_ST
-#define TEST_ON_ST 0
-#endif
+#define _maccess(pre, addr) \
+    asm volatile( \
+        pre "ldrb w0, [%0]\n\t" \
+        :: "r" (addr) \
+        : "memory", "w0")
 
-#if TEST_ON_ST == 1
-    /*
-     * Store: 向 addr 写 1 字节
-     * 使用 w 寄存器（低 8 bit 会被使用）
-     */
-    #define _maccess(pre, addr) \
-        asm volatile( \
-            pre "strb w0, [%0]\n\t" \
-            :: "r" (addr) \
-            : "memory", "w0")
 
-#else
-    /*
-     * Load: 从 addr 读 1 字节
-     */
-    #define _maccess(pre, addr) \
-        asm volatile( \
-            pre "ldrb w0, [%0]\n\t" \
-            :: "r" (addr) \
-            : "memory", "w0")
-
-#endif
 
 uint8_t array1[100*64]={0};
 
@@ -66,8 +47,6 @@ uint8_t array1[100*64]={0};
 
 void maccess(void *p) {
     _maccess("", p);
-    // volatile uint32_t value;
-    // asm volatile("LDR %0, [%1]\n\t" : "=r"(value) : "r"(p));
 }
 
 // static inline __attribute__((always_inline)) 
@@ -131,7 +110,7 @@ void dummyAccesses(){
             asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i*64]) : "memory", "w0");
         }
         // mfence();
-         // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i*64]));
+        // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i*64]));
      }
 }
 
@@ -173,8 +152,6 @@ int main(int argc, char **argv){
   std::vector<int> secret(rounds);
   for(int i=0;i<rounds;i++){
     secret[i] = rand() % 2;// 0 or 1
-    // secret[i] = 1;// 0 or 1
-    // printf("secret %d: %d\n", i, secret[i]);
   }
 
   // for(int stride = 64*1; stride <= 64*64; stride+=64){
@@ -186,7 +163,7 @@ int main(int argc, char **argv){
     int train_step = 20;//>16 wil be more stable, but 16 is already good enough.
     // for(int train_step = 1; train_step <= 20 ; train_step++){
 
-      printf("Stride %d*64:\t%d\ttrian_step %d\t",stride/64,stride, train_step);
+    //   printf("Stride %d*64:\t%d\ttrian_step %d\t",stride/64,stride, train_step);
       uint64_t latency = 0;
       std::vector<int> res1(rounds);
       std::vector<int> res2(rounds);
@@ -202,7 +179,6 @@ int main(int argc, char **argv){
                }
                dummyAccesses();//for dummy accesses , reset the prefetcher state
                for(int n=0;n<100;n++) nop();
-            //    for(int rep=0;rep<100;rep++){
                 for(int step = 0; step < train_step-1; step++){
                         // sw prefetch
                         // mprefetch(array2 + (step * stride));
@@ -214,7 +190,7 @@ int main(int argc, char **argv){
                             mfence();
                         }
                        
-                    }
+                }
                 if(TEST_ON_SW){
                     mprefetch(array2 + ((train_step - 1) * stride));
                     mfence();
@@ -230,8 +206,6 @@ int main(int argc, char **argv){
               }
 
               for(int i=0;i<100;i++) nop(); mfence();
-
-            //   probe_addr = array2 + ((train_step+15) * stride1);
 
               time1 = timestamp1();
               maccess(array2 + ((train_step+15) * stride1));

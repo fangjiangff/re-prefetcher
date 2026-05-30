@@ -11,53 +11,23 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 SRC = "single-bit-cc.cc"
 OUT = "bin/single-bit-cc"
 
-# configs = [(1,1), (1,0), (0,1), (0,0)]
-# configs = [ (0,0), (1,0)]
-# // (0,0,0)miss load, (0,1,0) miss store; (1,0,0) hit load,(0,0,1) miss prefetch.
-# configs = [(0,0,1)]
-configs = [(0,0,0)]
 DEFAULT_ARCH = "A76"
 DEFAULT_CORE = 2
-DEFAULT_ROUNDS = 1000
-DEFAULT_BENCHMARK_ROUNDS = [10, 100, 1000, 1000]
-date=26042801
+DEFAULT_BENCHMARK_ROUNDS = [100, 200, 400, 600, 800, 1000]
 # timestamp = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
 # print(f"Start testing at {timestamp}")
 
-def result_file(arch):
-    return f"res/sw-{arch}.txt"
-
 
 def timing_file(arch, core):
-    return f"res/timing-{arch}-core{core}.txt"
+    return f"res/single-timing-{arch}-core{core}.txt"
 
 
-def save_result_txt(output, arch):
-    lines = [line.strip() for line in output.splitlines() if line.strip()]
-    if not lines:
-        print("Warning: no output to save.")
-        return
-
-    first = lines[0].split('\t')
-    header = ["Stride"] + [f"access{i}" for i in range(1, len(first) + 1)]
-
-    os.makedirs("res", exist_ok=True)
-    with open(result_file(arch), "w", encoding="utf-8") as f:
-        f.write("\t".join(header) + "\n")
-        for idx, line in enumerate(lines, start=1):
-            f.write(f"{idx}\t{line}\n")
-
-    print(f"Saved result to {result_file(arch)}")
-
-
-def compile_binary(hit, st, sw):
+def compile_binary(sw):
     compile_cmd = [
         "g++",
         "-std=gnu++17",
         "-O0",
         "-static",
-        f"-DTEST_ON_HIT={hit}",
-        f"-DTEST_ON_ST={st}",
         f"-DTEST_ON_SW={sw}",
         "-o",
         OUT,
@@ -75,6 +45,22 @@ def run_binary(core, rounds):
     )
     elapsed_s = time.perf_counter() - start
     return run, elapsed_s
+
+
+def row_raw_output(row):
+    raw_output = row.get("raw_output", "")
+    if raw_output:
+        return raw_output
+    if row.get("correct") and row.get("total") and row.get("attack_elapsed_ns") and row.get("attack_elapsed_s"):
+        output = (
+            f"Accuracy: {row.get('correct')}/{row.get('total')} "
+            f"Elapsed_ns: {row.get('attack_elapsed_ns')} "
+            f"Elapsed_s: {row.get('attack_elapsed_s')}"
+        )
+        if row.get("data_rate_bytes_s"):
+            output += f" Data_rate_Bytes_s: {row.get('data_rate_bytes_s')}"
+        return output
+    return ""
 
 
 def parse_attack_metrics(output):
@@ -105,31 +91,6 @@ def parse_attack_metrics(output):
     )
 
 
-def run_test(arch, core, rounds):
-    for hit,st, sw in configs:
-        print("="*60)
-        print(f"TEST_ON_HIT={hit}, TEST_ON_ST={st}, TEST_ON_SW={sw}")
-        print(f"ARCH={arch}, CORE={core}, ROUNDS={rounds}")
-        # print(f"TEST_ON_HIT={hit}, TEST_ON_SW={sw}")
-
-        res = compile_binary(hit, st, sw)
-
-        if res.returncode != 0:
-            print("Compile failed")
-            continue
-
-        run, _ = run_binary(core, rounds)
-
-        if run.returncode != 0:
-            print("Execution failed")
-            continue
-
-        output = run.stdout
-
-        print("Output:\n%s\n", output)
-        save_result_txt(output, arch)
-
-
 def benchmark_time(arch, core, rounds_list):
     os.makedirs("res", exist_ok=True)
     output_file = timing_file(arch, core)
@@ -139,7 +100,7 @@ def benchmark_time(arch, core, rounds_list):
         print("="*60)
         print(f"Training mode: {mode_name} (TEST_ON_SW={sw})")
 
-        res = compile_binary(0, 0, sw)
+        res = compile_binary(sw)
         if res.returncode != 0:
             print(f"Compile failed for mode {mode_name}")
             continue
@@ -156,6 +117,7 @@ def benchmark_time(arch, core, rounds_list):
             correct, total, accuracy, attack_elapsed_ns, attack_elapsed_s, data_rate_bytes_s = parse_attack_metrics(run.stdout)
             if data_rate_bytes_s is None and attack_elapsed_s:
                 data_rate_bytes_s = rounds / attack_elapsed_s / 8.0
+            raw_output = " ".join(run.stdout.split())
             rows.append([
                 mode_name,
                 sw,
@@ -167,11 +129,12 @@ def benchmark_time(arch, core, rounds_list):
                 attack_elapsed_s if attack_elapsed_s is not None else "",
                 data_rate_bytes_s if data_rate_bytes_s is not None else "",
                 process_elapsed_s,
+                raw_output,
             ])
             print(run.stdout.strip())
 
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write("mode\tTEST_ON_SW\trounds\tcorrect\ttotal\taccuracy\tattack_elapsed_ns\tattack_elapsed_s\tdata_rate_bytes_s\tprocess_elapsed_s\n")
+        f.write("mode\tTEST_ON_SW\trounds\tcorrect\ttotal\taccuracy\tattack_elapsed_ns\tattack_elapsed_s\tdata_rate_bytes_s\tprocess_elapsed_s\traw_output\n")
         for row in rows:
             f.write("\t".join(str(item) for item in row) + "\n")
 
@@ -182,15 +145,17 @@ def benchmark_time(arch, core, rounds_list):
 
 def summarize_timing(arch, core):
     input_file = timing_file(arch, core)
-    summary_file = f"res/summary-{arch}-core{core}.txt"
+    summary_file = f"res/single-summary-{arch}-core{core}.txt"
     if not os.path.exists(input_file):
         print(f"Error: timing file '{input_file}' not found.")
         return
 
     groups = {}
+    execution_rows = []
     with open(input_file, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
+            execution_rows.append(row)
             mode = row["mode"]
             groups.setdefault(mode, {"accuracy": [], "data_rate": []})
 
@@ -241,6 +206,26 @@ def summarize_timing(arch, core):
             "data_rate_change_percent": data_rate_change_percent,
         }
 
+    summary_lines = []
+    for mode, values in summary.items():
+        avg_accuracy = values["avg_accuracy"]
+        avg_data_rate = values["avg_data_rate"]
+        accuracy_text = f"{avg_accuracy * 100:.2f}%" if avg_accuracy is not None else "N/A"
+        data_rate_text = f"{avg_data_rate:.3f} Bytes/s" if avg_data_rate is not None else "N/A"
+        summary_lines.append(f"{mode}: avg_accuracy={accuracy_text}, avg_data_rate={data_rate_text}")
+    if comparison:
+        accuracy_delta = comparison["accuracy_delta"]
+        data_rate_delta = comparison["data_rate_delta"]
+        data_rate_change_percent = comparison["data_rate_change_percent"]
+        if accuracy_delta is not None:
+            summary_lines.append(f"sw_prefetch vs load: avg_accuracy_delta={accuracy_delta * 100:+.2f} percentage points")
+        if data_rate_delta is not None and data_rate_change_percent is not None:
+            summary_lines.append(
+                "sw_prefetch vs load: "
+                f"avg_data_rate_delta={data_rate_delta:+.3f} Bytes/s, "
+                f"avg_data_rate_change={data_rate_change_percent:+.2f}%"
+            )
+
     with open(summary_file, "w", encoding="utf-8") as f:
         f.write("mode\tavg_accuracy\tavg_accuracy_percent\tavg_data_rate_bytes_s\n")
         for mode, values in summary.items():
@@ -257,25 +242,39 @@ def summarize_timing(arch, core):
             if comparison["data_rate_change_percent"] is not None:
                 f.write(f"sw_vs_load_data_rate_change_percent\t{comparison['data_rate_change_percent']}\n")
 
+        if summary_lines:
+            f.write("\ntext_summary\n")
+            for line in summary_lines:
+                f.write(f"{line}\n")
+
+        if execution_rows:
+            f.write("\nexecutions\n")
+            f.write("mode\tTEST_ON_SW\trounds\tcorrect\ttotal\taccuracy\tattack_elapsed_ns\tattack_elapsed_s\tdata_rate_bytes_s\tprocess_elapsed_s\traw_output\n")
+            for row in execution_rows:
+                f.write(
+                    "\t".join(
+                        row.get(column, "")
+                        for column in [
+                            "mode",
+                            "TEST_ON_SW",
+                            "rounds",
+                            "correct",
+                            "total",
+                            "accuracy",
+                            "attack_elapsed_ns",
+                            "attack_elapsed_s",
+                            "data_rate_bytes_s",
+                            "process_elapsed_s",
+                        ]
+                    )
+                    + "\t"
+                    + row_raw_output(row)
+                    + "\n"
+                )
+
     print(f"Saved timing summary to {summary_file}")
-    for mode, values in summary.items():
-        avg_accuracy = values["avg_accuracy"]
-        avg_data_rate = values["avg_data_rate"]
-        accuracy_text = f"{avg_accuracy * 100:.2f}%" if avg_accuracy is not None else "N/A"
-        data_rate_text = f"{avg_data_rate:.3f} Bytes/s" if avg_data_rate is not None else "N/A"
-        print(f"{mode}: avg_accuracy={accuracy_text}, avg_data_rate={data_rate_text}")
-    if comparison:
-        accuracy_delta = comparison["accuracy_delta"]
-        data_rate_delta = comparison["data_rate_delta"]
-        data_rate_change_percent = comparison["data_rate_change_percent"]
-        if accuracy_delta is not None:
-            print(f"sw_prefetch vs load: avg_accuracy_delta={accuracy_delta * 100:+.2f} percentage points")
-        if data_rate_delta is not None and data_rate_change_percent is not None:
-            print(
-                "sw_prefetch vs load: "
-                f"avg_data_rate_delta={data_rate_delta:+.3f} Bytes/s, "
-                f"avg_data_rate_change={data_rate_change_percent:+.2f}%"
-            )
+    for line in summary_lines:
+        print(line)
 
 
 def parse_rounds_list(value):
@@ -344,61 +343,14 @@ def plot_timing(arch, core):
     print(f"Saved timing plot to {output_path}")
 
 
-def plot_heatmaps(arch):
-    import pandas as pd
-    import seaborn as sns
-    import matplotlib.pyplot as plt
-
-    input_file = result_file(arch)
-
-    # 检查输入文件是否存在
-    if not os.path.exists(input_file):
-        print(f"Error: Input file '{input_file}' not found.")
-        return
-
-
-    print(f"Reading data from {input_file}...")
-    try:
-        df = pd.read_csv(input_file, sep="\t")
-    except Exception as e:
-        print(f"Failed to open result file: {e}")
-        return
-
-    if df.empty:
-        print("No data found.")
-        return
-
-    df.set_index(df.columns[0], inplace=True)
-
-    fig, ax = plt.subplots(1, 1, figsize=(6, 8))
-    sns.heatmap(df, cmap="viridis", annot=False, ax=ax, vmin=20, vmax=600, cbar=True)
-
-    ax.set_title(arch)
-    ax.set_xlabel("Access Sequence")
-    ax.set_ylabel("Stride / Index")
-
-    plt.tight_layout()
-    os.makedirs("res/heatmaps", exist_ok=True)
-    output_path = os.path.join("res/heatmaps", f"{arch}-{date}.png")
-    plt.savefig(output_path, dpi=300)
-    plt.close()
-    print(f"Saved combined heatmap to {output_path}")
-    print("All done.")
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run single-bit test and optionally draw heatmap."
-    )
-    parser.add_argument(
-        "--plot-only",
-        action="store_true",
-        help="Only draw heatmap from existing result txt, do not run test.",
+        description="Benchmark single-bit attack time and data rate."
     )
     parser.add_argument(
         "--no-plot",
         action="store_true",
-        help="Only run test and save result txt, do not draw heatmap.",
+        help="Only run benchmark and save timing results, do not draw timing plot.",
     )
     parser.add_argument(
         "--arch",
@@ -412,36 +364,13 @@ if __name__ == "__main__":
         help=f"CPU core id used by taskset. Default: {DEFAULT_CORE}.",
     )
     parser.add_argument(
-        "--rounds",
-        type=int,
-        default=DEFAULT_ROUNDS,
-        help=f"Attack rounds passed to single-bit-cc. Default: {DEFAULT_ROUNDS}.",
-    )
-    parser.add_argument(
-        "--benchmark-time",
-        action="store_true",
-        help="Measure elapsed time for load and software-prefetch training modes.",
-    )
-    parser.add_argument(
         "--benchmark-rounds",
         type=parse_rounds_list,
         default=DEFAULT_BENCHMARK_ROUNDS,
-        help="Comma-separated rounds list for --benchmark-time. Default: 10,100,1000,1000.",
+        help="Comma-separated rounds list. Default: 100,200,400,600,800,1000.",
     )
     args = parser.parse_args()
 
-    if args.plot_only and args.no_plot:
-        parser.error("--plot-only and --no-plot cannot be used together")
-    if args.rounds <= 0:
-        parser.error("--rounds must be positive")
-
-    if args.benchmark_time:
-        benchmark_time(args.arch, args.core, args.benchmark_rounds)
-        if not args.no_plot:
-            plot_timing(args.arch, args.core)
-    elif not args.plot_only:
-        run_test(args.arch, args.core, args.rounds)
-
-    if not args.no_plot and not args.benchmark_time:
-        plot_heatmaps(args.arch)
-# print("All done.")
+    benchmark_time(args.arch, args.core, args.benchmark_rounds)
+    if not args.no_plot:
+        plot_timing(args.arch, args.core)

@@ -1,0 +1,29 @@
+mode	avg_accuracy	avg_accuracy_percent	avg_data_rate_bytes_s
+load	0.9952083333333334	99.52083333333334	6093.8516666666665
+sw_prefetch	0.9930972222222222	99.30972222222222	8411.490166666666
+
+comparison	value
+sw_vs_load_accuracy_delta_percent_point	-0.21111111111111747
+sw_vs_load_data_rate_delta_bytes_s	2317.6385
+sw_vs_load_data_rate_change_percent	38.032407527696634
+
+text_summary
+load: avg_accuracy=99.52%, avg_data_rate=6093.852 Bytes/s
+sw_prefetch: avg_accuracy=99.31%, avg_data_rate=8411.490 Bytes/s
+sw_prefetch vs load: avg_accuracy_delta=-0.21 percentage points
+sw_prefetch vs load: avg_data_rate_delta=+2317.639 Bytes/s, avg_data_rate_change=+38.03%
+
+executions
+mode	TEST_ON_SW	rounds	correct	total	accuracy	attack_elapsed_ns	attack_elapsed_s	data_rate_bytes_s	process_elapsed_s	raw_output
+load	0	100	100	100	1.0	1856310	0.00185631	6733.789	0.00421299200024805	Accuracy: 100/100 Elapsed_ns: 1856310 Elapsed_s: 0.00185631 Data_rate_Bytes_s: 6733.789
+load	0	200	198	200	0.99	6627339	0.006627339	3772.253	0.008011756999621866	Accuracy: 198/200 Elapsed_ns: 6627339 Elapsed_s: 0.006627339 Data_rate_Bytes_s: 3772.253
+load	0	400	397	400	0.9925	7350779	0.007350779	6802.0	0.00888033999945037	Accuracy: 397/400 Elapsed_ns: 7350779 Elapsed_s: 0.007350779 Data_rate_Bytes_s: 6802.0
+load	0	600	600	600	1.0	11215152	0.011215152	6687.381	0.012842599000578048	Accuracy: 600/600 Elapsed_ns: 11215152 Elapsed_s: 0.011215152 Data_rate_Bytes_s: 6687.381
+load	0	800	795	800	0.99375	15598268	0.015598268	6410.968	0.01754277899999579	Accuracy: 795/800 Elapsed_ns: 15598268 Elapsed_s: 0.015598268 Data_rate_Bytes_s: 6410.968
+load	0	1000	995	1000	0.995	20303022	0.020303022	6156.719	0.0217286420011078	Accuracy: 995/1000 Elapsed_ns: 20303022 Elapsed_s: 0.020303022 Data_rate_Bytes_s: 6156.719
+sw_prefetch	1	100	100	100	1.0	1077761	0.001077761	11598.119	0.002638432000821922	Accuracy: 100/100 Elapsed_ns: 1077761 Elapsed_s: 0.001077761 Data_rate_Bytes_s: 11598.119
+sw_prefetch	1	200	199	200	0.995	2584194	0.002584194	9674.196	0.004406226000355673	Accuracy: 199/200 Elapsed_ns: 2584194 Elapsed_s: 0.002584194 Data_rate_Bytes_s: 9674.196
+sw_prefetch	1	400	396	400	0.99	6815759	0.006815759	7335.94	0.008399317999646883	Accuracy: 396/400 Elapsed_ns: 6815759 Elapsed_s: 0.006815759 Data_rate_Bytes_s: 7335.94
+sw_prefetch	1	600	596	600	0.9933333333333333	11009715	0.011009715	6812.165	0.012559220000184723	Accuracy: 596/600 Elapsed_ns: 11009715 Elapsed_s: 0.011009715 Data_rate_Bytes_s: 6812.165
+sw_prefetch	1	800	797	800	0.99625	13718423	0.013718423	7289.468	0.015545233000011649	Accuracy: 797/800 Elapsed_ns: 13718423 Elapsed_s: 0.013718423 Data_rate_Bytes_s: 7289.468
+sw_prefetch	1	1000	984	1000	0.984	16110214	0.016110214	7759.053	0.017915396998432698	Accuracy: 984/1000 Elapsed_ns: 16110214 Elapsed_s: 0.016110214 Data_rate_Bytes_s: 7759.053
