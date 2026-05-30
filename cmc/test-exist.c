@@ -90,7 +90,7 @@ static inline uint64_t ticks_to_ns(uint64_t ticks) {
  * Keep all pointer-chain accesses at one stable load PC. This is important
  * when testing whether a temporal prefetcher uses PC-localized streams.
  */
-__attribute__((noinline)) static void chain_sw_prefetch(void *addr) {
+__attribute__((noinline)) static void sw_prefetch(void *addr) {
     asm volatile("prfm pldl1keep, [%0]\n\t" :: "r"(addr) : "memory");
 }
 
@@ -98,13 +98,6 @@ __attribute__((noinline)) static void *chain_step(void *addr) {
     void *next;
     asm volatile("ldr %0, [%1]\n\t" : "=r"(next) : "r"(addr) : "memory");
     return next;
-}
-
-static inline void *chain_access_step(void *addr) {
-    if (use_sw_prefetch) {
-        chain_sw_prefetch(addr);
-    }
-    return chain_step(addr);
 }
 
 static uint8_t *addr_for_node(struct node n) {
@@ -223,14 +216,23 @@ static void train_cmc_sequence(int training_replays) {
     for (int replay = 0; replay < training_replays; replay++) {
         flush_nodes(chain_nodes, CHAIN_NODE_COUNT);
 
-        if (use_sw_prefetch) {
-            for (size_t i = 0; i < CHAIN_NODE_COUNT; i++) {
-                chain_sw_prefetch(addr_for_node(chain_nodes[i]));
-            }
-        } else {
-            void *addr = addr_for_node(chain_nodes[0]);
-            for (size_t i = 0; i < CHAIN_NODE_COUNT; i++) {
-                addr = chain_step(addr);
+        void *addr = addr_for_node(chain_nodes[0]);
+        for (size_t i = 0; i < CHAIN_NODE_COUNT; i++) {
+            addr = chain_step(addr);
+        }
+        mfence();
+    }
+}
+
+static void train_direct_sequence(int training_replays) {
+    for (int replay = 0; replay < training_replays; replay++) {
+        flush_nodes(chain_nodes, CHAIN_NODE_COUNT);
+
+        for (size_t i = 0; i < CHAIN_NODE_COUNT; i++) {
+            if (use_sw_prefetch) {
+                sw_prefetch(addr_for_node(chain_nodes[i]));
+            } else {
+                maccess(addr_for_node(chain_nodes[i]));
             }
         }
         mfence();
@@ -260,7 +262,7 @@ static void print_header(const char *mode, int rounds, uint64_t hit_threshold_ns
                          int training_replays) {
     printf("# CMC next-node timing test\n");
     printf("# access mode: %s\n",
-           use_sw_prefetch ? "software prefetch (PRFM) training" : "pointer load only");
+           use_sw_prefetch ? "direct software prefetch (PRFM)" : "load");
     printf("# test mode: %s\n", mode);
     printf("# timer: cntvct_el0, cntfrq_el0=%lu Hz\n", (unsigned long)timer_freq_hz);
     printf("# rounds=%d threshold_ns=%lu training_replays=%d\n",
@@ -293,7 +295,7 @@ static void run_node_test(int rounds, uint64_t hit_threshold_ns,
 
         size_t node_idx = (size_t)round % transition_count;
         size_t next_idx = (node_idx + 1) % CHAIN_NODE_COUNT;
-        (void)chain_access_step(addr_for_node(chain_nodes[node_idx]));
+        (void)chain_step(addr_for_node(chain_nodes[node_idx]));
         mfence();
 
         delay_before_probe();
@@ -362,7 +364,7 @@ static void run_depth_test(int rounds, uint64_t hit_threshold_ns,
         size_t depth = 1 + ((size_t)round % target_count);
         void *addr = addr_for_node(chain_nodes[0]);
         for (size_t step = 0; step < depth; step++) {
-            addr = chain_access_step(addr);
+            addr = chain_step(addr);
         }
         (void)addr;
         mfence();
@@ -423,7 +425,7 @@ static void run_direct_test(int rounds, uint64_t hit_threshold_ns,
     memset(control_probes, 0, sizeof(control_probes));
 
     for (int round = 0; round < rounds; round++) {
-        train_cmc_sequence(training_replays);
+        train_direct_sequence(training_replays);
 
         flush_nodes(chain_nodes, CHAIN_NODE_COUNT);
         flush_nodes(control_nodes, CONTROL_NODE_COUNT);
@@ -432,7 +434,7 @@ static void run_direct_test(int rounds, uint64_t hit_threshold_ns,
         size_t depth = 1 + ((size_t)round % target_count);
         for (size_t step = 0; step < depth; step++) {
             if (use_sw_prefetch) {
-                chain_sw_prefetch(addr_for_node(chain_nodes[step]));
+                sw_prefetch(addr_for_node(chain_nodes[step]));
             } else {
                 maccess(addr_for_node(chain_nodes[step]));
             }
@@ -509,7 +511,7 @@ static void run_window_test(int rounds, uint64_t hit_threshold_ns,
 
             void *addr = addr_for_node(chain_nodes[start_idx]);
             for (size_t step = 0; step <= k; step++) {
-                addr = chain_access_step(addr);
+                addr = chain_step(addr);
             }
             (void)addr;
             mfence();
@@ -578,7 +580,7 @@ static void run_window_test(int rounds, uint64_t hit_threshold_ns,
         size_t start_idx = (node_idx + CHAIN_NODE_COUNT - fixed_k) % CHAIN_NODE_COUNT;
         void *addr = addr_for_node(chain_nodes[start_idx]);
         for (size_t step = 0; step < fixed_k; step++) {
-            addr = chain_access_step(addr);
+            addr = chain_step(addr);
         }
         (void)addr;
         mfence();
@@ -625,7 +627,7 @@ static void run_window_test(int rounds, uint64_t hit_threshold_ns,
 
 static void print_usage(const char *prog) {
     fprintf(stderr, "usage: %s [rounds threshold_ns training_replays [node|depth|direct|window [window_k]] [load|sw]]\n", prog);
-    fprintf(stderr, "default: rounds=%d threshold_ns=%d training_replays=%d mode=node access=load\n",
+    fprintf(stderr, "default: rounds=%d threshold_ns=%d training_replays=%d mode=node access=load; access=sw is direct-only\n",
             DEFAULT_ROUNDS, DEFAULT_THRESHOLD_NS, DEFAULT_TRAINING_REPLAYS);
 }
 
@@ -684,6 +686,10 @@ int main(int argc, char **argv) {
     } else if (strcmp(access, "sw") == 0) {
         use_sw_prefetch = 1;
     } else {
+        print_usage(argv[0]);
+        return 1;
+    }
+    if (use_sw_prefetch && strcmp(mode, "direct") != 0) {
         print_usage(argv[0]);
         return 1;
     }
