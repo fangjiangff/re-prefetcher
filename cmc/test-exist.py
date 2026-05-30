@@ -17,6 +17,9 @@ BIN_DIR = HERE / "bin"
 BIN = BIN_DIR / "test-exist"
 RES_DIR = HERE / "res"
 
+ARCHES = ["A78", "A55", "A725", "X925"]
+CORES = [4, 1, 4, 6]
+
 
 def run(cmd, capture=False):
     printable = " ".join(str(x) for x in cmd)
@@ -55,6 +58,15 @@ def compile_test(compiler, static):
 
 def is_native_aarch64():
     return platform.machine().lower() in ("aarch64", "arm64")
+
+
+def core_for_arch(arch):
+    arch = arch.upper()
+    for idx, name in enumerate(ARCHES):
+        if name.upper() == arch:
+            return CORES[idx]
+    supported = ", ".join(ARCHES)
+    raise SystemExit(f"unsupported arch: {arch}; supported arches: {supported}")
 
 
 def parse_result(output):
@@ -173,6 +185,10 @@ def plot_result(output, path, title):
         chain_title = "Next node after one trained node access"
     elif chain and chain[0].get("role") == "next_after_window":
         chain_title = "Next node after K predecessor accesses"
+    elif chain and chain[0].get("role") == "current_after_window":
+        chain_title = "Current node after fixed predecessor window"
+    elif chain and chain[0].get("role") == "next_after_direct":
+        chain_title = "Next node after direct chain_nodes accesses"
     else:
         chain_title = "Next node after executed pointer-chain depth"
 
@@ -235,6 +251,8 @@ def build_run_command(args):
         str(args.training_replays),
         args.mode,
     ]
+    if args.window_k is not None:
+        test_args.append(str(args.window_k))
 
     if args.runner:
         return shlex.split(args.runner) + test_args
@@ -253,11 +271,15 @@ def main():
         description="Build and run the CMC existence test."
     )
     parser.add_argument("--rounds", type=int, default=40000)
-    parser.add_argument("--threshold-ns", type=int, default=150)
-    parser.add_argument("--training-replays", type=int, default=128)
-    parser.add_argument("--mode", choices=["node", "depth", "window"], default="node",
-                        help="node: access node[n] then probe node[n+1]; depth: access node0..node(depth-1) then probe node(depth); window: access node[n-K]..node[n] then probe node[n+1].")
-    parser.add_argument("--core", type=int, default=5)
+    parser.add_argument("--threshold-ns", type=int, default=120)
+    parser.add_argument("--training-replays", type=int, default=10)
+    parser.add_argument("--mode", choices=["node", "depth", "direct", "window"], default="node",
+                        help="node: access node[n] then probe node[n+1]; depth: pointer-load node0..node(depth-1) then probe node(depth); direct: directly load chain_nodes[0..depth-1] then probe chain_nodes[depth]; window: sweep K by default, or use --window-k to probe current node after K predecessors.")
+    parser.add_argument("--window-k", type=int, default=None,
+                        help="For --mode window, use fixed K: access node[n-K]..node[n-1], then probe node[n]. Omit to sweep K.")
+    parser.add_argument("-a", "--arch", type=str.upper, choices=ARCHES, default="A725")
+    parser.add_argument("-c", "--core", type=int, default=None,
+                        help="Override the core selected by --arch.")
     parser.add_argument("--access", choices=["load"], default="load",
                         help="Access mode label; the C test currently supports load only.")
     parser.add_argument("--compiler", default=default_compiler())
@@ -272,8 +294,18 @@ def main():
     parser.add_argument("--force-run", action="store_true")
     args = parser.parse_args()
 
+    if len(ARCHES) != len(CORES):
+        raise SystemExit("ARCHES and CORES must have the same length")
+    if args.core is None:
+        args.core = core_for_arch(args.arch)
+
     if args.rounds <= 0 or args.threshold_ns <= 0 or args.training_replays <= 0:
         raise SystemExit("rounds, threshold-ns, and training-replays must be positive")
+    if args.window_k is not None:
+        if args.mode != "window":
+            raise SystemExit("--window-k can only be used with --mode window")
+        if args.window_k < 0 or args.window_k >= 128:
+            raise SystemExit("--window-k must be in the range 0..127")
 
     if not args.no_build:
         compile_test(args.compiler, static=not args.no_static)
@@ -286,8 +318,13 @@ def main():
 
     RES_DIR.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    result_path = Path(args.output) if args.output else RES_DIR / f"exist-{args.access}-{args.mode}-{timestamp}.txt"
-    plot_path = Path(args.plot) if args.plot else RES_DIR / f"exist-{args.access}-{args.mode}-{timestamp}.png"
+    window_suffix = f"-wink{args.window_k}" if args.window_k is not None else ""
+    stem = (
+        f"exist-{args.access}-{args.arch}-cpu{args.core}-"
+        f"{args.mode}{window_suffix}-thr{args.threshold_ns}-{timestamp}"
+    )
+    result_path = Path(args.output) if args.output else RES_DIR / f"{stem}.txt"
+    plot_path = Path(args.plot) if args.plot else RES_DIR / f"{stem}.png"
 
     cmd = build_run_command(args)
     env = os.environ.copy()
@@ -315,7 +352,11 @@ def main():
     )
 
     if not args.no_plot:
-        plotted = plot_result(result.stdout, plot_path, "CMC existence test")
+        plotted = plot_result(
+            result.stdout,
+            plot_path,
+            f"CMC existence test {args.arch} CPU {args.core} {args.mode} threshold {args.threshold_ns} ns",
+        )
         if plotted:
             print(f"Saved plot to {plot_path}")
 

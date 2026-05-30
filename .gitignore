@@ -1,8 +1,10 @@
 # Ignore build outputs and generated binaries
 /sms/bin/
 /stride-prefetcher/bin
-/cmc/bin
+/cmc/bin/
+/cmc/res/
 /cmc/__pycache__/
+/sms/bin/
 
 # Ignore local editor/OS files
 *.swp

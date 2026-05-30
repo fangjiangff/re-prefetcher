@@ -17,8 +17,8 @@
 #define CHAIN_NODE_COUNT 128
 #define CONTROL_NODE_COUNT 16
 #define DEFAULT_ROUNDS 40000
-#define DEFAULT_THRESHOLD_NS 150
-#define DEFAULT_TRAINING_REPLAYS 128
+#define DEFAULT_THRESHOLD_NS 120
+#define DEFAULT_TRAINING_REPLAYS 1
 #define NODE_SEED 0x9e3779b97f4a7c15ULL
 
 struct node {
@@ -387,9 +387,10 @@ static void run_depth_test(int rounds, uint64_t hit_threshold_ns,
     print_controls(control_latency_ns, control_probes);
 }
 
-static void run_window_test(int rounds, uint64_t hit_threshold_ns,
+
+static void run_direct_test(int rounds, uint64_t hit_threshold_ns,
                             int training_replays) {
-    const size_t k_count = CHAIN_NODE_COUNT - 1;
+    const size_t target_count = CHAIN_NODE_COUNT - 1;
     int depth_hits[CHAIN_NODE_COUNT - 1];
     int depth_probes[CHAIN_NODE_COUNT - 1];
     uint64_t depth_latency_ns[CHAIN_NODE_COUNT - 1];
@@ -409,25 +410,162 @@ static void run_window_test(int rounds, uint64_t hit_threshold_ns,
         flush_nodes(control_nodes, CONTROL_NODE_COUNT);
         mfence();
 
-        size_t k = (size_t)round % k_count;
-        size_t sample = (size_t)round / k_count;
-        size_t node_idx = sample % CHAIN_NODE_COUNT;
-        size_t start_idx = (node_idx + CHAIN_NODE_COUNT - k) % CHAIN_NODE_COUNT;
-        size_t next_idx = (node_idx + 1) % CHAIN_NODE_COUNT;
+        size_t depth = 1 + ((size_t)round % target_count);
+        for (size_t step = 0; step < depth; step++) {
+            maccess(addr_for_node(chain_nodes[step]));
+        }
+        mfence();
 
+        delay_before_probe();
+        uint64_t t = reload_time_ns(addr_for_node(chain_nodes[depth]));
+        depth_latency_ns[depth - 1] += t;
+        depth_probes[depth - 1]++;
+        if (t <= hit_threshold_ns) {
+            depth_hits[depth - 1]++;
+        }
+
+        size_t control = (size_t)round % CONTROL_NODE_COUNT;
+        delay_before_probe();
+        t = reload_time_ns(addr_for_node(control_nodes[control]));
+        control_latency_ns[control] += t;
+        control_probes[control]++;
+    }
+
+    print_header("direct", rounds, hit_threshold_ns, training_replays);
+    printf("# each row directly loads chain_nodes[0..depth-1], then probes chain_nodes[depth].\n");
+
+    printf("\n[depth_next]\n");
+    printf("# depth\tpage\tline\trole\t\tprobes\thits\tper_1000\tavg_latency_ns\n");
+    for (size_t depth = 1; depth <= target_count; depth++) {
+        int probes = depth_probes[depth - 1];
+        uint64_t avg_latency_ns = probes > 0 ?
+            depth_latency_ns[depth - 1] / (uint64_t)probes : 0;
+        int per_1000 = probes > 0 ? depth_hits[depth - 1] * 1000 / probes : 0;
+
+        printf("%3zu\t%3zu\t%2zu\tnext_after_direct\t%6d\t%5d\t%4d\t\t%5lu\n",
+               depth,
+               chain_nodes[depth].page,
+               chain_nodes[depth].line,
+               probes,
+               depth_hits[depth - 1],
+               per_1000,
+               (unsigned long)avg_latency_ns);
+    }
+
+    print_controls(control_latency_ns, control_probes);
+}
+
+static void run_window_test(int rounds, uint64_t hit_threshold_ns,
+                            int training_replays, int window_k) {
+    if (window_k < 0) {
+        const size_t k_count = CHAIN_NODE_COUNT - 1;
+        int depth_hits[CHAIN_NODE_COUNT - 1];
+        int depth_probes[CHAIN_NODE_COUNT - 1];
+        uint64_t depth_latency_ns[CHAIN_NODE_COUNT - 1];
+        uint64_t control_latency_ns[CONTROL_NODE_COUNT];
+        int control_probes[CONTROL_NODE_COUNT];
+
+        memset(depth_hits, 0, sizeof(depth_hits));
+        memset(depth_probes, 0, sizeof(depth_probes));
+        memset(depth_latency_ns, 0, sizeof(depth_latency_ns));
+        memset(control_latency_ns, 0, sizeof(control_latency_ns));
+        memset(control_probes, 0, sizeof(control_probes));
+
+        for (int round = 0; round < rounds; round++) {
+            train_cmc_sequence(training_replays);
+
+            flush_nodes(chain_nodes, CHAIN_NODE_COUNT);
+            flush_nodes(control_nodes, CONTROL_NODE_COUNT);
+            mfence();
+
+            size_t k = (size_t)round % k_count;
+            size_t sample = (size_t)round / k_count;
+            size_t node_idx = sample % CHAIN_NODE_COUNT;
+            size_t start_idx = (node_idx + CHAIN_NODE_COUNT - k) % CHAIN_NODE_COUNT;
+            size_t next_idx = (node_idx + 1) % CHAIN_NODE_COUNT;
+
+            void *addr = addr_for_node(chain_nodes[start_idx]);
+            for (size_t step = 0; step <= k; step++) {
+                addr = chain_step(addr);
+            }
+            (void)addr;
+            mfence();
+
+            delay_before_probe();
+            uint64_t t = reload_time_ns(addr_for_node(chain_nodes[next_idx]));
+            depth_latency_ns[k] += t;
+            depth_probes[k]++;
+            if (t <= hit_threshold_ns) {
+                depth_hits[k]++;
+            }
+
+            size_t control = (size_t)round % CONTROL_NODE_COUNT;
+            delay_before_probe();
+            t = reload_time_ns(addr_for_node(control_nodes[control]));
+            control_latency_ns[control] += t;
+            control_probes[control]++;
+        }
+
+        print_header("window", rounds, hit_threshold_ns, training_replays);
+        printf("# sweep mode: each row selects node[n], executes node[n-K]..node[n], then probes node[n+1].\n");
+        printf("# K is the number of predecessor transitions before the final node[n] access.\n");
+
+        printf("\n[depth_next]\n");
+        printf("# K\tloads\trole\t\tprobes\thits\tper_1000\tavg_latency_ns\n");
+        for (size_t k = 0; k < k_count; k++) {
+            int probes = depth_probes[k];
+            uint64_t avg_latency_ns = probes > 0 ?
+                depth_latency_ns[k] / (uint64_t)probes : 0;
+            int per_1000 = probes > 0 ? depth_hits[k] * 1000 / probes : 0;
+
+            printf("%3zu\t%5zu\tnext_after_window\t%6d\t%5d\t%4d\t\t%5lu\n",
+                   k,
+                   k + 1,
+                   probes,
+                   depth_hits[k],
+                   per_1000,
+                   (unsigned long)avg_latency_ns);
+        }
+
+        print_controls(control_latency_ns, control_probes);
+        return;
+    }
+
+    const size_t fixed_k = (size_t)window_k;
+    int current_hits[CHAIN_NODE_COUNT];
+    int current_probes[CHAIN_NODE_COUNT];
+    uint64_t current_latency_ns[CHAIN_NODE_COUNT];
+    uint64_t control_latency_ns[CONTROL_NODE_COUNT];
+    int control_probes[CONTROL_NODE_COUNT];
+
+    memset(current_hits, 0, sizeof(current_hits));
+    memset(current_probes, 0, sizeof(current_probes));
+    memset(current_latency_ns, 0, sizeof(current_latency_ns));
+    memset(control_latency_ns, 0, sizeof(control_latency_ns));
+    memset(control_probes, 0, sizeof(control_probes));
+
+    for (int round = 0; round < rounds; round++) {
+        train_cmc_sequence(training_replays);
+
+        flush_nodes(chain_nodes, CHAIN_NODE_COUNT);
+        flush_nodes(control_nodes, CONTROL_NODE_COUNT);
+        mfence();
+
+        size_t node_idx = (size_t)round % CHAIN_NODE_COUNT;
+        size_t start_idx = (node_idx + CHAIN_NODE_COUNT - fixed_k) % CHAIN_NODE_COUNT;
         void *addr = addr_for_node(chain_nodes[start_idx]);
-        for (size_t step = 0; step <= k; step++) {
+        for (size_t step = 0; step < fixed_k; step++) {
             addr = chain_step(addr);
         }
         (void)addr;
         mfence();
 
         delay_before_probe();
-        uint64_t t = reload_time_ns(addr_for_node(chain_nodes[next_idx]));
-        depth_latency_ns[k] += t;
-        depth_probes[k]++;
+        uint64_t t = reload_time_ns(addr_for_node(chain_nodes[node_idx]));
+        current_latency_ns[node_idx] += t;
+        current_probes[node_idx]++;
         if (t <= hit_threshold_ns) {
-            depth_hits[k]++;
+            current_hits[node_idx]++;
         }
 
         size_t control = (size_t)round % CONTROL_NODE_COUNT;
@@ -438,22 +576,23 @@ static void run_window_test(int rounds, uint64_t hit_threshold_ns,
     }
 
     print_header("window", rounds, hit_threshold_ns, training_replays);
-    printf("# each row selects a rotating node[n], executes node[n-K]..node[n], then probes node[n+1].\n");
-    printf("# K is the number of predecessor transitions before the final node[n] access.\n");
+    printf("# fixed mode: executes the previous K=%zu pointer loads, then probes current node[n].\n", fixed_k);
+    printf("# each row reports whether node[n] was prefetched after node[n-K]..node[n-1].\n");
 
     printf("\n[depth_next]\n");
-    printf("# K\tloads\trole\t\tprobes\thits\tper_1000\tavg_latency_ns\n");
-    for (size_t k = 0; k < k_count; k++) {
-        int probes = depth_probes[k];
+    printf("# node\tpage\tline\trole\t\tprobes\thits\tper_1000\tavg_latency_ns\n");
+    for (size_t node_idx = 0; node_idx < CHAIN_NODE_COUNT; node_idx++) {
+        int probes = current_probes[node_idx];
         uint64_t avg_latency_ns = probes > 0 ?
-            depth_latency_ns[k] / (uint64_t)probes : 0;
-        int per_1000 = probes > 0 ? depth_hits[k] * 1000 / probes : 0;
+            current_latency_ns[node_idx] / (uint64_t)probes : 0;
+        int per_1000 = probes > 0 ? current_hits[node_idx] * 1000 / probes : 0;
 
-        printf("%3zu\t%5zu\tnext_after_window\t%6d\t%5d\t%4d\t\t%5lu\n",
-               k,
-               k + 1,
+        printf("%3zu\t%3zu\t%2zu\tcurrent_after_window\t%6d\t%5d\t%4d\t\t%5lu\n",
+               node_idx,
+               chain_nodes[node_idx].page,
+               chain_nodes[node_idx].line,
                probes,
-               depth_hits[k],
+               current_hits[node_idx],
                per_1000,
                (unsigned long)avg_latency_ns);
     }
@@ -462,7 +601,7 @@ static void run_window_test(int rounds, uint64_t hit_threshold_ns,
 }
 
 static void print_usage(const char *prog) {
-    fprintf(stderr, "usage: %s [rounds threshold_ns training_replays [node|depth|window]]\n", prog);
+    fprintf(stderr, "usage: %s [rounds threshold_ns training_replays [node|depth|direct|window [window_k]]]\n", prog);
     fprintf(stderr, "default: rounds=%d threshold_ns=%d training_replays=%d mode=node\n",
             DEFAULT_ROUNDS, DEFAULT_THRESHOLD_NS, DEFAULT_TRAINING_REPLAYS);
 }
@@ -472,8 +611,9 @@ int main(int argc, char **argv) {
     uint64_t hit_threshold_ns = DEFAULT_THRESHOLD_NS;
     int training_replays = DEFAULT_TRAINING_REPLAYS;
     const char *mode = "node";
+    int window_k = -1;
 
-    if (argc != 1 && argc != 4 && argc != 5) {
+    if (argc != 1 && argc != 4 && argc != 5 && argc != 6) {
         print_usage(argv[0]);
         return 1;
     }
@@ -482,16 +622,25 @@ int main(int argc, char **argv) {
         hit_threshold_ns = strtoull(argv[2], NULL, 0);
         training_replays = atoi(argv[3]);
     }
-    if (argc == 5) {
+    if (argc >= 5) {
         mode = argv[4];
         if (strcmp(mode, "node") != 0 &&
             strcmp(mode, "depth") != 0 &&
+            strcmp(mode, "direct") != 0 &&
             strcmp(mode, "window") != 0) {
             print_usage(argv[0]);
             return 1;
         }
     }
-    if (rounds <= 0 || hit_threshold_ns == 0 || training_replays <= 0) {
+    if (argc == 6) {
+        window_k = atoi(argv[5]);
+    }
+    if (rounds <= 0 || hit_threshold_ns == 0 || training_replays <= 0 ||
+        window_k >= CHAIN_NODE_COUNT) {
+        print_usage(argv[0]);
+        return 1;
+    }
+    if (argc == 6 && (strcmp(mode, "window") != 0 || window_k < 0)) {
         print_usage(argv[0]);
         return 1;
     }
@@ -522,8 +671,10 @@ int main(int argc, char **argv) {
 
     if (strcmp(mode, "depth") == 0) {
         run_depth_test(rounds, hit_threshold_ns, training_replays);
+    } else if (strcmp(mode, "direct") == 0) {
+        run_direct_test(rounds, hit_threshold_ns, training_replays);
     } else if (strcmp(mode, "window") == 0) {
-        run_window_test(rounds, hit_threshold_ns, training_replays);
+        run_window_test(rounds, hit_threshold_ns, training_replays, window_k);
     } else {
         run_node_test(rounds, hit_threshold_ns, training_replays);
     }
