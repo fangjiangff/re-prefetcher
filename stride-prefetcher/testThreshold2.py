@@ -7,18 +7,27 @@ import argparse
 import os
 
 # SRC = "triggerThreshold.cc"
-SRC = "triggerThreshold-x86.cc"
-OUT = "bin/triggerThreshold-x86"
-# SRC = "triggerThreshold-arm2.cc"
-# OUT = "bin/triggerThreshold-arm2"
-ARCHES = ["RaptorCove", "Gracemont"]
-CORES = [0, 16]
-if len(ARCHES) != len(CORES):
-    raise ValueError("ARCHES and CORES must have the same length")
-
-ARCH_CORE_MAP = dict(zip(ARCHES, CORES))
-DEFAULT_ARCH = ARCHES[0]
-DEFAULT_STRIDE = 30
+ARCH_CONFIG = {
+    "A76": {
+        "core": 2,
+        "src": "triggerThreshold-arm2.cc",
+        "out": "bin/triggerThreshold-arm2",
+    },
+    "RaptorCove": {
+        "core": 0,
+        "src": "triggerThreshold-x86.cc",
+        "out": "bin/triggerThreshold-x86",
+    },
+    "Gracemont": {
+        "core": 16,
+        "src": "triggerThreshold-x86.cc",
+        "out": "bin/triggerThreshold-x86",
+    },
+}
+DEFAULT_ARCH = "A76"
+DEFAULT_STRIDE = 15
+DEFAULT_OUTPUT_DIR = "res"
+DEFAULT_HEATMAP_DIR = "res/heatmaps"
 
 # configs = [(1,1), (1,0), (0,1), (0,0)]
 # configs = [ (0,0), (1,0)]
@@ -32,16 +41,19 @@ def parse_args():
     parser.add_argument("--core", type=int, default=None,
                         help="Override CPU core used by taskset and CPU_ID. "
                              "Default is selected from --arch.")
-    parser.add_argument("--arch", default=DEFAULT_ARCH, choices=ARCHES,
-                        help=f"Architecture to run. Choices: {', '.join(ARCHES)}. "
-                             f"Default: {DEFAULT_ARCH}")
+    parser.add_argument("--arch", default=DEFAULT_ARCH, choices=ARCH_CONFIG.keys(),
+                        help=f"Architecture name used in output filenames. Default: {DEFAULT_ARCH}")
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR,
+                        help=f"Directory for xlsx results. Default: {DEFAULT_OUTPUT_DIR}")
+    parser.add_argument("--heatmap-dir", default=DEFAULT_HEATMAP_DIR,
+                        help=f"Directory for generated heatmaps. Default: {DEFAULT_HEATMAP_DIR}")
     parser.add_argument("--plot-only", action="store_true",
                         help="Only plot from an existing result workbook.")
     args = parser.parse_args()
     if args.stride < 1:
         parser.error("--stride must be >= 1")
     if args.core is None:
-        args.core = ARCH_CORE_MAP[args.arch]
+        args.core = ARCH_CONFIG[args.arch]["core"]
     if args.core < 0:
         parser.error("--core must be >= 0")
     return args
@@ -51,7 +63,7 @@ args = parse_args()
 micro_arch = f"{args.arch}-core{args.core}-stride={args.stride}"
 wb = openpyxl.Workbook()
 PLOT_ONLY = args.plot_only
-INPUT_FILE = f"res/threshold-{micro_arch}.xlsx"
+INPUT_FILE = os.path.join(args.output_dir, f"threshold-{micro_arch}.xlsx")
 
 TARGET_SHEETS = [
     "HIT0-ST0-SW0",  # Miss Load
@@ -105,10 +117,16 @@ def plot_heatmaps():
         print("No valid sheets found.")
         return
 
-    # 创建子图：1行 num_sheets 列
-    fig, axes = plt.subplots(1, num_sheets, figsize=(6 * num_sheets, 8))
-    if num_sheets == 1:
-        axes = [axes]
+    # 创建等宽热图子图，并把 colorbar 放到单独的轴上，避免挤压最后一张热图。
+    fig = plt.figure(figsize=(6 * num_sheets + 0.5, 8), constrained_layout=True)
+    gs = fig.add_gridspec(
+        1,
+        num_sheets + 1,
+        width_ratios=[1] * num_sheets + [0.04],
+        wspace=0.08,
+    )
+    axes = [fig.add_subplot(gs[0, i]) for i in range(num_sheets)]
+    cbar_ax = fig.add_subplot(gs[0, num_sheets])
 
     for i, sheet_name in enumerate(valid_sheets):
         print(f"Processing sheet: {sheet_name}")
@@ -128,7 +146,19 @@ def plot_heatmaps():
             df = df.dropna(how="all").dropna(axis=1, how="all")
 
             # 绘制热力图
-            sns.heatmap(df, cmap="RdYlBu_r", annot=False, ax=ax, vmin=20, vmax=300, cbar=(i == num_sheets - 1), yticklabels=(i == 0),linewidths=0.35, linecolor='gray')
+            sns.heatmap(
+                df,
+                cmap="RdYlBu_r",
+                annot=False,
+                ax=ax,
+                vmin=0,
+                vmax=400,
+                cbar=(i == num_sheets - 1),
+                cbar_ax=(cbar_ax if i == num_sheets - 1 else None),
+                yticklabels=(i == 0),
+                linewidths=0.35,
+                linecolor='gray',
+            )
             
             ax.set_title(f"{title_map.get(sheet_name, sheet_name)}", fontsize=14)
             ax.set_xlabel("Test Position (i * Stride)")
@@ -139,8 +169,8 @@ def plot_heatmaps():
             ax.text(0.5, 0.5, "Error", ha='center', va='center')
 
     workbook.close()
-    plt.tight_layout()
-    output_path = os.path.join("res/heatmaps", f"{micro_arch}.png")
+    os.makedirs(args.heatmap_dir, exist_ok=True)
+    output_path = os.path.join(args.heatmap_dir, f"{micro_arch}.png")
     plt.savefig(output_path, dpi=300)
     plt.close()
     print(f"Saved combined heatmap to {output_path}")
@@ -150,6 +180,11 @@ def plot_heatmaps():
 def run_tests():
     if PLOT_ONLY:
         return
+
+    arch_config = ARCH_CONFIG[args.arch]
+    src = arch_config["src"]
+    out = arch_config["out"]
+    os.makedirs(os.path.dirname(out), exist_ok=True)
 
     for hit,st, sw in configs:
         print("="*60)
@@ -168,8 +203,8 @@ def run_tests():
             f"-DSTRIDE={args.stride}",
             f"-DCPU_ID={args.core}",
             "-o",
-            OUT,
-            SRC
+            out,
+            src
         ]
 
         res = subprocess.run(compile_cmd)
@@ -179,7 +214,7 @@ def run_tests():
             continue
 
         run = subprocess.run(
-            ["taskset", "-c", str(args.core), "./" + OUT],
+            ["taskset", "-c", str(args.core), "./" + out],
             capture_output=True,
             text=True
         )
@@ -216,6 +251,7 @@ def run_tests():
 
     if "Sheet" in wb.sheetnames:
         del wb["Sheet"]
+    os.makedirs(args.output_dir, exist_ok=True)
     wb.save(INPUT_FILE)
 
 

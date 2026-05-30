@@ -4,6 +4,7 @@
 #include <sched.h>
 #include "cacheutils.hh"
 #include "utils.hh"
+#include <algorithm>
 #include <random>
 #include <sys/mman.h>
 // #include <x86intrin.h>
@@ -124,12 +125,36 @@ long long int res2[100][Items] = {0};
 
 
 #define DUMMY_BUFFER_SIZE (PAGE_SIZE * 10)
+#define DUMMY_LINES (DUMMY_BUFFER_SIZE / LINE_SIZE)
 
 static uint8_t* dummy_buffer;
+static uint32_t dummy_order[DUMMY_LINES];
+
+void initDummyAccesses(){
+    for(uint32_t i = 0; i < DUMMY_LINES; i++){
+        dummy_order[i] = i;
+    }
+
+    std::mt19937 rng(0x5eed1234);
+    std::shuffle(dummy_order, dummy_order + DUMMY_LINES, rng);
+}
+
+__attribute__((always_inline)) static inline void maccess_inline(void *p) {
+    volatile uint32_t value;
+    asm volatile("LDR %0, [%1]\n\t" : "=r"(value) : "r"(p));
+}
+
+__attribute__((always_inline)) static inline void prefetchch_inline(void *p) {
+    // volatile uint32_t value;
+    asm volatile("PRFM PLDL1KEEP, [%0]\n\t" : : "r"(p));
+}
 
 void dummyAccesses(){
-     for(uint64_t i = 0; i < DUMMY_BUFFER_SIZE; i += 64){
-        maccess(&dummy_buffer[i]); 
+     for(uint32_t j = 0; j < DUMMY_LINES; j++){
+        uint64_t i = dummy_order[j] * LINE_SIZE;
+        asm volatile("PRFM PLDL3KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
      }
 }
 
@@ -151,6 +176,7 @@ int main(){
       printf("failed to map memory to access!\n");
       exit(1);
   }
+  initDummyAccesses();
 
   // EnableStride(CPU_ID);
   int i;    
@@ -163,19 +189,24 @@ int main(){
   }
 
 
-  int rounds = 1000;
+  int rounds = 100;
 
   // for(int stride = 64; stride <= 4096; stride+=64){
     int stride = STRIDE * LINE_SIZE;
       // printf("Stride %d*64:\t%d\t\t",stride/64,stride);
       for(int train_step = 1; train_step <= 40 ; train_step++){
+        
         for(int pos = 0;pos < PROBE_POSITIONS; pos++){//test one position
+            // dummyAccesses();
             for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
-              dummyAccesses();//for dummy accesses , reset the prefetcher state         
               for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                 // _mm_clflush(&array2[offset]);
                 flush(&array2[offset]);
               }
+
+              // dummyAccesses();       
+              
+              for(int n=0;n<100;n++) nop();
               // with stride prefetcher training
               for(int repeat = 0; repeat < 5; repeat ++) {
                 //train the prefetcher..
@@ -199,12 +230,12 @@ int main(){
               }
 
               //wait for prefetch done.
-              uint64_t dummy = 0;
-              for(int k =0;k<100;k++){
-                dummy += array1[k*64];
-                mfence();
-              }
-              for(int i=0;i<100;i++) nop(); mfence();
+              // uint64_t dummy = 0;
+              // for(int k =0;k<100;k++){
+              //   dummy += array1[k*64];
+              //   mfence();
+              // }
+              // for(int i=0;i<100;i++) nop(); mfence();
 
               //test the different position.
               probe_addr = array2 + (pos * stride);

@@ -48,13 +48,15 @@
 #endif
 
 #define CACHELINE 64ULL
-
+// 每个节点只保存一个 next 指针
 struct Node {
     struct Node *next;
 };
 
+// 用来防止编译器把访存循环优化掉
 static volatile uintptr_t global_sink;
 
+//简单的 64-bit 伪随机数生成器
 static inline uint64_t splitmix64_next(uint64_t *x) {
     uint64_t z = (*x += 0x9e3779b97f4a7c15ULL);
     z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -74,6 +76,7 @@ static inline uint64_t now_ticks(void) {
 #endif
 }
 
+// 函数返回计时器频率
 static inline uint64_t ticks_freq(void) {
 #if defined(__aarch64__)
     uint64_t f;
@@ -84,6 +87,8 @@ static inline uint64_t ticks_freq(void) {
 #endif
 }
 
+//dsb sy: 等待前面的内存操作完成
+// isb: 同步指令流
 static inline void full_barrier(void) {
 #if defined(__aarch64__)
     asm volatile("dsb sy; isb" ::: "memory");
@@ -92,6 +97,7 @@ static inline void full_barrier(void) {
 #endif
 }
 
+//这个函数把当前进程绑定到指定 CPU core。
 static int pin_cpu(int cpu) {
     if (cpu < 0) return 0;
     cpu_set_t set;
@@ -104,14 +110,21 @@ static int pin_cpu(int cpu) {
     return 0;
 }
 
+//根据节点编号返回节点地址
+// base: 内存区域的起始地址
+// idx: 节点编号
+// spacing: 每个节点之间的字节间隔 如果 spacing 是 4096，那么节点 0 就在 base + 0*4096，节点 1 就在 base + 1*4096，以此类推
+// 这样做的目的是为了让每个节点都在不同的内存页上，从而避免预取器基于空间局部性进行预取
 static inline struct Node *node_at(char *base, size_t idx, size_t spacing) {
     return (struct Node *)(void *)(base + idx * spacing);
 }
 
+// 初始化一个顺序数组
 static void init_perm(size_t *perm, size_t n) {
     for (size_t i = 0; i < n; i++) perm[i] = i;
 }
 
+//打乱访问顺序
 static void shuffle_perm(size_t *perm, size_t n, uint64_t *rng) {
     for (size_t i = n - 1; i > 0; i--) {
         size_t j = (size_t)(splitmix64_next(rng) % (i + 1));
@@ -126,6 +139,7 @@ static void shuffle_perm(size_t *perm, size_t n, uint64_t *rng) {
  * The actual stores to nodes are done in linear node-index order.  This avoids
  * accidentally training a temporal prefetcher during construction.
  */
+// 它根据随机排列 perm 构造一个环形链表
 static struct Node *build_cycle_linear_writes(char *base, size_t n, size_t spacing,
                                              const size_t *perm, size_t *succ) {
     for (size_t pos = 0; pos < n; pos++) {
@@ -207,7 +221,8 @@ static void usage(const char *prog) {
 }
 
 int main(int argc, char **argv) {
-    size_t n = 32768;
+    // size_t n = 32768;
+    size_t n = 1024;
     size_t spacing = 4096;
     int passes = 8;
     int cpu = -1;
