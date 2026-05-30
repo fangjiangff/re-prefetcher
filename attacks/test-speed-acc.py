@@ -6,15 +6,15 @@ import sys
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SOURCE = os.path.join(SCRIPT_DIR, "test-speed-2.cc")
+SOURCE = os.path.join(SCRIPT_DIR, "test-speed-acc.cc")
 BIN_DIR = os.path.join(SCRIPT_DIR, "bin")
-BIN = os.path.join(BIN_DIR, "test-speed-2")
-DEFAULT_CSV = os.path.join(SCRIPT_DIR, "res", "test-speed-2.csv")
-DEFAULT_OUTPUT = os.path.join(SCRIPT_DIR, "res", "test-speed-2-line.png")
+BIN = os.path.join(BIN_DIR, "test-speed-acc")
+DEFAULT_CSV = os.path.join(SCRIPT_DIR, "res", "test-speed-acc.csv")
+DEFAULT_OUTPUT = os.path.join(SCRIPT_DIR, "res", "test-speed-acc-line.png")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Plot test-speed-2 grouped miss-access results.")
+    parser = argparse.ArgumentParser(description="Plot test-speed-acc grouped miss-access results.")
     parser.add_argument("--array-mb", type=int, default=256)
     parser.add_argument("--trials", type=int, default=1000)
     parser.add_argument("--seed", type=lambda x: int(x, 0), default=0x5eed1234)
