@@ -84,7 +84,7 @@ def build_binary(args):
     cmd = [
         args.cxx,
         "-std=gnu++11",
-        "-O2",
+        "-O0",
         "-Wall",
         "-Wextra",
         f"-DUSE_CNTVCT={1 if args.use_cntvct else 0}",
