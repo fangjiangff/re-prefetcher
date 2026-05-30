@@ -253,6 +253,7 @@ def build_run_command(args):
     ]
     if args.window_k is not None:
         test_args.append(str(args.window_k))
+    test_args.append(args.access)
 
     if args.runner:
         return shlex.split(args.runner) + test_args
@@ -280,8 +281,8 @@ def main():
     parser.add_argument("-a", "--arch", type=str.upper, choices=ARCHES, default="A725")
     parser.add_argument("-c", "--core", type=int, default=None,
                         help="Override the core selected by --arch.")
-    parser.add_argument("--access", choices=["load"], default="load",
-                        help="Access mode label; the C test currently supports load only.")
+    parser.add_argument("--access", choices=["load", "sw"], default="load",
+                        help="load: pointer-load accesses; sw: issue PRFM before each chain load.")
     parser.add_argument("--compiler", default=default_compiler())
     parser.add_argument("--runner", default=None,
                         help="Optional runner prefix, for example: qemu-aarch64 -L /usr/aarch64-linux-gnu")

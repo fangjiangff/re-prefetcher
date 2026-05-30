@@ -40,6 +40,7 @@ static uint8_t delay_array[100 * CACHE_LINE_SIZE] = {0};
 static uint8_t *mapping;
 static size_t mapping_size;
 static uint64_t timer_freq_hz;
+static int use_sw_prefetch;
 
 static inline void mfence(void) {
     asm volatile("DSB SY\nISB" ::: "memory");
@@ -89,10 +90,21 @@ static inline uint64_t ticks_to_ns(uint64_t ticks) {
  * Keep all pointer-chain accesses at one stable load PC. This is important
  * when testing whether a temporal prefetcher uses PC-localized streams.
  */
+__attribute__((noinline)) static void chain_sw_prefetch(void *addr) {
+    asm volatile("prfm pldl1keep, [%0]\n\t" :: "r"(addr) : "memory");
+}
+
 __attribute__((noinline)) static void *chain_step(void *addr) {
     void *next;
     asm volatile("ldr %0, [%1]\n\t" : "=r"(next) : "r"(addr) : "memory");
     return next;
+}
+
+static inline void *chain_access_step(void *addr) {
+    if (use_sw_prefetch) {
+        chain_sw_prefetch(addr);
+    }
+    return chain_step(addr);
 }
 
 static uint8_t *addr_for_node(struct node n) {
@@ -211,9 +223,15 @@ static void train_cmc_sequence(int training_replays) {
     for (int replay = 0; replay < training_replays; replay++) {
         flush_nodes(chain_nodes, CHAIN_NODE_COUNT);
 
-        void *addr = addr_for_node(chain_nodes[0]);
-        for (size_t i = 0; i < CHAIN_NODE_COUNT; i++) {
-            addr = chain_step(addr);
+        if (use_sw_prefetch) {
+            for (size_t i = 0; i < CHAIN_NODE_COUNT; i++) {
+                chain_sw_prefetch(addr_for_node(chain_nodes[i]));
+            }
+        } else {
+            void *addr = addr_for_node(chain_nodes[0]);
+            for (size_t i = 0; i < CHAIN_NODE_COUNT; i++) {
+                addr = chain_step(addr);
+            }
         }
         mfence();
     }
@@ -241,7 +259,8 @@ static void print_controls(const uint64_t *control_latency_ns,
 static void print_header(const char *mode, int rounds, uint64_t hit_threshold_ns,
                          int training_replays) {
     printf("# CMC next-node timing test\n");
-    printf("# access mode: pointer load only; software prefetch path removed\n");
+    printf("# access mode: %s\n",
+           use_sw_prefetch ? "software prefetch (PRFM) training" : "pointer load only");
     printf("# test mode: %s\n", mode);
     printf("# timer: cntvct_el0, cntfrq_el0=%lu Hz\n", (unsigned long)timer_freq_hz);
     printf("# rounds=%d threshold_ns=%lu training_replays=%d\n",
@@ -274,7 +293,7 @@ static void run_node_test(int rounds, uint64_t hit_threshold_ns,
 
         size_t node_idx = (size_t)round % transition_count;
         size_t next_idx = (node_idx + 1) % CHAIN_NODE_COUNT;
-        (void)chain_step(addr_for_node(chain_nodes[node_idx]));
+        (void)chain_access_step(addr_for_node(chain_nodes[node_idx]));
         mfence();
 
         delay_before_probe();
@@ -293,7 +312,7 @@ static void run_node_test(int rounds, uint64_t hit_threshold_ns,
     }
 
     print_header("node", rounds, hit_threshold_ns, training_replays);
-    printf("# each row accesses node[n] once through chain_step, then probes node[n+1].\n");
+    printf("# each row accesses node[n] once, then probes node[n+1].\n");
 
     printf("\n[node_next]\n");
     printf("# node\tnext\tpage\tline\trole\t\tprobes\thits\tper_1000\tavg_latency_ns\n");
@@ -343,7 +362,7 @@ static void run_depth_test(int rounds, uint64_t hit_threshold_ns,
         size_t depth = 1 + ((size_t)round % target_count);
         void *addr = addr_for_node(chain_nodes[0]);
         for (size_t step = 0; step < depth; step++) {
-            addr = chain_step(addr);
+            addr = chain_access_step(addr);
         }
         (void)addr;
         mfence();
@@ -364,7 +383,7 @@ static void run_depth_test(int rounds, uint64_t hit_threshold_ns,
     }
 
     print_header("depth", rounds, hit_threshold_ns, training_replays);
-    printf("# each row executes pointer loads node0..node(depth-1), then probes node(depth).\n");
+    printf("# each row executes chain accesses node0..node(depth-1), then probes node(depth).\n");
 
     printf("\n[depth_next]\n");
     printf("# depth\tpage\tline\trole\t\tprobes\thits\tper_1000\tavg_latency_ns\n");
@@ -412,7 +431,11 @@ static void run_direct_test(int rounds, uint64_t hit_threshold_ns,
 
         size_t depth = 1 + ((size_t)round % target_count);
         for (size_t step = 0; step < depth; step++) {
-            maccess(addr_for_node(chain_nodes[step]));
+            if (use_sw_prefetch) {
+                chain_sw_prefetch(addr_for_node(chain_nodes[step]));
+            } else {
+                maccess(addr_for_node(chain_nodes[step]));
+            }
         }
         mfence();
 
@@ -432,7 +455,7 @@ static void run_direct_test(int rounds, uint64_t hit_threshold_ns,
     }
 
     print_header("direct", rounds, hit_threshold_ns, training_replays);
-    printf("# each row directly loads chain_nodes[0..depth-1], then probes chain_nodes[depth].\n");
+    printf("# each row directly accesses chain_nodes[0..depth-1], then probes chain_nodes[depth].\n");
 
     printf("\n[depth_next]\n");
     printf("# depth\tpage\tline\trole\t\tprobes\thits\tper_1000\tavg_latency_ns\n");
@@ -486,7 +509,7 @@ static void run_window_test(int rounds, uint64_t hit_threshold_ns,
 
             void *addr = addr_for_node(chain_nodes[start_idx]);
             for (size_t step = 0; step <= k; step++) {
-                addr = chain_step(addr);
+                addr = chain_access_step(addr);
             }
             (void)addr;
             mfence();
@@ -555,7 +578,7 @@ static void run_window_test(int rounds, uint64_t hit_threshold_ns,
         size_t start_idx = (node_idx + CHAIN_NODE_COUNT - fixed_k) % CHAIN_NODE_COUNT;
         void *addr = addr_for_node(chain_nodes[start_idx]);
         for (size_t step = 0; step < fixed_k; step++) {
-            addr = chain_step(addr);
+            addr = chain_access_step(addr);
         }
         (void)addr;
         mfence();
@@ -576,7 +599,7 @@ static void run_window_test(int rounds, uint64_t hit_threshold_ns,
     }
 
     print_header("window", rounds, hit_threshold_ns, training_replays);
-    printf("# fixed mode: executes the previous K=%zu pointer loads, then probes current node[n].\n", fixed_k);
+    printf("# fixed mode: executes the previous K=%zu chain accesses, then probes current node[n].\n", fixed_k);
     printf("# each row reports whether node[n] was prefetched after node[n-K]..node[n-1].\n");
 
     printf("\n[depth_next]\n");
@@ -601,8 +624,8 @@ static void run_window_test(int rounds, uint64_t hit_threshold_ns,
 }
 
 static void print_usage(const char *prog) {
-    fprintf(stderr, "usage: %s [rounds threshold_ns training_replays [node|depth|direct|window [window_k]]]\n", prog);
-    fprintf(stderr, "default: rounds=%d threshold_ns=%d training_replays=%d mode=node\n",
+    fprintf(stderr, "usage: %s [rounds threshold_ns training_replays [node|depth|direct|window [window_k]] [load|sw]]\n", prog);
+    fprintf(stderr, "default: rounds=%d threshold_ns=%d training_replays=%d mode=node access=load\n",
             DEFAULT_ROUNDS, DEFAULT_THRESHOLD_NS, DEFAULT_TRAINING_REPLAYS);
 }
 
@@ -612,8 +635,9 @@ int main(int argc, char **argv) {
     int training_replays = DEFAULT_TRAINING_REPLAYS;
     const char *mode = "node";
     int window_k = -1;
+    const char *access = "load";
 
-    if (argc != 1 && argc != 4 && argc != 5 && argc != 6) {
+    if (argc != 1 && argc != 4 && argc != 5 && argc != 6 && argc != 7) {
         print_usage(argv[0]);
         return 1;
     }
@@ -632,15 +656,34 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
-    if (argc == 6) {
-        window_k = atoi(argv[5]);
+    if (argc >= 6) {
+        if (strcmp(argv[5], "load") == 0 || strcmp(argv[5], "sw") == 0) {
+            access = argv[5];
+        } else {
+            window_k = atoi(argv[5]);
+            if (argc == 7) {
+                access = argv[6];
+            }
+        }
     }
     if (rounds <= 0 || hit_threshold_ns == 0 || training_replays <= 0 ||
         window_k >= CHAIN_NODE_COUNT) {
         print_usage(argv[0]);
         return 1;
     }
-    if (argc == 6 && (strcmp(mode, "window") != 0 || window_k < 0)) {
+    if (window_k >= 0 && strcmp(mode, "window") != 0) {
+        print_usage(argv[0]);
+        return 1;
+    }
+    if (argc == 7 && window_k < 0) {
+        print_usage(argv[0]);
+        return 1;
+    }
+    if (strcmp(access, "load") == 0) {
+        use_sw_prefetch = 0;
+    } else if (strcmp(access, "sw") == 0) {
+        use_sw_prefetch = 1;
+    } else {
         print_usage(argv[0]);
         return 1;
     }
