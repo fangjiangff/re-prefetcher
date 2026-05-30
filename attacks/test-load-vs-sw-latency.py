@@ -32,7 +32,18 @@ def parse_args():
     parser.add_argument(
         "--use-cntvct",
         action="store_true",
-        help="Use CNTVCT_EL0 instead of PMCCNTR_EL0 on AArch64.",
+        help="Use CNTVCT_EL0 on AArch64. This is the default.",
+    )
+    parser.add_argument(
+        "--use-pmccntr",
+        dest="use_cntvct",
+        action="store_false",
+        help="Use PMCCNTR_EL0 on AArch64. This may SIGILL unless EL0 PMU access is enabled.",
+    )
+    parser.add_argument(
+        "--use-clock-gettime",
+        action="store_true",
+        help="Use clock_gettime(CLOCK_MONOTONIC_RAW) instead of a hardware cycle counter.",
     )
     parser.add_argument(
         "--baseline-subtracted",
@@ -42,6 +53,7 @@ def parse_args():
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--plot-only", action="store_true")
     parser.add_argument("--csv", default=None)
+    parser.set_defaults(use_cntvct=True)
     return parser.parse_args()
 
 
@@ -72,10 +84,11 @@ def build_binary(args):
     cmd = [
         args.cxx,
         "-std=gnu++11",
-        "-O0",
+        "-O2",
         "-Wall",
         "-Wextra",
         f"-DUSE_CNTVCT={1 if args.use_cntvct else 0}",
+        f"-DUSE_CLOCK_GETTIME={1 if args.use_clock_gettime else 0}",
         "-o",
         BIN,
         SOURCE,

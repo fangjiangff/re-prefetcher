@@ -6,6 +6,7 @@
 #include <cstring>
 #include <random>
 #include <sys/mman.h>
+#include <time.h>
 #include <vector>
 #if defined(__x86_64__) || defined(__i386__)
 #include <cpuid.h>
@@ -25,6 +26,10 @@
 
 #ifndef USE_CNTVCT
 #define USE_CNTVCT 0
+#endif
+
+#ifndef USE_CLOCK_GETTIME
+#define USE_CLOCK_GETTIME 0
 #endif
 
 #ifndef LOAD_MISS_MAX_CYCLES
@@ -115,7 +120,11 @@ static bool is_prefetch_supported(PrefetchOp op) {
 }
 
 static inline uint64_t read_cycles() {
-#if defined(__aarch64__)
+#if USE_CLOCK_GETTIME
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL + static_cast<uint64_t>(ts.tv_nsec);
+#elif defined(__aarch64__)
     uint64_t value;
 #if USE_CNTVCT
     asm volatile("ISB\n\tMRS %0, CNTVCT_EL0\n\tISB" : "=r"(value) :: "memory");
@@ -356,7 +365,10 @@ int main(int argc, char **argv) {
 
     printf("array_mb=%zu line_size=%d lines=%zu samples=%d seed=0x%x\n",
            array_mb, LINE_SIZE, lines, samples, seed);
-#if defined(__aarch64__)
+#if USE_CLOCK_GETTIME
+    printf("arch=portable timer=CLOCK_MONOTONIC_RAW unit=ns sw_prefetch_cases=%zu\n",
+           sizeof(kPrefetchCases) / sizeof(kPrefetchCases[0]));
+#elif defined(__aarch64__)
 #if USE_CNTVCT
     printf("arch=aarch64 cycle_counter=CNTVCT_EL0 sw_prefetch_cases=%zu\n",
            sizeof(kPrefetchCases) / sizeof(kPrefetchCases[0]));
