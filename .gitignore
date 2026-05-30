@@ -1,10 +1,27 @@
-# Ignore build outputs and generated binaries
+# Python cache and local environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# Build outputs and generated binaries
+bin/
 /sms/bin/
-/stride-prefetcher/bin
+/stride-prefetcher/bin/
 /cmc/bin/
+/attacks/bin/
+/src/bin/
+
+# Generated local result/cache directories
 /cmc/res/
-/cmc/__pycache__/
-/sms/bin/
+.matplotlib/
 
 # Ignore local editor/OS files
 *.swp
@@ -14,5 +31,9 @@
 *.tmp
 *~
 
-# Ignore other untracked files you don't want to commit
-# Add more patterns below as needed
+# Logs and temporary outputs
+*.log
+*.out
+*.err
+core
+core.*
