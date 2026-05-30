@@ -3,6 +3,7 @@
 import argparse
 import os
 import re
+import statistics
 import subprocess
 import sys
 from pathlib import Path
@@ -93,6 +94,40 @@ def save_raw_output(text, out_dir, core, rounds):
     return raw_path
 
 
+def estimate_hit_threshold_cycles(tables):
+    control_rows = []
+    all_rows = []
+
+    for title, rows in tables.items():
+        all_rows.extend(rows)
+        if title.startswith("control:"):
+            control_rows.extend(rows)
+
+    rows_for_hit = control_rows if control_rows else all_rows
+    hit_values = [
+        row["cycles"]
+        for row in rows_for_hit
+        if row["role"] == "train_input" and row["cycles"] > 0
+    ]
+    miss_values = [
+        row["cycles"]
+        for row in rows_for_hit
+        if row["role"] == "probe" and row["cycles"] > 0
+    ]
+
+    if not hit_values or not miss_values:
+        raise RuntimeError("failed to estimate hit threshold from benchmark output")
+
+    hit_median = statistics.median(hit_values)
+    miss_median = statistics.median(miss_values)
+    if hit_median >= miss_median:
+        raise RuntimeError(
+            "failed to estimate hit threshold: train_input is not faster than probe"
+        )
+
+    return int(round((hit_median + miss_median) / 2))
+
+
 def classify_bar(row, hit_threshold_cycles):
     if row["role"] == "train_input":
         return "accessed"
@@ -137,7 +172,7 @@ def plot_tables(tables, out_dir, core, rounds, hit_threshold_cycles):
         ax.bar(lines, values, color=colors, edgecolor="black", linewidth=0.2, width=0.85)
         ax.set_title(title)
         ax.set_ylabel("avg cycles")
-        ax.set_ylim(0, 300)
+        ax.set_ylim(0, 20)
         ax.grid(axis="y", alpha=0.25)
 
     axes[-1].set_xlabel("kernel array2 cache line")
@@ -174,8 +209,8 @@ def main():
     parser.add_argument(
         "--hit-threshold-cycles",
         type=int,
-        default=150,
-        help="non-accessed lines below this latency are colored as prefetched",
+        default=None,
+        help="override the auto-estimated latency threshold for prefetched coloring",
     )
     parser.add_argument(
         "--sudo",
@@ -200,12 +235,19 @@ def main():
 
         raw_path = save_raw_output(output, args.out_dir, args.core, args.rounds)
         tables = parse_tables(output)
+        hit_threshold_cycles = args.hit_threshold_cycles
+        if hit_threshold_cycles is None:
+            hit_threshold_cycles = estimate_hit_threshold_cycles(tables)
+            print(f"# auto hit threshold: {hit_threshold_cycles} cycles")
+        else:
+            print(f"# manual hit threshold: {hit_threshold_cycles} cycles")
+
         png_path = plot_tables(
             tables,
             args.out_dir,
             args.core,
             args.rounds,
-            args.hit_threshold_cycles,
+            hit_threshold_cycles,
         )
 
         print(f"# raw output: {raw_path}")

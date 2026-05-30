@@ -67,7 +67,9 @@ sudo insmod kernel_stride_pf_probe.ko
 ./run_kernel_stride_pf.py --core 0 --rounds 4000 --keep-build
 ```
 
-绘图时，脚本默认把非 `train_input` 且低于 `150` ticks/cycles 的 line 标为 `prefetched`。可以用下面参数调整阈值：
+绘图时，脚本默认根据结果自动估计 hit threshold：优先使用 control 表中
+`train_input` 延迟中位数和普通 `probe` 延迟中位数的中点。非 `train_input`
+且低于该阈值的 line 会标为 `prefetched`。也可以用下面参数手动覆盖阈值：
 
 ```bash
 ./run_kernel_stride_pf.py --core 0 --rounds 4000 --hit-threshold-cycles 120
@@ -114,5 +116,5 @@ line    offset_bytes    avg_cycles    role
 
 - 用户态软件预取使用 `prfm pldl1keep, [addr]`。
 - 内核态 flush 使用 `dc civac`。
-- 内核态计时使用 `cntvct_el0`。因此输出列仍叫 `avg_cycles`，但在 ARM64 上更准确地说是 virtual counter ticks；不同平台上需要重新校准 `--hit-threshold-cycles`。
+- 内核态计时使用 `cntvct_el0`。因此输出列仍叫 `avg_cycles`，但在 ARM64 上更准确地说是 virtual counter ticks；脚本会按本次结果自动估计绘图阈值，也可以用 `--hit-threshold-cycles` 手动覆盖。
 - 如果系统禁止用户态访问 counter，不影响本实验，因为实际计时在内核模块里完成。
