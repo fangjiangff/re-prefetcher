@@ -205,7 +205,7 @@ int main(){
                   array2[step * stride] = 1;//access to bring into cache
                 }
                 flush(&array2[train_step * stride]);
-                mfence();
+                // mfence();
               }else{
                 for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   // _mm_clflush(&array2[offset]);
@@ -219,10 +219,10 @@ int main(){
                     if(TEST_ON_SW){
                       // sw prefetch
                       mprefetch(array2 + (step * stride));
-                      mfence();
+                      // mfence();
                     }else{
                       maccess(array2 + (step * stride));
-                      mfence();
+                      // mfence();
                     }
                     
                 }
@@ -232,19 +232,20 @@ int main(){
                 if(TEST_ON_SW){
                   // sw prefetch
                   mprefetch(array2 + ((train_step -1) * stride));
-                  mfence();
+                  // mfence();
                 }else{
                   maccess(array2 + ((train_step -1) * stride)); 
-                  mfence();
+                  // mfence();
                 }
               }
               // nanosleep(&t_req, &t_rem);
               uint64_t dummy = 0;
               for(int k =0;k<100;k++){//wait for prefetch done.
                 dummy += array1[k*64];
-                mfence();
+                // mfence();
               }
-              for(int i=0;i<100;i++) nop(); mfence();
+              for(int i=0;i<100;i++) nop(); 
+              // mfence();
               // test the Nth expected prefetched address.
               probe_addr = array2 + ((train_step + PROBE_POSITION - 1) * stride);
               /* READ TIMER */

@@ -9,7 +9,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(BASE_DIR, "store_stride_poc.c")
 OUT = os.path.join(BASE_DIR, "bin", "store_stride_poc")
 
-DEFAULT_ARCH = "arm64"
+DEFAULT_ARCH = "A76"
 DEFAULT_CORE = 0
 DEFAULT_STRIDE_LINES = 11
 DEFAULT_TRAIN_STEP = 15

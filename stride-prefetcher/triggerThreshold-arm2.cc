@@ -243,18 +243,18 @@ int main(){
                     if(TEST_ON_SW){
                       // sw prefetch
                       mprefetch(array2 + (step * stride));
-                      mfence();
+                      // mfence();
                     }else{
                       maccess(array2 + (step * stride));
-                      mfence();
+                      // mfence();
                     }
                 }
                 if(TEST_ON_SW){
                   mprefetch(array2 + ((train_step -1) * stride));
-                  mfence();
+                  // mfence();
                 }else{
                   maccess(array2 + ((train_step -1) * stride)); 
-                  mfence();
+                  // mfence();
                 }
               }
 
@@ -270,10 +270,10 @@ int main(){
               probe_addr = array2 + (pos * stride);
               // // // /* READ TIMER */
               time1 = timestamp();
-              mfence();
+              // mfence();
               /* MEMORY ACCESS TO TIME */
               junk = *probe_addr;
-              mfence();
+              // mfence();
               /* READ TIMER */
               time2 = timestamp() - time1;
               res2[train_step][pos] += time2;
