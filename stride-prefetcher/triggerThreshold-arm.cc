@@ -15,7 +15,7 @@
 #endif
 #define LINE_SIZE 64
 // #define Items 256
-#define Items 2048
+#define Items 8000
 #define Prefetch_Threshold 200
 
 #ifndef TEST_ON_HIT
@@ -131,9 +131,18 @@ long long int res2[100][100] = {0};
 
 static uint8_t* dummy_buffer;
 
+// void dummyAccesses(){
+//      for(uint64_t i = 0; i < DUMMY_BUFFER_SIZE; i += 64){
+//         maccess(&dummy_buffer[i]); 
+//      }
+// }
+
 void dummyAccesses(){
-     for(uint64_t i = 0; i < DUMMY_BUFFER_SIZE; i += 64){
-        maccess(&dummy_buffer[i]); 
+     for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        uint64_t i = j;
+        asm volatile("PRFM PLDL3KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
      }
 }
 
@@ -186,7 +195,7 @@ int main(){
 
   for(int stride = 64; stride <= 4096; stride+=64){
       // printf("Stride %d*64:\t%d\t\t",stride/64,stride);
-      for(int train_step = 1; train_step <= 20 ; train_step++){
+      for(int train_step = 1; train_step <= 40 ; train_step++){
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
               dummyAccesses();//for dummy accesses , reset the prefetcher state
 

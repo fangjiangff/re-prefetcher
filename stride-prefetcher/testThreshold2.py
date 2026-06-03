@@ -32,8 +32,8 @@ DEFAULT_HEATMAP_DIR = "res/heatmaps"
 # configs = [(1,1), (1,0), (0,1), (0,0)]
 # configs = [ (0,0), (1,0)]
 # // (0,0,0)miss load, (0,1,0) miss store; (1,0,0) hit load,(0,0,1) miss prefetch.
-# configs = [(0,0,0), (0,1,0), (1,0,0), (0,0,1)]
-configs = [(0,0,0), (0,0,1)]
+configs = [(0,0,0), (0,1,0), (0,0,1)]
+# configs = [(0,0,0), (0,0,1)]
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE,
@@ -67,14 +67,14 @@ INPUT_FILE = os.path.join(args.output_dir, f"threshold-{micro_arch}.xlsx")
 
 TARGET_SHEETS = [
     "HIT0-ST0-SW0",  # Miss Load
-    # "HIT0-ST1-SW0",  # Miss Store
+    "HIT0-ST1-SW0",  # Miss Store
     # "HIT1-ST0-SW0",  # Hit Load
     "HIT0-ST0-SW1",  # Miss Prefetch
 ]
 title_map = {
     "HIT0-ST0-SW0": "Load instruction (miss)",
-    # "HIT0-ST1-SW0": "Miss Store", 
-    # "HIT1-ST0-SW0": "Hit Load",
+    "HIT0-ST1-SW0": "Store instruction (miss)",
+    # "HIT1-ST0-SW0": "Load instruction (hit)",
     "HIT0-ST0-SW1": "Prefetch instruction (miss)"
 }
 
@@ -152,7 +152,7 @@ def plot_heatmaps():
                 annot=False,
                 ax=ax,
                 vmin=0,
-                vmax=400,
+                vmax=600,
                 cbar=(i == num_sheets - 1),
                 cbar_ax=(cbar_ax if i == num_sheets - 1 else None),
                 yticklabels=(i == 0),

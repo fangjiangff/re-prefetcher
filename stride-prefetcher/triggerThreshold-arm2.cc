@@ -15,7 +15,7 @@
 #define LINE_SIZE 64
 // #define Items 256
 #ifndef Items
-#define Items 2048
+#define Items 8000
 #endif
 #define Prefetch_Threshold 200
 
@@ -36,15 +36,44 @@
 #endif
 
 #ifndef PROBE_POSITIONS
-#define PROBE_POSITIONS 60
+#define PROBE_POSITIONS 100
 #endif
 
 
-#define _maccess(pre, addr) \
-    asm volatile( \
-        pre "ldrb w0, [%0]\n\t" \
-        :: "r" (addr) \
-        : "memory", "w0")
+// #define _maccess(pre, addr) \
+//     asm volatile( \
+//         pre "ldrb w0, [%0]\n\t" \
+//         :: "r" (addr) \
+//         : "memory", "w0")
+
+#if TEST_ON_ST == 1
+    /*
+     * Store: 向 addr 写 1 字节
+     * 使用 w 寄存器（低 8 bit 会被使用）
+     */
+    #define _maccess(pre, addr, val)                 \
+    asm volatile(                                      \
+        pre "strb %w[value], [%[address]]\n\t"          \
+        :                                              \
+        : [address] "r" (addr), [value] "r" ((uint32_t)(val)) \
+        : "memory")
+    // #define _maccess(pre, addr) \
+    //     asm volatile( \
+    //         pre "strb w0, [%0]\n\t" \
+    //         :: "r" (addr) \
+    //         : "memory", "w0")
+
+#else
+    /*
+     * Load: 从 addr 读 1 字节
+     */
+    #define _maccess(pre, addr, val) \
+        asm volatile( \
+            pre "ldrb w0, [%0]\n\t" \
+            :: "r" (addr) \
+            : "memory", "w0")
+
+#endif
 
 #define REG_ARG_1 "x0"
 
@@ -59,7 +88,7 @@
 #define VIRTUAL_ADDRESS_BITS 48
 
 void maccess(void *p) {
-    _maccess("", p);
+    _maccess("", p, 0);
 }
 
 void mprefetch(void *p) {
