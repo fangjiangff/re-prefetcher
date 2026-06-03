@@ -6,10 +6,17 @@ import argparse
 
 import os
 
+# ARCHES = ["A78", "A55", "A725", "X925"]
+# CORES = [4, 1, 4, 6]
 # SRC = "triggerThreshold.cc"
 ARCH_CONFIG = {
     "A76": {
         "core": 2,
+        "src": "triggerThreshold-arm2.cc",
+        "out": "bin/triggerThreshold-arm2",
+    },
+    "A78": {
+        "core": 4,
         "src": "triggerThreshold-arm2.cc",
         "out": "bin/triggerThreshold-arm2",
     },
@@ -152,7 +159,7 @@ def plot_heatmaps():
                 annot=False,
                 ax=ax,
                 vmin=0,
-                vmax=600,
+                vmax=400,
                 cbar=(i == num_sheets - 1),
                 cbar_ax=(cbar_ax if i == num_sheets - 1 else None),
                 yticklabels=(i == 0),
