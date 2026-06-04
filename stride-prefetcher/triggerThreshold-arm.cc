@@ -140,9 +140,9 @@ static uint8_t* dummy_buffer;
 void dummyAccesses(){
      for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
         uint64_t i = j;
-        asm volatile("PRFM PLDL3KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        // asm volatile("PRFM PLDL3KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
         // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
-        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
+        asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
      }
 }
 
