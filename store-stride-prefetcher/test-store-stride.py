@@ -9,6 +9,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(BASE_DIR, "store_stride_poc.c")
 OUT = os.path.join(BASE_DIR, "bin", "store_stride_poc")
 
+# ARCHES = ["A78", "A55", "A725", "X925"]
+# CORES = [4, 1, 4, 6]
 DEFAULT_ARCH = "A76"
 DEFAULT_CORE = 0
 DEFAULT_STRIDE_LINES = 11

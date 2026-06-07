@@ -96,7 +96,8 @@ static uint8_t* dummy_buffer;
 
 void dummyAccesses(void){
     for(uint64_t i = 0; i < DUMMY_BUFFER_SIZE; i += LINE_SIZE){
-        mStore(dummy_buffer + i, random() & 0xFF);
+        // mStore(dummy_buffer + i, random() & 0xFF);
+        asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
     }
     mfence();
 }

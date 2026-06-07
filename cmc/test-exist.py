@@ -152,10 +152,7 @@ def summarize(output):
     controls = sections.get("controls", [])
     chain_avg = sum(row["per_1000"] for row in chain) / len(chain) if chain else 0.0
     chain_max = max((row["per_1000"] for row in chain), default=0)
-    control_latency_avg = (
-        sum(row["avg_latency_ns"] for row in controls) / len(controls)
-        if controls else 0.0
-    )
+    control_latency_avg = sum(row["avg_latency_ns"] for row in controls) / len(controls) if controls else 0.0
     control_latency_min = min((row["avg_latency_ns"] for row in controls), default=0)
 
     return {
@@ -176,9 +173,8 @@ def plot_result(output, path, title):
 
     sections = parse_result(output)
     chain = sections.get("node_next", sections.get("depth_next", []))
-    controls = sections.get("controls", [])
-    if not chain and not controls:
-        print("No plottable data found.", file=sys.stderr)
+    if not chain:
+        print("No plottable pointer-chain data found.", file=sys.stderr)
         return False
 
     if "node_next" in sections:
@@ -192,50 +188,38 @@ def plot_result(output, path, title):
     else:
         chain_title = "Next node after executed pointer-chain depth"
 
-    fig, axes = plt.subplots(2, 1, figsize=(8.0, 5.2), constrained_layout=True)
+    fig, ax = plt.subplots(1, 1, figsize=(8.0, 2.5), constrained_layout=True)
 
-    for ax, name, rows, color, metric, ylabel in [
-        (
-            axes[0],
-            chain_title,
-            chain,
-            "#0072B2",
-            "per_1000",
-            "Hit rate\n(per 1000 probes)",
-        ),
-        (
-            axes[1],
-            "Controls",
-            controls,
-            "#B8BCC2",
-            "avg_latency_ns",
-            "Average latency\n(ns)",
-        ),
-    ]:
-        x = [row["idx"] for row in rows]
-        y = [row[metric] for row in rows]
-        labels = [
-            f"p{row['page']}:l{row['line']}"
-            if "page" in row and "line" in row else
-            str(row["idx"])
-            for row in rows
-        ]
-        ax.bar(x, y, color=color, edgecolor="black", linewidth=0.25, width=0.82)
-        ax.set_title(name, loc="left", pad=4)
-        ax.set_ylabel(ylabel)
-        if metric == "per_1000":
-            ax.set_ylim(0, 1050)
-            ax.set_yticks([0, 250, 500, 750, 1000])
-        elif y:
-            ax.set_ylim(0, max(y) * 1.15)
-        ax.grid(axis="y", color="#D9D9D9", linewidth=0.7)
-        ax.set_axisbelow(True)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=45, ha="right")
+    x = [row["idx"] for row in chain]
+    y = [row.get("per_1000", 0) for row in chain]
+    labels = [str(row["idx"] + 1) for row in chain]
 
-    axes[1].set_xlabel("Probe target")
+    # Avoid overcrowding: sample tick positions when there are many points
+    max_ticks = 10
+    if len(x) > max_ticks:
+        step = max(1, len(x) // max_ticks)
+        tick_indices = list(range(0, len(x), step))
+        if tick_indices[-1] != len(x) - 1:
+            tick_indices.append(len(x) - 1)
+        ticks = [x[i] for i in tick_indices]
+        tick_labels = [labels[i] for i in tick_indices]
+    else:
+        ticks = x
+        tick_labels = labels
+
+    ax.bar(x, y, color="#0072B2", edgecolor="black", linewidth=0.25, width=0.82)
+    ax.set_title(chain_title, loc="left", pad=4)
+    ax.set_ylabel("Hit rate\n(per 1000 probes)")
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(tick_labels, rotation=45, ha="right")
+    ax.set_ylim(0, 1050)
+    ax.set_yticks([0, 250, 500, 750, 1000])
+    ax.grid(axis="y", color="#D9D9D9", linewidth=0.7)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.set_xlabel("Probe target")
+
     fig.suptitle(title, fontsize=12, fontweight="bold")
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=300)
@@ -320,11 +304,11 @@ def main():
         raise SystemExit(f"binary not found: {BIN}")
 
     RES_DIR.mkdir(exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    # timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     window_suffix = f"-wink{args.window_k}" if args.window_k is not None else ""
     stem = (
         f"exist-{args.access}-{args.arch}-cpu{args.core}-"
-        f"{args.mode}{window_suffix}-thr{args.threshold_ns}-{timestamp}"
+        f"{args.mode}{window_suffix}-thr{args.threshold_ns}"
     )
     result_path = Path(args.output) if args.output else RES_DIR / f"{stem}.txt"
     plot_path = Path(args.plot) if args.plot else RES_DIR / f"{stem}.png"
