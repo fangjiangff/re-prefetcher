@@ -31,7 +31,7 @@ if not PLOT_ONLY:
 
         compile_cmd = [
             "g++",
-            "-std=gnu11",
+            "-std=gnu++11",
             "-O0",
             "-static",
             # f"-DTEST_ON_HIT={hit}",
@@ -56,6 +56,8 @@ if not PLOT_ONLY:
 
         if run.returncode != 0:
             print("Execution failed")
+            if run.stderr:
+                print(run.stderr)
             continue
 
         output = run.stdout

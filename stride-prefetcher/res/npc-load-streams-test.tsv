@@ -1,0 +1,13 @@
+# n_pcs=12 m_streams=1..10 train_accesses=18 stride=1088 probe_after_trigger=15 rounds=10
+# base_pc=0x0000000500200140 trigger_mode=same_pc trigger_pc=0x00000005002002c0 buffer_addr=0x0000000610000000 page_size=16384 dummy_pages=10
+m_streams	stream0	stream1	stream2	stream3	stream4	stream5	stream6	stream7	stream8	stream9
+1	135									
+2	101	109								
+3	99	96	87							
+4	100	142	99	98						
+5	129	100	74	79	77					
+6	188	187	183	150	174	186				
+7	177	214	190	157	137	129	128			
+8	179	181	162	194	224	157	161	183		
+9	240	251	268	288	235	207	298	233	220	
+10	207	207	190	214	192	186	179	177	200	198

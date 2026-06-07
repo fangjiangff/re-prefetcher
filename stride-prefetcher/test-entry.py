@@ -10,6 +10,7 @@ DEFAULT_BASE_PC = "0x500000120"
 DEFAULT_TARGET_BUFFER = "0x600000000"
 DEFAULT_MAX_COMPETITORS = 128
 DEFAULT_ROUNDS = 1000
+DEFAULT_COMPETITOR_REPEATS = 2
 DEFAULT_CORE = 2
 DEFAULT_RESULT = "res/entry.tsv"
 
@@ -19,7 +20,7 @@ def compile_test():
     compile_cmd = [
         "gcc",
         "-std=gnu11",
-        "-O2",
+        "-O0",
         "-static",
         "-o",
         OUT,
@@ -38,6 +39,7 @@ def run_test(args):
         args.target_buffer,
         str(args.max_competitors),
         str(args.rounds),
+        str(args.competitor_repeats),
     ]
     return subprocess.run(run_cmd, capture_output=True, text=True)
 
@@ -58,6 +60,7 @@ def main():
     parser.add_argument("--target-buffer", default=DEFAULT_TARGET_BUFFER)
     parser.add_argument("--max-competitors", type=int, default=DEFAULT_MAX_COMPETITORS)
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
+    parser.add_argument("--competitor-repeats", type=int, default=DEFAULT_COMPETITOR_REPEATS)
     parser.add_argument("--core", type=int, default=DEFAULT_CORE)
     parser.add_argument("--output", default=DEFAULT_RESULT)
     parser.add_argument("--no-compile", action="store_true")

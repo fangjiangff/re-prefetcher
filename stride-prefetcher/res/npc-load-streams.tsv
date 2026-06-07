@@ -1,0 +1,16 @@
+# n_pcs=12 m_streams=1..12 train_accesses=18 stride=1088 probe_after_trigger=15 rounds=200
+# base_pc=0x0000000500200140 trigger_mode=same_pc trigger_pc=0x00000005002002c0 buffer_addr=0x0000000610000000 page_size=16384 dummy_pages=10
+# each cell trains m_streams streams, then triggers/probes only that stream
+m_streams	stream0	stream1	stream2	stream3	stream4	stream5	stream6	stream7	stream8	stream9	stream10	stream11
+1	109											
+2	112	97										
+3	111	95	99									
+4	101	98	90	100								
+5	109	98	95	87	85							
+6	108	137	93	90	93	92						
+7	104	158	94	87	88	94	92					
+8	163	146	86	93	97	101	97	91				
+9	221	242	113	101	87	90	171	91	98			
+10	231	227	218	102	92	94	93	96	92	89		
+11	232	231	225	227	107	97	91	96	95	89	92	
+12	234	246	220	232	214	114	96	84	103	89	95	95

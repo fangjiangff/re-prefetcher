@@ -2,10 +2,15 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <sched.h>
+#include <errno.h>
+#include <string.h>
+#include <signal.h>
+#include <ucontext.h>
 #include "cacheutils.hh"
 #include "utils.hh"
 #include <random>
 #include <sys/mman.h>
+#include <unistd.h>
 // #include <x86intrin.h>
 #include "time.h"
 
@@ -65,6 +70,24 @@ uint8_t array1[100*64]={0};
 
 #define VIRTUAL_ADDRESS_BITS 48
 
+typedef void (*load_gadget_f)(void *);
+
+extern char _dummy_load_gadget_asm_start[];
+extern char _dummy_load_gadget_asm_end[];
+
+asm(
+    ".pushsection .text\n"
+    ".global _dummy_load_gadget_asm_start\n"
+    ".global _dummy_load_gadget_asm_end\n"
+    "_dummy_load_gadget_asm_start:\n"
+    "    hint #34\n"
+    "    ldrb w0, [x0]\n"
+    "    ret\n"
+    "_dummy_load_gadget_asm_end:\n"
+    "    nop\n"
+    ".popsection\n"
+);
+
 void maccess(void *p) {
     _maccess("", p);
     // volatile uint32_t value;
@@ -119,20 +142,104 @@ uint8_t array2[Items * LINE_SIZE] __attribute__((aligned(4096)));;
 long long int res2[100][100] = {0};
 
 
-#define DUMMY_BUFFER_SIZE (PAGE_SIZE * 10)
+#define DUMMY_BUFFER_SIZE (PAGE_SIZE * 1024)
+#define DUMMY_SEQUENTIAL_BUFFER_SIZE (PAGE_SIZE * 10)
+#define DUMMY_RANDOM_ACCESSES 4096
+#define DUMMY_LOAD_PC_COUNT 128
+#define DUMMY_PC_SPACING 0x20ull
+#define DEFAULT_DUMMY_LOAD_PC 0x500100120ull
 
 static uint8_t* dummy_buffer;
+static load_gadget_f dummy_loads[DUMMY_LOAD_PC_COUNT];
+static uint64_t dummy_rng_state = 0x9e3779b97f4a7c15ull;
+static size_t os_page_size;
+
+static void sigill_handler(int, siginfo_t *, void *context) {
+    ucontext_t *uc = (ucontext_t *)context;
+    fprintf(stderr, "SIGILL at pc=0x%016llx\n",
+            (unsigned long long)uc->uc_mcontext.pc);
+    _exit(132);
+}
+
+static void install_sigill_handler(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = sigill_handler;
+    sa.sa_flags = SA_SIGINFO;
+    sigaction(SIGILL, &sa, NULL);
+}
+
+static uintptr_t page_base(uintptr_t address) {
+    return address - (address % os_page_size);
+}
+
+static uint64_t next_dummy_random(void) {
+    uint64_t x = dummy_rng_state;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    dummy_rng_state = x;
+    return x;
+}
+
+static void init_dummy_loads(void) {
+    uintptr_t base_pc = DEFAULT_DUMMY_LOAD_PC;
+    uintptr_t mapping_base = page_base(base_pc);
+    size_t gadget_size =
+        (size_t)(_dummy_load_gadget_asm_end - _dummy_load_gadget_asm_start);
+    size_t map_size = os_page_size;
+
+    void *mapping = mmap((void *)mapping_base, map_size,
+                         PROT_READ | PROT_WRITE | PROT_EXEC,
+                         MAP_FIXED_NOREPLACE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_POPULATE,
+                         -1, 0);
+    if (mapping == MAP_FAILED) {
+        printf("failed to map dummy load gadgets at 0x%lx: %s\n",
+               (unsigned long)mapping_base, strerror(errno));
+        exit(1);
+    }
+
+    for (int i = 0; i < DUMMY_LOAD_PC_COUNT; i++) {
+        uintptr_t pc = base_pc + ((uintptr_t)i * DUMMY_PC_SPACING);
+        if ((pc - mapping_base) + gadget_size > map_size) {
+            printf("dummy load gadget crosses mapped page\n");
+            exit(1);
+        }
+        memcpy((void *)pc, _dummy_load_gadget_asm_start, gadget_size);
+        __builtin___clear_cache((char *)pc, (char *)(pc + gadget_size));
+        dummy_loads[i] = (load_gadget_f)(void *)pc;
+    }
+}
 
 void dummyAccesses(){
-     for(uint64_t i = 0; i < DUMMY_BUFFER_SIZE; i += 64){
-        maccess(&dummy_buffer[i]); 
-     }
+    uint64_t line_count = DUMMY_BUFFER_SIZE / LINE_SIZE;
+    for (int i = 0; i < DUMMY_RANDOM_ACCESSES; i++) {
+        uint64_t line = next_dummy_random() % line_count;
+        load_gadget_f dummy_load = dummy_loads[i % DUMMY_LOAD_PC_COUNT];
+        dummy_load(dummy_buffer + (line * LINE_SIZE));
+    }
+    mfence();
+}
+
+static inline void dummyAccesses2() {
+    // printf("dummyAccesses2\n");
+    for (uint64_t i = 0; i < DUMMY_SEQUENTIAL_BUFFER_SIZE; i += 64) {
+        asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
+        // maccess(&dummy_buffer[i]);
+    }
 }
 
 int main(){
   register uint64_t time1, time2;
   volatile uint8_t * probe_addr;
   unsigned int junk = 0;
+  install_sigill_handler();
+  long detected_page_size = sysconf(_SC_PAGESIZE);
+  if (detected_page_size <= 0) {
+      printf("failed to detect OS page size\n");
+      exit(1);
+  }
+  os_page_size = (size_t)detected_page_size;
 
   // PinCore(CPU_ID);
   // victim_init();
@@ -147,6 +254,7 @@ int main(){
       printf("failed to map memory to access!\n");
       exit(1);
   }
+  init_dummy_loads();
 
   // EnableStride(CPU_ID);
   int i;    
@@ -168,28 +276,31 @@ int main(){
 
   // for(int stride = 64*1; stride <= 64*64; stride+=64){
     //   printf("Stride %d*64:\t%d\t\t",stride/64,stride);
-    int stride = 10 * 64;
+    int stride = 17 * 64;
     for(int train_step = 1; train_step <= 20 ; train_step++){
-    // int train_step = 16;
-      // int stride = 64*16;
-      // int stride = 64*8;
-      // int train_step = 19;
       printf("Stride %d*64:\t%d\ttrian_step %d\t",stride/64,stride, train_step);
       uint64_t latency = 0;
       int res[1000]={0};
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
-              dummyAccesses();//for dummy accesses , reset the prefetcher state
+                dummyAccesses2();
+                // dummyAccesses();
+                
                 for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
-                  // _mm_clflush(&array2[offset]);
                   flush(&array2[offset]);
                 }
                 for(int step = 0; step < train_step-1; step++){
                     // sw prefetch
-                    mprefetch(array2 + (step * stride));
+                    // mprefetch(array2 + (step * stride));
+                    maccess(array2 + (step * stride));
                     mfence();
                 }
+                //flush the cache to make sure the target probed line is not in cache before the prefetch
+                for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
+                    flush(&array2[offset]);
+                }
               //trigger 
-              mprefetch(array2 + ((train_step - 1) * stride));
+            //   mprefetch(array2 + ((train_step - 1) * stride));
+                maccess(array2 + ((train_step - 1) * stride));
               
               uint64_t dummy = 0;
               for(int k =0;k<100;k++){
@@ -198,22 +309,12 @@ int main(){
               }
 
               for(int i=0;i<100;i++) nop(); mfence();
-
-              probe_addr = array2 + ((train_step+15) * stride);
               // mfence();
               time1 = timestamp1();
-              // mfence();
-              // junk = *probe_addr; 
               maccess(array2 + ((train_step+15) * stride));
-              // mfence();
               /* READ TIMER */
               time2 = timestamp1();
-              // mfence();
               latency += (time2-time1);
-
-              // time2 = victim_probe(array2 + ((train_step+15) * stride));
-              // res[atkRound] = time2;
-              // latency += time2;
           } 
           printf("%lld\n", latency/rounds);
       }
