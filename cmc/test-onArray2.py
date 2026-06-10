@@ -3,6 +3,7 @@
 import argparse
 import os
 import platform
+import re
 import signal
 import shlex
 import shutil
@@ -21,6 +22,17 @@ ARCHES = ["A78", "A55", "A725", "X925"]
 CORES = [4, 1, 4, 6]
 LINE_SIZE = 64
 ARRAY_INDEX_COUNT = 256
+MODES = {
+    "window": 0,
+    "node": 1,
+    "depth": 2,
+}
+ARRAY_INDEX_RE = re.compile(
+    r"^array_index=\s*(?P<idx>\d+),\s*"
+    r"offset_bytes=\s*(?P<offset_lines>\d+)\s*\*\s*LINE_SIZE,\s*"
+    r"avg_ns=\s*(?P<avg_ns>-?\d+),\s*"
+    r"probes=\s*(?P<probes>\d+)"
+)
 
 
 def run(cmd, capture=False):
@@ -66,6 +78,7 @@ def compile_test(args):
         "-Wextra",
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
+        f"-DTEST_MODE={MODES[args.mode]}",
         f"-DDEFAULT_PROBE_INDEX={args.trigger_index}",
         f"-DTRIGGER_START={args.trigger_start}",
         f"-DTRIGGER_END={args.trigger_end}",
@@ -88,13 +101,27 @@ def parse_result(output):
         if not line or line.startswith("#"):
             continue
 
+        match = ARRAY_INDEX_RE.match(line)
+        if match:
+            offset_lines = int(match.group("offset_lines"))
+            rows.append({
+                "position": int(match.group("idx")),
+                "offset_lines": offset_lines,
+                "offset_bytes": offset_lines * LINE_SIZE,
+                "avg_ns": int(match.group("avg_ns")),
+                "probes": int(match.group("probes")),
+            })
+            continue
+
         parts = line.split()
         if len(parts) != 4 or not parts[0].isdigit():
             continue
 
+        offset_bytes = int(parts[1])
         rows.append({
             "position": int(parts[0]),
-            "offset_bytes": int(parts[1]),
+            "offset_lines": offset_bytes // LINE_SIZE,
+            "offset_bytes": offset_bytes,
             "avg_ns": int(parts[2]),
             "probes": int(parts[3]),
         })
@@ -113,8 +140,18 @@ def summarize(output):
             "fastest": [],
         }
 
-    latencies = [row["avg_ns"] for row in rows]
-    fastest = sorted(rows, key=lambda row: row["avg_ns"])[:8]
+    measured = [row for row in rows if row["avg_ns"] >= 0 and row["probes"] > 0]
+    if not measured:
+        return {
+            "count": len(rows),
+            "avg_ns": 0.0,
+            "min_ns": 0,
+            "max_ns": 0,
+            "fastest": [],
+        }
+
+    latencies = [row["avg_ns"] for row in measured]
+    fastest = sorted(measured, key=lambda row: row["avg_ns"])[:8]
     return {
         "count": len(rows),
         "avg_ns": sum(latencies) / len(latencies),
@@ -124,7 +161,7 @@ def summarize(output):
     }
 
 
-def plot_result(output, path, title, trigger_index):
+def plot_result(output, path, title, mode, threshold_ns, trigger_start, trigger_end):
     try:
         os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-cache")
         import matplotlib.pyplot as plt
@@ -138,30 +175,49 @@ def plot_result(output, path, title, trigger_index):
         return False
 
     positions = [row["position"] for row in rows]
-    latencies = [row["avg_ns"] for row in rows]
-    trigger_position = trigger_index
+    latencies = [row["avg_ns"] if row["avg_ns"] >= 0 else 0 for row in rows]
 
     colors = []
-    for pos in positions:
-        if pos == trigger_position:
+    for row in rows:
+        pos = row["position"]
+        if mode == "window" and trigger_start <= pos < trigger_end:
             colors.append("#D55E00")
+        elif row["avg_ns"] <= threshold_ns and row["probes"] > 0:
+            colors.append("#0072B2")
+        elif row["probes"] == 0:
+            colors.append("#E6E6E6")
         else:
             colors.append("#B8BCC2")
 
-    fig, ax = plt.subplots(figsize=(10.0, 4.8), constrained_layout=True)
+    fig, ax = plt.subplots(1, 1, figsize=(10.0, 3.6), constrained_layout=True)
     ax.bar(positions, latencies, color=colors, edgecolor="black", linewidth=0.2, width=0.82)
-    ax.set_title(title, loc="left", pad=4)
-    ax.set_xlabel("Probe position")
+    ax.axhline(
+        threshold_ns,
+        color="#CC79A7",
+        linestyle="--",
+        linewidth=1.0,
+        label=f"threshold {threshold_ns} ns",
+    )
+    if mode == "node":
+        chart_title = "array2 node mode: latency of node[n+1] after node[n]"
+    elif mode == "depth":
+        chart_title = "array2 depth mode: latency of node[d] after prefix nodes"
+    else:
+        chart_title = "array2 window mode: average latency by sequence slot"
+    ax.set_title(chart_title, loc="left", pad=4)
+    ax.set_xlabel("array_index slot")
     ax.set_ylabel("Average latency (ns)")
     ax.grid(axis="y", color="#D9D9D9", linewidth=0.7)
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+    ax.legend(loc="upper right", frameon=False)
 
     if positions:
         step = 16 if max(positions) >= 128 else 8
         ax.set_xticks(list(range(0, max(positions) + 1, step)))
 
+    fig.suptitle(title, fontsize=12, fontweight="bold")
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=300)
     plt.close(fig)
@@ -188,10 +244,14 @@ def main():
         description="Build and run the array2 CMC irregular-load latency map."
     )
     parser.add_argument("--rounds", type=int, default=8000)
+    parser.add_argument("--mode", choices=sorted(MODES), default="window",
+                        help="window: current trigger window test; node: access node[n], probe node[n+1]; depth: access prefix length d, probe node[d].")
+    parser.add_argument("--threshold-ns", type=int, default=120,
+                        help="Latency threshold used only for plot highlighting.")
     parser.add_argument("--probe-positions", type=int, default=2000)
     parser.add_argument("--trigger-index", type=int, default=0,
                         help="Index into the fixed 16-entry training sequence.")
-    parser.add_argument("--trigger-start", type=int, default=170,
+    parser.add_argument("--trigger-start", type=int, default=165,
                         help="First array_index slot directly loaded in the trigger phase.")
     parser.add_argument("--trigger-end", type=int, default=195,
                         help="One-past-last array_index slot directly loaded in the trigger phase.")
@@ -223,16 +283,16 @@ def main():
     if args.core is None:
         args.core = core_for_arch(args.arch)
 
-    if args.rounds <= 0 or args.probe_positions <= 0 or args.items <= 0:
-        raise SystemExit("rounds, probe-positions, and items must be positive")
+    if args.rounds <= 0 or args.threshold_ns <= 0 or args.probe_positions <= 0 or args.items <= 0:
+        raise SystemExit("rounds, threshold-ns, probe-positions, and items must be positive")
     if args.random_pages <= 0:
         raise SystemExit("--random-pages must be positive")
     if args.random_pcs < 1 or args.random_pcs > 8:
         raise SystemExit("--random-pcs must be in the range 1..8")
     if args.trigger_index < 0 or args.trigger_index >= ARRAY_INDEX_COUNT:
         raise SystemExit(f"--trigger-index must be in the range 0..{ARRAY_INDEX_COUNT - 1}")
-    if args.trigger_start < 0 or args.trigger_end <= args.trigger_start or args.trigger_end > 256:
-        raise SystemExit("--trigger-start/--trigger-end must describe a non-empty range within 0..256")
+    if args.trigger_start < 0 or args.trigger_end <= args.trigger_start or args.trigger_end > ARRAY_INDEX_COUNT:
+        raise SystemExit(f"--trigger-start/--trigger-end must describe a non-empty range within 0..{ARRAY_INDEX_COUNT}")
     if args.probe_positions > args.items:
         raise SystemExit("--probe-positions must be <= --items")
 
@@ -248,13 +308,13 @@ def main():
     RES_DIR.mkdir(exist_ok=True)
     stem = (
         f"onArray2-load-{args.arch}-cpu{args.core}-"
-        f"r{args.rounds}-p{args.probe_positions}-trigidx{args.trigger_index}-"
-        f"tw{args.trigger_start}-{args.trigger_end}-"
+        f"{args.mode}-r{args.rounds}-p{args.probe_positions}-"
+        f"trigidx{args.trigger_index}-tw{args.trigger_start}-{args.trigger_end}-"
         f"randpg{args.random_pages}-pc{args.random_pcs}-"
         f"csw{1 if args.context_switch_flush else 0}"
     )
     result_path = Path(args.output) if args.output else RES_DIR / f"{stem}.txt"
-    plot_path = Path(args.plot) if args.plot else RES_DIR / f"{stem}.png"
+    plot_path = Path(args.plot) if args.plot else RES_DIR / f"{stem}-thr{args.threshold_ns}.png"
 
     cmd = build_run_command(args)
     env = os.environ.copy()
@@ -297,8 +357,11 @@ def main():
         plotted = plot_result(
             result.stdout,
             plot_path,
-            f"array2 CMC latency map {args.arch} CPU {args.core} trigger index {args.trigger_index}",
-            args.trigger_index,
+            f"array2 CMC latency map {args.arch} CPU {args.core} {args.mode}",
+            args.mode,
+            args.threshold_ns,
+            args.trigger_start,
+            args.trigger_end,
         )
         if plotted:
             print(f"Saved plot to {plot_path}")

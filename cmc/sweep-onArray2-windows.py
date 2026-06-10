@@ -111,7 +111,7 @@ def format_hits(rows, limit=10):
 def run_one(args, start, end):
     stem = (
         f"sweep-onArray2-{args.arch}-cpu{args.core if args.core is not None else 'auto'}-"
-        f"r{args.rounds}-p{args.probe_positions}-tw{start}-{end}-"
+        f"window-r{args.rounds}-p{args.probe_positions}-tw{start}-{end}-"
         f"thr{args.threshold_ns}-csw{1 if args.context_switch_flush else 0}"
     )
     output = RES_DIR / f"{stem}.txt"
@@ -121,6 +121,8 @@ def run_one(args, start, end):
         str(RUNNER),
         "--arch",
         args.arch,
+        "--mode",
+        "window",
         "--rounds",
         str(args.rounds),
         "--probe-positions",
@@ -195,7 +197,7 @@ def main():
     RES_DIR.mkdir(exist_ok=True)
 
     report = Path(args.report) if args.report else RES_DIR / (
-        f"sweep-onArray2-{args.arch}-r{args.rounds}-p{args.probe_positions}-"
+        f"sweep-onArray2-{args.arch}-window-r{args.rounds}-p{args.probe_positions}-"
         f"thr{args.threshold_ns}-w{args.width}-s{args.step}.tsv"
     )
     report.parent.mkdir(parents=True, exist_ok=True)
