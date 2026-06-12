@@ -15,6 +15,11 @@ ARCH_CONFIG = {
         "src": "triggerThreshold-arm2.cc",
         "out": "bin/triggerThreshold-arm2",
     },
+    "A55": {
+        "core": 1,
+        "src": "triggerThreshold-arm2.cc",
+        "out": "bin/triggerThreshold-arm2",
+    },
     "A78": {
         "core": 4,
         "src": "triggerThreshold-arm2.cc",

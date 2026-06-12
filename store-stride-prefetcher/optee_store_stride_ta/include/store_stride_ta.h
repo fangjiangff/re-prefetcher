@@ -1,0 +1,15 @@
+#ifndef STORE_STRIDE_TA_H
+#define STORE_STRIDE_TA_H
+
+#define STORE_STRIDE_TA_UUID \
+    { 0xb6a189a0, 0x7697, 0x4aa8, \
+      { 0x9d, 0x62, 0x80, 0xf6, 0x4e, 0xc4, 0xe7, 0x4d } }
+
+#define STORE_STRIDE_TA_UUID_STR "b6a189a0-7697-4aa8-9d62-80f64ec4e74d"
+
+#define STORE_STRIDE_TA_CMD_TRIGGER_STORE 0
+#define STORE_STRIDE_TA_CMD_TRIGGER_LOAD 1
+#define STORE_STRIDE_TA_CMD_TRAIN_LOAD 2
+#define STORE_STRIDE_TA_CMD_NOP 3
+
+#endif

@@ -97,26 +97,6 @@ uint64_t timestamp(void)
     return res;
 }
 
-// static inline __attribute__((always_inline)) uint64_t timestamp() {
-//     uint64_t value;
-//     asm volatile("mrs %0, PMCCNTR_EL0" : "=r" (value));
-//     return value;
-// }
-
-static inline __attribute__((always_inline)) uint64_t victim_probe(void *p) {
-    register uint64_t start, end;
-    // DEBUG("probing victim buffer at offset %zu\n", offset);
-    mfence();
-    // DEBUG("accessing victim buffer at offset %zu\n", offset);
-    start = timestamp();
-    // DEBUG("probing victim buffer at offset %zu\n", offset);
-    mfence();
-    maccess(p);
-    mfence();
-    end = timestamp();
-    mfence();  
-    return end - start;
-}
 
 
 uint8_t array1[100*LINE_SIZE]={0};
@@ -255,7 +235,6 @@ int main(){
               /* READ TIMER */
               time2 = timestamp() - time1;
 
-              // time2 = victim_probe(array2 + ((train_step) * stride));
               res2[stride/64][train_step] += time2;
           } 
           printf("%lld\t", res2[stride/64][train_step]/rounds);

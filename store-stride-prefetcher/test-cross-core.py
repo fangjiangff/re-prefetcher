@@ -1,0 +1,464 @@
+import argparse
+import csv
+import os
+import subprocess
+import sys
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.join(BASE_DIR, "test-cross-core.c")
+UTIL_SRC = os.path.join(BASE_DIR, "until.c")
+OUT = os.path.join(BASE_DIR, "bin", "test-cross-core")
+
+DEFAULT_ARCH = "A55"
+DEFAULT_TRAIN_CORE = 1
+DEFAULT_TRIGGER_CORE = 0
+DEFAULT_STRIDE_LINES = 5
+DEFAULT_STORE_TRIGGER_ACCESSES = 6
+DEFAULT_LOAD_TRIGGER_ACCESSES = 5
+DEFAULT_ROUNDS = 4000
+DEFAULT_PROBE_POSITIONS = 64
+DEFAULT_HIT_THRESHOLD_NS = 120
+
+ROLE_COLORS = {
+    "trained": "#D55E00",
+    "trigger": "#CC79A7",
+    "predicted": "#0072B2",
+    "prefetched": "#56B4E9",
+    "cache_miss": "#BDBDBD",
+}
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Compile, run, and plot cross-core stride test."
+    )
+    parser.add_argument("--arch", default=DEFAULT_ARCH)
+    parser.add_argument("--train-core", type=int, default=DEFAULT_TRAIN_CORE)
+    parser.add_argument("--trigger-core", type=int, default=DEFAULT_TRIGGER_CORE)
+    parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE_LINES)
+    parser.add_argument("--train-accesses", type=int, default=None,
+                        help="Total accesses including trigger. "
+                             "Default: 6 for store, 5 for load.")
+    parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
+    parser.add_argument("--probe-positions", type=int,
+                        default=DEFAULT_PROBE_POSITIONS)
+    parser.add_argument("--hit-threshold-ns", type=int,
+                        default=DEFAULT_HIT_THRESHOLD_NS)
+    parser.add_argument("--access", choices=["store", "load"], default="store",
+                        help="Stride instruction to test. Default: store")
+    parser.add_argument("--inline-store", action="store_true",
+                        help="Use inline store call sites instead of same-PC "
+                             "noinline stores.")
+    parser.add_argument("--cc", default=os.environ.get("CC", "gcc"))
+    parser.add_argument("--plot-only", action="store_true")
+    parser.add_argument("--no-plot", action="store_true")
+    args = parser.parse_args()
+
+    if args.train_accesses is None:
+        args.train_accesses = (
+            DEFAULT_LOAD_TRIGGER_ACCESSES
+            if args.access == "load"
+            else DEFAULT_STORE_TRIGGER_ACCESSES
+        )
+
+    if args.train_core < 0 or args.trigger_core < 0:
+        parser.error("--train-core and --trigger-core must be >= 0")
+    if args.train_core == args.trigger_core:
+        parser.error("--train-core and --trigger-core must be different")
+    if args.stride < 1:
+        parser.error("--stride must be >= 1")
+    if args.train_accesses < 1:
+        parser.error("--train-accesses must be >= 1")
+    if args.access == "load" and args.train_accesses < 2:
+        parser.error("--train-accesses must be >= 2 for load")
+    if args.rounds < 1:
+        parser.error("--rounds must be >= 1")
+    if args.probe_positions < 1 or args.probe_positions > 64:
+        parser.error("--probe-positions must be in [1, 64]")
+    if args.hit_threshold_ns < 1:
+        parser.error("--hit-threshold-ns must be >= 1")
+
+    predicted = predicted_line_for_args(args)
+    if predicted >= 64:
+        parser.error("train/trigger/predicted lines must fit in one 4KB page")
+
+    return args
+
+
+def train_only_accesses_for_args(parsed_args):
+    if parsed_args.access == "load":
+        return parsed_args.train_accesses - 1
+    return parsed_args.train_accesses
+
+
+def trigger_line_for_args(parsed_args):
+    if parsed_args.access == "load":
+        return (parsed_args.train_accesses - 1) * parsed_args.stride
+    return parsed_args.train_accesses * parsed_args.stride
+
+
+def predicted_line_for_args(parsed_args):
+    return trigger_line_for_args(parsed_args) + parsed_args.stride
+
+
+args = parse_args()
+result_dir = os.path.join(BASE_DIR, "res", "cross-core")
+plot_dir = os.path.join(BASE_DIR, "res", "barplots")
+raw_dir = os.path.join(result_dir, "raw")
+
+
+def train_only_accesses():
+    return train_only_accesses_for_args(args)
+
+
+def trigger_line():
+    return trigger_line_for_args(args)
+
+
+def predicted_line():
+    return predicted_line_for_args(args)
+
+
+def micro_arch_name():
+    if args.access == "load":
+        pc_mode = "noinline"
+    else:
+        pc_mode = "inline" if args.inline_store else "noinline"
+    return (
+        f"{args.arch}-traincore{args.train_core}-triggercore{args.trigger_core}"
+        f"-cross-core-stride{args.stride}-train{args.train_accesses}"
+        f"-probe{args.probe_positions}-{args.access}-{pc_mode}"
+    )
+
+
+def tsv_path():
+    return os.path.join(result_dir, f"{micro_arch_name()}.tsv")
+
+
+def raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}.txt")
+
+
+def plot_path():
+    return os.path.join(plot_dir, f"{micro_arch_name()}-avg_ns.png")
+
+
+def control_tsv_path():
+    return os.path.join(result_dir, f"{micro_arch_name()}-no-trigger-control.tsv")
+
+
+def control_raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}-no-trigger-control.txt")
+
+
+def ensure_dirs():
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
+    os.makedirs(plot_dir, exist_ok=True)
+    os.makedirs(raw_dir, exist_ok=True)
+
+
+def trained_offsets():
+    return {
+        step * args.stride * 64 for step in range(train_only_accesses())
+    }
+
+
+def trigger_offset():
+    return trigger_line() * 64
+
+
+def predicted_offset():
+    return predicted_line() * 64
+
+
+def classify_position(offset_bytes, avg_ns, probes):
+    if offset_bytes in trained_offsets():
+        return "trained"
+    if offset_bytes == trigger_offset():
+        return "trigger"
+    if offset_bytes == predicted_offset():
+        return "predicted"
+    if probes > 0 and avg_ns <= args.hit_threshold_ns:
+        return "prefetched"
+    return "cache_miss"
+
+
+def parse_output(output):
+    rows = []
+
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        fields = stripped.split()
+        if len(fields) != 4:
+            print(f"Skipping unexpected output row: {line}", file=sys.stderr)
+            continue
+
+        try:
+            position = int(fields[0])
+            offset_bytes = int(fields[1])
+            avg_ns = int(fields[2])
+            probes = int(fields[3])
+        except ValueError:
+            print(f"Skipping non-numeric output row: {line}", file=sys.stderr)
+            continue
+
+        rows.append({
+            "position": position,
+            "offset_bytes": offset_bytes,
+            "role": classify_position(offset_bytes, avg_ns, probes),
+            "avg_ns": avg_ns,
+            "probes": probes,
+        })
+
+    return rows
+
+
+def write_tsv(rows, path):
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["position", "offset_bytes", "role", "avg_ns", "probes"],
+            delimiter="\t",
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def read_tsv(path):
+    rows = []
+
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        for row in reader:
+            rows.append({
+                "position": int(row["position"]),
+                "offset_bytes": int(row["offset_bytes"]),
+                "role": row["role"],
+                "avg_ns": int(row["avg_ns"]),
+                "probes": int(row["probes"]),
+            })
+    return rows
+
+
+def compile_test(no_trigger=False):
+    use_noinline = 0 if args.inline_store else 1
+    train_access_load = 1 if args.access == "load" else 0
+    compile_cmd = [
+        args.cc,
+        "-std=gnu11",
+        "-O0",
+        "-static",
+        "-pthread",
+        f"-DSTRIDE_LINES={args.stride}",
+        f"-DTRAIN_ACCESSES={args.train_accesses}",
+        f"-DROUNDS={args.rounds}",
+        f"-DPROBE_POSITIONS={args.probe_positions}",
+        f"-DTRAIN_CORE={args.train_core}",
+        f"-DTRIGGER_CORE={args.trigger_core}",
+        f"-DUSE_NOINLINE_STORE={use_noinline}",
+        f"-DTRAIN_ACCESS_LOAD={train_access_load}",
+        f"-DNO_TRIGGER={1 if no_trigger else 0}",
+        "-o",
+        OUT,
+        SRC,
+        UTIL_SRC,
+    ]
+    return subprocess.run(compile_cmd)
+
+
+def taskset_cores():
+    cores = sorted({args.train_core, args.trigger_core})
+    return ",".join(str(core) for core in cores)
+
+
+def run_binary():
+    return subprocess.run(
+        ["taskset", "-c", taskset_cores(), OUT],
+        capture_output=True,
+        text=True,
+    )
+
+
+def run_one(no_trigger=False):
+    compiled = compile_test(no_trigger=no_trigger)
+    if compiled.returncode != 0:
+        print("Compile failed")
+        return []
+
+    run = run_binary()
+    if run.returncode != 0:
+        print("Execution failed")
+        if run.stdout:
+            print(run.stdout)
+        if run.stderr:
+            print(run.stderr)
+        return []
+
+    path = control_raw_path() if no_trigger else raw_path()
+    with open(path, "w") as f:
+        f.write(run.stdout)
+
+    rows = parse_output(run.stdout)
+    if not rows:
+        print("No parsed rows")
+        return []
+
+    write_tsv(rows, control_tsv_path() if no_trigger else tsv_path())
+    return rows
+
+
+def no_trigger_baseline():
+    rows = run_one(no_trigger=True)
+    if not rows:
+        return None
+
+    predicted = predicted_line()
+    for row in rows:
+        if row["position"] == predicted:
+            print(
+                f"No-trigger control: line {predicted} "
+                f"avg_ns={row['avg_ns']}"
+            )
+            return row["avg_ns"]
+
+    print(f"No-trigger control missing line {predicted}")
+    return None
+
+
+def print_summary(rows, label):
+    targets = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45]
+    print(label)
+    for pos in targets:
+        if pos < len(rows):
+            row = rows[pos]
+            print(f"  line {pos:2d}: {row['role']:10s} {row['avg_ns']:4d} ns")
+
+
+def run_test():
+    print("=" * 60)
+    print(
+        f"cross-core {args.access}-stride, arch={args.arch}, "
+        f"train_core={args.train_core}, trigger_core={args.trigger_core}, "
+        f"stride={args.stride} lines, train_accesses={args.train_accesses}, "
+        f"train_only_accesses={train_only_accesses()}, "
+        f"trigger_line={trigger_line()}, predicted_line={predicted_line()}, "
+        f"probe_positions={args.probe_positions}, rounds={args.rounds}, "
+        f"{args.access}={'noinline' if args.access == 'load' else ('inline' if args.inline_store else 'noinline')}"
+    )
+
+    rows = run_one(no_trigger=False)
+    if not rows:
+        return []
+
+    print(f"Saved raw output to {raw_path()}")
+    print(f"Saved parsed results to {tsv_path()}")
+    print_summary(rows, "Trigger result:")
+    return rows
+
+
+def plot_bar_chart(rows, no_trigger_avg_ns=None):
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Patch
+    except ModuleNotFoundError as exc:
+        print(f"Skipping bar plot: missing Python package '{exc.name}'.")
+        print("Install plotting dependencies with:")
+        print("  sudo apt install python3-matplotlib")
+        print("or, for the current Python environment:")
+        print("  python3 -m pip install matplotlib")
+        return
+
+    sorted_rows = sorted(rows, key=lambda row: row["position"])
+    positions = [row["position"] for row in sorted_rows]
+    values = [row["avg_ns"] for row in sorted_rows]
+    colors = [
+        ROLE_COLORS.get(row["role"], ROLE_COLORS["cache_miss"])
+        for row in sorted_rows
+    ]
+
+    width = min(max(args.probe_positions / 5, 10), 18)
+    fig, ax = plt.subplots(1, 1, figsize=(width, 4))
+
+    ax.bar(positions, values, color=colors, width=0.85,
+           edgecolor="black", linewidth=0.25)
+    ax.axhline(args.hit_threshold_ns, color="black",
+               linestyle="--", linewidth=0.9)
+    ax.axvline(trigger_line(), color="#CC79A7",
+               linestyle=":", linewidth=1.0)
+    ax.axvline(predicted_line(), color="#0072B2",
+               linestyle=":", linewidth=1.0)
+
+    ax.set_title(
+        f"Core {args.train_core} train, core {args.trigger_core} {args.access} trigger",
+        loc="left",
+        pad=4,
+    )
+    ax.set_ylabel("Average reload ns")
+    ax.set_xlabel("Probe cache-line index")
+    ax.set_ylim(0, max(300, max(values) * 1.05 if values else 300))
+    ax.set_xlim(-1, max(positions) + 1 if positions else args.probe_positions)
+    ax.grid(axis="y", alpha=0.25)
+
+    tick_step = max(1, args.probe_positions // 16)
+    ax.set_xticks(range(0, args.probe_positions, tick_step))
+
+    legend_items = [
+        Patch(facecolor=ROLE_COLORS["trained"], edgecolor="black",
+              label=f"core {args.train_core} trained"),
+        Patch(facecolor=ROLE_COLORS["trigger"], edgecolor="black",
+              label=f"core {args.trigger_core} {args.access} trigger"),
+        Patch(facecolor=ROLE_COLORS["predicted"], edgecolor="black",
+              label="predicted"),
+        Patch(facecolor=ROLE_COLORS["prefetched"], edgecolor="black",
+              label="other prefetched"),
+        Patch(facecolor=ROLE_COLORS["cache_miss"], edgecolor="black",
+              label="cache_miss"),
+    ]
+    ax.legend(handles=legend_items, loc="upper right", frameon=False, ncol=3)
+
+    no_trigger_text = ""
+    if no_trigger_avg_ns is not None:
+        no_trigger_text = (
+            f", no_trigger_line{predicted_line()}={no_trigger_avg_ns} ns"
+        )
+
+    fig.suptitle(
+        f"{args.arch}, train_core={args.train_core}, "
+        f"trigger_core={args.trigger_core}, stride={args.stride}, "
+        f"train_only={train_only_accesses()}, "
+        f"trigger_accesses={args.train_accesses}, "
+        f"{args.access}={'noinline' if args.access == 'load' else ('inline' if args.inline_store else 'noinline')}, "
+        f"threshold={args.hit_threshold_ns} ns"
+        f"{no_trigger_text}",
+        x=0.01,
+        ha="left",
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.savefig(plot_path(), dpi=300)
+    plt.close(fig)
+    print(f"Saved bar chart to {plot_path()}")
+
+
+if __name__ == "__main__":
+    ensure_dirs()
+    baseline_avg_ns = None
+
+    if args.plot_only:
+        if not os.path.exists(tsv_path()):
+            print(f"Error: TSV result '{tsv_path()}' not found.")
+            sys.exit(1)
+        result_rows = read_tsv(tsv_path())
+        if os.path.exists(control_tsv_path()):
+            control_rows = read_tsv(control_tsv_path())
+            baseline_avg_ns = control_rows[predicted_line()]["avg_ns"]
+    else:
+        baseline_avg_ns = no_trigger_baseline()
+        result_rows = run_test()
+
+    if result_rows and not args.no_plot:
+        plot_bar_chart(result_rows, baseline_avg_ns)
