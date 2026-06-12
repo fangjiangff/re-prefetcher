@@ -10,8 +10,8 @@ SRC = os.path.join(BASE_DIR, "test-exist.c")
 UTIL_SRC = os.path.join(BASE_DIR, "until.c")
 OUT = os.path.join(BASE_DIR, "bin", "test-exist")
 
-DEFAULT_ARCHES = ["A78", "A55", "A725", "X925"]
-DEFAULT_CORES = [4, 1, 4, 6]
+DEFAULT_ARCHES = ["A78", "A55", "A725", "X925", "A76"]
+DEFAULT_CORES = [4, 1, 4, 6, 0]
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_TRAIN_STEP = 6
 DEFAULT_ROUNDS = 4000
@@ -42,6 +42,8 @@ def parse_args():
                              f"Default: {DEFAULT_HIT_THRESHOLD_NS}")
     parser.add_argument("--access", choices=["store", "load"], default="store",
                         help="Stride instruction to test. Default: store")
+    parser.add_argument("--no-trigger", action="store_true",
+                        help="Skip the final same-PC trigger access after training.")
     parser.add_argument("--core", type=int, default=None,
                         help="CPU core used by taskset. If omitted, all default cores are tested.")
     parser.add_argument("--arch", default=None,
@@ -122,9 +124,10 @@ def get_targets():
 
 
 def micro_arch_name(arch, core):
+    trigger_suffix = "-no-trigger" if args.no_trigger else ""
     return (
         f"{arch}-core{core}-stride{args.stride}"
-        f"-train{args.train_step}-{args.access}"
+        f"-train{args.train_step}-{args.access}{trigger_suffix}"
     )
 
 
@@ -224,6 +227,7 @@ def run_tests(arch, core):
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DCPU_ID={core}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
+        f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
         "-o",
         OUT,
         SRC,

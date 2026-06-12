@@ -28,6 +28,10 @@
 #define TRAIN_ACCESS_LOAD 0
 #endif
 
+#ifndef NO_TRIGGER
+#define NO_TRIGGER 0
+#endif
+
 uint8_t array2[Items * LINE_SIZE] __attribute__((aligned(4096)));;
 
 long long int latency_sum[PROBE_POSITIONS] = {0};
@@ -146,7 +150,9 @@ int main(){
                 // array2[20*LINE_SIZE] = 1;
 
                 //trigger
+#if !NO_TRIGGER
                 stride_access(array2 + ((train_step -1) * stride));//the same PC to trigger the prefetcher, and this access is not prefetched.
+#endif
 
                 // test load
                 // int dump = array2[51*LINE_SIZE];
