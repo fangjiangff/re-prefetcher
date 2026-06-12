@@ -131,6 +131,12 @@ def plot_path():
     return os.path.join(plot_dir, f"{micro_arch_name()}-avg_ns.png")
 
 
+def control_plot_path():
+    return os.path.join(
+        plot_dir, f"{micro_arch_name()}-no-trigger-control-avg_ns.png"
+    )
+
+
 def control_tsv_path():
     return os.path.join(result_dir, f"{micro_arch_name()}-no-trigger-control.tsv")
 
@@ -293,12 +299,14 @@ def run_one(no_trigger=False):
     return rows
 
 
-def no_trigger_baseline():
-    rows = run_one(no_trigger=True)
+def no_trigger_baseline(rows=None):
+    if rows is None:
+        rows = run_one(no_trigger=True)
     if not rows:
         return None
 
     predicted = predicted_line()
+    print_summary(rows, "No-trigger result:")
     for row in rows:
         if row["position"] == predicted:
             print(
@@ -341,7 +349,7 @@ def run_test():
     return rows
 
 
-def plot_bar_chart(rows, no_trigger_avg_ns=None):
+def plot_bar_chart(rows, no_trigger_avg_ns=None, title=None, path=None):
     try:
         import matplotlib.pyplot as plt
         from matplotlib.patches import Patch
@@ -373,8 +381,9 @@ def plot_bar_chart(rows, no_trigger_avg_ns=None):
     ax.axvline(predicted_line(), color="#0072B2",
                linestyle=":", linewidth=1.0)
 
-    ax.set_title(f"Thread0 train, thread1 {args.access} trigger",
-                 loc="left", pad=4)
+    if title is None:
+        title = f"Thread0 train, thread1 {args.access} trigger"
+    ax.set_title(title, loc="left", pad=4)
     ax.set_ylabel("Average reload ns")
     ax.set_xlabel("Probe cache-line index")
     ax.set_ylim(0, max(300, max(values) * 1.05 if values else 300))
@@ -415,14 +424,17 @@ def plot_bar_chart(rows, no_trigger_avg_ns=None):
         ha="left",
     )
     fig.tight_layout(rect=(0, 0, 1, 0.94))
-    fig.savefig(plot_path(), dpi=300)
+    if path is None:
+        path = plot_path()
+    fig.savefig(path, dpi=300)
     plt.close(fig)
-    print(f"Saved bar chart to {plot_path()}")
+    print(f"Saved bar chart to {path}")
 
 
 if __name__ == "__main__":
     ensure_dirs()
     baseline_avg_ns = None
+    control_rows = None
 
     if args.plot_only:
         if not os.path.exists(tsv_path()):
@@ -432,9 +444,20 @@ if __name__ == "__main__":
         if os.path.exists(control_tsv_path()):
             control_rows = read_tsv(control_tsv_path())
             baseline_avg_ns = control_rows[predicted_line()]["avg_ns"]
+            print_summary(control_rows, "Existing no-trigger result:")
+        print_summary(result_rows, "Existing trigger result:")
     else:
-        baseline_avg_ns = no_trigger_baseline()
+        control_rows = run_one(no_trigger=True)
+        baseline_avg_ns = no_trigger_baseline(control_rows)
         result_rows = run_test()
+
+    if control_rows and not args.no_plot:
+        plot_bar_chart(
+            control_rows,
+            None,
+            title="Thread0 train, no thread1 trigger",
+            path=control_plot_path(),
+        )
 
     if result_rows and not args.no_plot:
         plot_bar_chart(result_rows, baseline_avg_ns)

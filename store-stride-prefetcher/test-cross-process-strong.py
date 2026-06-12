@@ -305,6 +305,7 @@ def no_trigger_baseline():
         return None
 
     write_tsv(rows, control_tsv_path())
+    print_summary(rows, "No-trigger result:")
     predicted = predicted_line()
     for row in rows:
         if row["position"] == predicted:
@@ -342,9 +343,19 @@ def run_same_process_baseline():
         return []
 
     write_tsv(rows, same_process_tsv_path())
-    print(f"Saved same-process raw output to {same_process_raw_path()}")
-    print(f"Saved same-process parsed results to {same_process_tsv_path()}")
+    # print(f"Saved same-process raw output to {same_process_raw_path()}")
+    # print(f"Saved same-process parsed results to {same_process_tsv_path()}")
+    print_summary(rows, "Same-process baseline result:")
     return rows
+
+
+def print_summary(rows, label):
+    targets = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45]
+    print(label)
+    for pos in targets:
+        if pos < len(rows):
+            row = rows[pos]
+            print(f"  line {pos:2d}: {row['role']:10s} {row['avg_ns']:4d} ns")
 
 
 def run_test():
@@ -387,6 +398,7 @@ def run_test():
     path = tsv_path()
     write_tsv(rows, path)
     print(f"Saved parsed results to {path}")
+    print_summary(rows, "Trigger result:")
     return rows
 
 
@@ -483,6 +495,7 @@ if __name__ == "__main__":
             sys.exit(1)
         if os.path.exists(same_process_tsv_path()):
             same_rows = read_tsv(same_process_tsv_path())
+            print_summary(same_rows, "Existing same-process baseline result:")
             if not args.no_plot:
                 plot_bar_chart(
                     same_rows,
@@ -490,7 +503,12 @@ if __name__ == "__main__":
                     title=f"Same-process {args.access} baseline",
                     path=same_process_plot_path(),
                 )
+        if os.path.exists(control_tsv_path()):
+            control_rows = read_tsv(control_tsv_path())
+            baseline_avg_ns = control_rows[predicted_line()]["avg_ns"]
+            print_summary(control_rows, "Existing no-trigger result:")
         result_rows = read_tsv(path)
+        print_summary(result_rows, "Existing trigger result:")
     else:
         baseline_avg_ns = no_trigger_baseline()
         same_rows = run_same_process_baseline()

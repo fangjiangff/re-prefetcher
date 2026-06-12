@@ -290,6 +290,7 @@ def no_trigger_baseline():
         return None
 
     write_tsv(rows, control_tsv_path())
+    print_summary(rows, "No-trigger result:")
     predicted_line = predicted_line_for_args()
     for row in rows:
         if row["position"] == predicted_line:
@@ -329,7 +330,17 @@ def run_same_el0_baseline():
     write_tsv(rows, same_el0_tsv_path())
     print(f"Saved same-EL0 raw output to {same_el0_raw_path()}")
     print(f"Saved same-EL0 parsed results to {same_el0_tsv_path()}")
+    print_summary(rows, "Same-EL0 baseline result:")
     return rows
+
+
+def print_summary(rows, label):
+    targets = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45]
+    print(label)
+    for pos in targets:
+        if pos < len(rows):
+            row = rows[pos]
+            print(f"  line {pos:2d}: {row['role']:10s} {row['avg_ns']:4d} ns")
 
 
 def run_test():
@@ -372,6 +383,7 @@ def run_test():
     path = tsv_path()
     write_tsv(rows, path)
     print(f"Saved parsed results to {path}")
+    print_summary(rows, "Trigger result:")
     return rows
 
 
@@ -467,6 +479,7 @@ if __name__ == "__main__":
             sys.exit(1)
         if os.path.exists(same_el0_tsv_path()):
             same_rows = read_tsv(same_el0_tsv_path())
+            print_summary(same_rows, "Existing same-EL0 baseline result:")
             if not args.no_plot:
                 plot_bar_chart(
                     same_rows,
@@ -474,7 +487,12 @@ if __name__ == "__main__":
                     title=f"Same-EL0 {args.access} baseline",
                     path=same_el0_plot_path(),
                 )
+        if os.path.exists(control_tsv_path()):
+            control_rows = read_tsv(control_tsv_path())
+            baseline_avg_ns = control_rows[predicted_line_for_args()]["avg_ns"]
+            print_summary(control_rows, "Existing no-trigger result:")
         result_rows = read_tsv(path)
+        print_summary(result_rows, "Existing trigger result:")
     else:
         baseline_avg_ns = no_trigger_baseline()
         same_rows = run_same_el0_baseline()
