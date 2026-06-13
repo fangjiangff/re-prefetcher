@@ -123,6 +123,10 @@ def same_el0_plot_path():
     return os.path.join(plot_dir, f"{micro_arch_name()}-same-el0-baseline.png")
 
 
+def context_switch_plot_path():
+    return os.path.join(plot_dir, f"{micro_arch_name()}-context-switch-baseline.png")
+
+
 def control_tsv_path():
     return os.path.join(result_dir, f"{micro_arch_name()}-no-trigger-control.tsv")
 
@@ -137,6 +141,14 @@ def same_el0_tsv_path():
 
 def same_el0_raw_path():
     return os.path.join(raw_dir, f"{micro_arch_name()}-same-el0-baseline.txt")
+
+
+def context_switch_tsv_path():
+    return os.path.join(result_dir, f"{micro_arch_name()}-context-switch-baseline.tsv")
+
+
+def context_switch_raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}-context-switch-baseline.txt")
 
 
 def ensure_dirs():
@@ -232,7 +244,7 @@ def read_tsv(path):
     return rows
 
 
-def compile_test(no_trigger=False, same_el0=False):
+def compile_test(no_trigger=False, same_el0=False, context_switch=False):
     use_noinline = 0 if args.inline_store else 1
     train_access_load = 1 if args.access == "load" else 0
     compile_cmd = [
@@ -249,6 +261,7 @@ def compile_test(no_trigger=False, same_el0=False):
         f"-DTRAIN_ACCESS_LOAD={train_access_load}",
         f"-DNO_TRIGGER={1 if no_trigger else 0}",
         f"-DSAME_EL0_TRIGGER={1 if same_el0 else 0}",
+        f"-DCONTEXT_SWITCH_ONLY={1 if context_switch else 0}",
         "-o",
         OUT,
         SRC,
@@ -301,6 +314,36 @@ def no_trigger_baseline():
 
     print(f"No-trigger control missing line {predicted_line}")
     return None
+
+
+def run_context_switch_baseline():
+    compiled = compile_test(no_trigger=False, context_switch=True)
+    if compiled.returncode != 0:
+        print("Context-switch baseline compile failed")
+        return []
+
+    run = run_binary()
+    if run.returncode != 0:
+        print("Context-switch baseline execution failed")
+        if run.stdout:
+            print(run.stdout)
+        if run.stderr:
+            print(run.stderr)
+        return []
+
+    with open(context_switch_raw_path(), "w") as f:
+        f.write(run.stdout)
+
+    rows = parse_output(run.stdout)
+    if not rows:
+        print("Context-switch baseline produced no rows")
+        return []
+
+    write_tsv(rows, context_switch_tsv_path())
+    print(f"Saved context-switch raw output to {context_switch_raw_path()}")
+    print(f"Saved context-switch parsed results to {context_switch_tsv_path()}")
+    print_summary(rows, "Context-switch baseline result:")
+    return rows
 
 
 def run_same_el0_baseline():
@@ -386,13 +429,16 @@ def run_test():
     return rows
 
 
-def plot_bar_chart(rows, no_trigger_avg_ns=None, title=None, path=None):
+def plot_bar_chart(rows, no_trigger_avg_ns=None, title=None, path=None,
+                   trigger_label=None):
     access_mode = (
         "noinline" if args.access == "load"
         else ("inline" if args.inline_store else "noinline")
     )
     if path is None:
         path = plot_path()
+    if trigger_label is None:
+        trigger_label = f"{args.access} trigger"
     plot_cross_bar_chart(
         rows,
         args=args,
@@ -401,7 +447,7 @@ def plot_bar_chart(rows, no_trigger_avg_ns=None, title=None, path=None):
         train_only_accesses=train_only_accesses(),
         default_title=f"EL0 {args.access} train, EL1 {args.access} trigger",
         trained_label="EL0 trained",
-        trigger_label=f"{args.access} trigger",
+        trigger_label=trigger_label,
         summary_text=(
             f"{args.arch} core {args.core}, stride={args.stride}, "
             f"train_only={train_only_accesses()}, "
@@ -432,6 +478,17 @@ if __name__ == "__main__":
                     title=f"Same-EL0 {args.access} baseline",
                     path=same_el0_plot_path(),
                 )
+        if os.path.exists(context_switch_tsv_path()):
+            context_rows = read_tsv(context_switch_tsv_path())
+            print_summary(context_rows, "Existing context-switch baseline result:")
+            if not args.no_plot:
+                plot_bar_chart(
+                    context_rows,
+                    None,
+                    title=f"EL1 context-switch {args.access} baseline",
+                    path=context_switch_plot_path(),
+                    trigger_label=f"EL0 {args.access} trigger after EL1 context switch",
+                )
         if os.path.exists(control_tsv_path()):
             control_rows = read_tsv(control_tsv_path())
             baseline_avg_ns = control_rows[predicted_line_for_args()]["avg_ns"]
@@ -447,6 +504,15 @@ if __name__ == "__main__":
                 baseline_avg_ns,
                 title=f"Same-EL0 {args.access} baseline",
                 path=same_el0_plot_path(),
+            )
+        context_rows = run_context_switch_baseline()
+        if context_rows and not args.no_plot:
+            plot_bar_chart(
+                context_rows,
+                baseline_avg_ns,
+                title=f"EL1 context-switch {args.access} baseline",
+                path=context_switch_plot_path(),
+                trigger_label=f"EL0 {args.access} trigger after EL1 context switch",
             )
         result_rows = run_test()
 

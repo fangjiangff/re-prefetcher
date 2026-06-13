@@ -18,8 +18,6 @@ DEFAULT_TRAIN_STEP_MIN = 1
 DEFAULT_TRAIN_STEP_MAX = 10
 DEFAULT_ROUNDS = 40000
 DEFAULT_PROBE_POSITIONS = 100
-DEFAULT_HIT_THRESHOLD_NS = 150
-
 GREEN = "\033[32m"
 RED = "\033[31m"
 RESET = "\033[0m"
@@ -59,9 +57,9 @@ def parse_args():
                         default=DEFAULT_PROBE_POSITIONS,
                         help=f"Positions to probe. Default: {DEFAULT_PROBE_POSITIONS}")
     parser.add_argument("--hit-threshold-ns", type=int,
-                        default=DEFAULT_HIT_THRESHOLD_NS,
+                        default=None,
                         help="Predicted line is treated as prefetched when "
-                             f"avg_ns <= this value. Default: {DEFAULT_HIT_THRESHOLD_NS}")
+                             "avg_ns <= this value. Default is selected from --arch.")
     parser.add_argument("--access", choices=["store", "load"], default="store",
                         help="Stride instruction to test. Default: store")
     parser.add_argument("--no-trigger", action="store_true",
@@ -96,7 +94,7 @@ def parse_args():
         parser.error("--rounds must be >= 1")
     if args.probe_positions < 1:
         parser.error("--probe-positions must be >= 1")
-    if args.hit_threshold_ns < 1:
+    if args.hit_threshold_ns is not None and args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
     max_train_step = args.train_step_max if args.batch else args.train_step
     if max_train_step * args.stride >= args.probe_positions:
@@ -193,15 +191,21 @@ def predicted_offset(train_step):
     return predicted_position(train_step) * 64
 
 
-def classify_position(offset_bytes, avg_ns, probes, train_step):
+def threshold_ns_for(arch):
+    if args.hit_threshold_ns is not None:
+        return args.hit_threshold_ns
+    return ARCH_CONFIG[arch]["threshold_ns"]
+
+
+def classify_position(offset_bytes, avg_ns, probes, train_step, threshold_ns):
     if offset_bytes in accessed_offsets(train_step):
         return "accessed"
-    if probes > 0 and avg_ns <= args.hit_threshold_ns:
+    if probes > 0 and avg_ns <= threshold_ns:
         return "prefetched"
     return "cache_miss"
 
 
-def parse_output(output, train_step):
+def parse_output(output, train_step, threshold_ns):
     rows = []
     for line in output.splitlines():
         stripped = line.strip()
@@ -225,7 +229,7 @@ def parse_output(output, train_step):
         rows.append({
             "position": position,
             "offset_bytes": offset_bytes,
-            "role": classify_position(offset_bytes, avg_ns, probes, train_step),
+            "role": classify_position(offset_bytes, avg_ns, probes, train_step, threshold_ns),
             "avg_ns": avg_ns,
             "probes": probes,
         })
@@ -288,12 +292,13 @@ def run_binary(core):
 
 
 def run_one(arch, core, train_step):
+    threshold_ns = threshold_ns_for(arch)
     print("=" * 60)
     print(
         f"access={args.access}, arch={arch}, core={core}, "
         f"stride={args.stride} lines, train_step={train_step}, "
         f"predicted_position={predicted_position(train_step)}, "
-        f"rounds={args.rounds}"
+        f"rounds={args.rounds}, threshold={threshold_ns} ns"
     )
 
     if compile_test(train_step) != 0:
@@ -312,7 +317,7 @@ def run_one(arch, core, train_step):
     raw_path = raw_path_for(arch, core, train_step)
     with open(raw_path, "w") as f:
         f.write(run.stdout)
-    rows = parse_output(run.stdout, train_step)
+    rows = parse_output(run.stdout, train_step, threshold_ns)
     if not rows:
         print("No results to save")
         return []
@@ -336,6 +341,7 @@ def colored_yes_no(value):
 
 
 def print_predicted_result(arch, core, train_step, rows):
+    threshold_ns = threshold_ns_for(arch)
     row = predicted_row(rows, train_step)
     if row is None:
         print(
@@ -344,16 +350,18 @@ def print_predicted_result(arch, core, train_step, rows):
         )
         return
 
-    prefetched = row["probes"] > 0 and row["avg_ns"] <= args.hit_threshold_ns
+    prefetched = row["probes"] > 0 and row["avg_ns"] <= threshold_ns
     print(
         f"{arch} core={core} train_step={train_step}: "
         f"predicted_position={row['position']} "
         f"avg_ns={row['avg_ns']} "
-        f"prefetched={colored_yes_no(prefetched)}"
+        f"prefetched={colored_yes_no(prefetched)} "
+        f"threshold={threshold_ns} ns"
     )
 
 
 def plot_bar_chart(rows, arch, core, train_step):
+    threshold_ns = threshold_ns_for(arch)
     try:
         import matplotlib.pyplot as plt
         from matplotlib.patches import Patch
@@ -378,7 +386,7 @@ def plot_bar_chart(rows, arch, core, train_step):
 
     ax.bar(positions, values, color=colors, width=0.85,
            edgecolor="black", linewidth=0.25)
-    ax.axhline(args.hit_threshold_ns, color="black",
+    ax.axhline(threshold_ns, color="black",
                linestyle="--", linewidth=0.9)
     ax.axvline(predicted_position(train_step), color="#0072B2",
                linestyle=":", linewidth=1.0)
@@ -410,7 +418,7 @@ def plot_bar_chart(rows, arch, core, train_step):
     fig.suptitle(
         f"{arch} core {core}, stride={args.stride}, "
         f"predicted_position={predicted_position(train_step)}, "
-        f"threshold={args.hit_threshold_ns} ns",
+        f"threshold={threshold_ns} ns",
         x=0.01,
         ha="left",
     )

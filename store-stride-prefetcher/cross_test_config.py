@@ -1,28 +1,31 @@
 ARCH_CONFIG = {
     "X925": {
         "core": 6,
+        "threshold_ns": 100,
         "cross_core": {
             "train_core": 6,
             "trigger_core": 7,
         },
         "train_accesses": {
-            "store": 3,
-            "load": 3,
+            "store": 1,
+            "load": 1,
         },
     },
     "A725": {
         "core": 4,
+        "threshold_ns": 120,
         "cross_core": {
             "train_core": 4,
-            "trigger_core": 5,
+            "trigger_core": 10,
         },
         "train_accesses": {
-            "store": 7,
-            "load": 7,
+            "store": 5,
+            "load": 5,
         },
     },
     "A78": {
         "core": 4,
+        "threshold_ns": 120,
         "cross_core": {
             "train_core": 4,
             "trigger_core": 5,
@@ -34,6 +37,7 @@ ARCH_CONFIG = {
     },
     "A55": {
         "core": 1,
+        "threshold_ns": 120,
         "cross_core": {
             "train_core": 1,
             "trigger_core": 0,
@@ -45,6 +49,7 @@ ARCH_CONFIG = {
     },
     "A76": {
         "core": 1,
+        "threshold_ns": 180,
         "cross_core": {
             "train_core": 1,
             "trigger_core": 0,
@@ -69,6 +74,11 @@ def apply_single_core_defaults(args):
 def apply_train_access_defaults(args):
     if args.train_accesses is None:
         args.train_accesses = ARCH_CONFIG[args.arch]["train_accesses"][args.access]
+
+
+def apply_threshold_defaults(args):
+    if args.threshold_ns is None:
+        args.threshold_ns = ARCH_CONFIG[args.arch]["threshold_ns"]
 
 
 def apply_cross_core_defaults(args):

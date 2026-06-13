@@ -56,6 +56,10 @@
 #define NO_TRIGGER 0
 #endif
 
+#ifndef CONTEXT_SWITCH_ONLY
+#define CONTEXT_SWITCH_ONLY 0
+#endif
+
 static uint8_t array1[100 * LINE_SIZE] = {0};
 static uint8_t *shared_page;
 static uint8_t *dummy_buffer;
@@ -123,6 +127,10 @@ static void train_in_thread0(int stride_bytes) {
     }
 }
 
+static void trigger_in_thread0(size_t offset) {
+    access_for_test(shared_page + offset);
+}
+
 static void delay_after_trigger(void) {
     uint64_t dummy = 0;
 
@@ -170,7 +178,11 @@ static void *trigger_thread_main(void *arg) {
         }
         pthread_mutex_unlock(&trigger_mutex);
 
+#if CONTEXT_SWITCH_ONLY
+        dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+#else
         access_for_test(shared_page + trigger_offset);
+#endif
 
         pthread_mutex_lock(&trigger_mutex);
         trigger_state = 2;
@@ -217,6 +229,8 @@ static void print_header(int stride_bytes, int trigger_line,
     printf("# trigger=%s\n",
 #if NO_TRIGGER
            "disabled"
+#elif CONTEXT_SWITCH_ONLY
+           "thread1_context_switch_then_thread0"
 #else
            "thread1"
 #endif
@@ -288,6 +302,9 @@ int main(void) {
         train_in_thread0(stride_bytes);
 #if !NO_TRIGGER
         request_trigger();
+#if CONTEXT_SWITCH_ONLY
+        trigger_in_thread0(trigger_offset);
+#endif
 #endif
         delay_after_trigger();
 

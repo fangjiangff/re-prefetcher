@@ -68,6 +68,10 @@
 #define SAME_PROCESS_TRIGGER 0
 #endif
 
+#ifndef PROCESS_SWITCH_ONLY
+#define PROCESS_SWITCH_ONLY 0
+#endif
+
 #ifndef CHILD_MAP_ADDR
 #define CHILD_MAP_ADDR 0x700000000ULL
 #endif
@@ -192,7 +196,7 @@ static void train_in_parent(int stride_bytes) {
     }
 }
 
-#if !NO_TRIGGER && SAME_PROCESS_TRIGGER
+#if !NO_TRIGGER && (SAME_PROCESS_TRIGGER || PROCESS_SWITCH_ONLY)
 static void trigger_in_parent(size_t trigger_offset) {
     access_for_test(shared_page + trigger_offset);
 }
@@ -271,6 +275,10 @@ static int child_main(int argc, char **argv) {
         if (command == 'Q') {
             return 0;
         }
+        if (command == 'S') {
+            write_command(done_fd, 'A');
+            continue;
+        }
         if (command != 'T') {
             fprintf(stderr, "unexpected child command: %u\n", command);
             return 1;
@@ -314,7 +322,9 @@ static void print_header(int stride_bytes, int trigger_line,
 #else
            "store",
 #endif
-#if SAME_PROCESS_TRIGGER
+#if PROCESS_SWITCH_ONLY
+           "parent_after_process_switch"
+#elif SAME_PROCESS_TRIGGER
            "parent"
 #else
            "exec child"
@@ -346,6 +356,8 @@ static void print_header(int stride_bytes, int trigger_line,
     printf("# trigger=%s\n",
 #if NO_TRIGGER
            "disabled"
+#elif PROCESS_SWITCH_ONLY
+           "process_switch_then_same_process"
 #elif SAME_PROCESS_TRIGGER
            "same_process"
 #elif TRAIN_ACCESS_LOAD
@@ -368,7 +380,7 @@ int main(int argc, char **argv) {
     uintptr_t child_addr;
     pid_t child;
     unsigned int junk = 0;
-#if !NO_TRIGGER && SAME_PROCESS_TRIGGER
+#if !NO_TRIGGER && (SAME_PROCESS_TRIGGER || PROCESS_SWITCH_ONLY)
     size_t trigger_offset =
         (size_t)TRAIN_ONLY_ACCESSES * (size_t)stride_bytes;
 #endif
@@ -462,7 +474,14 @@ int main(int argc, char **argv) {
 
         train_in_parent(stride_bytes);
 #if !NO_TRIGGER
-#if SAME_PROCESS_TRIGGER
+#if SAME_PROCESS_TRIGGER || PROCESS_SWITCH_ONLY
+#if PROCESS_SWITCH_ONLY
+        write_command(parent_to_child[1], 'S');
+        if (read_command(child_to_parent[0]) != 'A') {
+            fprintf(stderr, "child did not acknowledge switch\n");
+            break;
+        }
+#endif
         trigger_in_parent(trigger_offset);
 #else
         write_command(parent_to_child[1], 'T');

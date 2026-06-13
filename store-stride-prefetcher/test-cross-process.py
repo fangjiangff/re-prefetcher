@@ -121,6 +121,10 @@ def same_process_plot_path():
     return os.path.join(plot_dir, f"{micro_arch_name()}-same-process-baseline-avg_ns.png")
 
 
+def process_switch_plot_path():
+    return os.path.join(plot_dir, f"{micro_arch_name()}-process-switch-baseline-avg_ns.png")
+
+
 def control_tsv_path():
     return os.path.join(result_dir, f"{micro_arch_name()}-no-trigger-control.tsv")
 
@@ -135,6 +139,14 @@ def same_process_tsv_path():
 
 def same_process_raw_path():
     return os.path.join(raw_dir, f"{micro_arch_name()}-same-process-baseline.txt")
+
+
+def process_switch_tsv_path():
+    return os.path.join(result_dir, f"{micro_arch_name()}-process-switch-baseline.tsv")
+
+
+def process_switch_raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}-process-switch-baseline.txt")
 
 
 def ensure_dirs():
@@ -246,7 +258,7 @@ def read_tsv(path):
     return rows
 
 
-def compile_test(no_trigger=False, same_process=False):
+def compile_test(no_trigger=False, same_process=False, process_switch=False):
     use_noinline = 0 if args.inline_store else 1
     train_access_load = 1 if args.access == "load" else 0
     compile_cmd = [
@@ -263,6 +275,7 @@ def compile_test(no_trigger=False, same_process=False):
         f"-DTRAIN_ACCESS_LOAD={train_access_load}",
         f"-DNO_TRIGGER={1 if no_trigger else 0}",
         f"-DSAME_PROCESS_TRIGGER={1 if same_process else 0}",
+        f"-DPROCESS_SWITCH_ONLY={1 if process_switch else 0}",
         f"-DCHILD_MAP_ADDR=0x{args.child_map_addr:x}ULL",
         "-o",
         OUT,
@@ -348,6 +361,34 @@ def run_same_process_baseline():
     return rows
 
 
+def run_process_switch_baseline():
+    compiled = compile_test(no_trigger=False, process_switch=True)
+    if compiled.returncode != 0:
+        print("Process-switch baseline compile failed")
+        return []
+
+    run = run_binary()
+    if run.returncode != 0:
+        print("Process-switch baseline execution failed")
+        if run.stdout:
+            print(run.stdout)
+        if run.stderr:
+            print(run.stderr)
+        return []
+
+    with open(process_switch_raw_path(), "w") as f:
+        f.write(run.stdout)
+
+    rows = parse_output(run.stdout)
+    if not rows:
+        print("Process-switch baseline produced no rows")
+        return []
+
+    write_tsv(rows, process_switch_tsv_path())
+    print_summary(rows, "Process-switch baseline result:")
+    return rows
+
+
 def print_summary(rows, label):
     targets = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45]
     print(label)
@@ -401,13 +442,16 @@ def run_test():
     return rows
 
 
-def plot_bar_chart(rows, no_trigger_avg_ns=None, title=None, path=None):
+def plot_bar_chart(rows, no_trigger_avg_ns=None, title=None, path=None,
+                   trigger_label=None):
     access_mode = (
         "noinline" if args.access == "load"
         else ("inline" if args.inline_store else "noinline")
     )
     if path is None:
         path = plot_path()
+    if trigger_label is None:
+        trigger_label = f"exec child {args.access} trigger"
     plot_cross_bar_chart(
         rows,
         args=args,
@@ -416,7 +460,7 @@ def plot_bar_chart(rows, no_trigger_avg_ns=None, title=None, path=None):
         train_only_accesses=train_only_accesses(),
         default_title=f"Strong cross-process {args.access} trigger",
         trained_label="parent trained",
-        trigger_label=f"exec child {args.access} trigger",
+        trigger_label=trigger_label,
         summary_text=(
             f"{args.arch} core {args.core}, stride={args.stride}, "
             f"train_only={train_only_accesses()}, "
@@ -448,6 +492,17 @@ if __name__ == "__main__":
                     title=f"Same-process {args.access} baseline",
                     path=same_process_plot_path(),
                 )
+        if os.path.exists(process_switch_tsv_path()):
+            switch_rows = read_tsv(process_switch_tsv_path())
+            print_summary(switch_rows, "Existing process-switch baseline result:")
+            if not args.no_plot:
+                plot_bar_chart(
+                    switch_rows,
+                    None,
+                    title=f"Process-switch {args.access} baseline",
+                    path=process_switch_plot_path(),
+                    trigger_label=f"parent {args.access} trigger after process switch",
+                )
         if os.path.exists(control_tsv_path()):
             control_rows = read_tsv(control_tsv_path())
             baseline_avg_ns = control_rows[predicted_line()]["avg_ns"]
@@ -463,6 +518,15 @@ if __name__ == "__main__":
                 baseline_avg_ns,
                 title=f"Same-process {args.access} baseline",
                 path=same_process_plot_path(),
+            )
+        switch_rows = run_process_switch_baseline()
+        if switch_rows and not args.no_plot:
+            plot_bar_chart(
+                switch_rows,
+                baseline_avg_ns,
+                title=f"Process-switch {args.access} baseline",
+                path=process_switch_plot_path(),
+                trigger_label=f"parent {args.access} trigger after process switch",
             )
         result_rows = run_test()
 

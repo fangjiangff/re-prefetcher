@@ -4,11 +4,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from cross_test_config import ARCH_CONFIG, arch_choices
+from cross_test_config import ARCH_CONFIG, apply_threshold_defaults, arch_choices
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_THRESHOLD_NS = 180
 GREEN = "\033[32m"
 RED = "\033[31m"
 RESET = "\033[0m"
@@ -49,6 +48,8 @@ TESTS = [
 NON_TRIGGER_MARKERS = (
     "-no-trigger-control",
     "-same-process-baseline",
+    "-process-switch-baseline",
+    "-context-switch-baseline",
     "-same-el0-baseline",
     "-no-secure-switch-baseline",
     "-secure-noop-ns-trigger",
@@ -67,8 +68,8 @@ def parse_args():
     parser.add_argument("--trigger-core", type=int,
                         help="Override trigger core for cross-core test.")
     parser.add_argument("--access", choices=["store", "load"], default="store")
-    parser.add_argument("--threshold-ns", type=int, default=DEFAULT_THRESHOLD_NS,
-                        help=f"predicted avg_ns threshold. Default: {DEFAULT_THRESHOLD_NS}")
+    parser.add_argument("--threshold-ns", type=int, default=None,
+                        help="predicted avg_ns threshold. Default is selected from --arch.")
     parser.add_argument("--stride", type=int)
     parser.add_argument("--train-accesses", type=int)
     parser.add_argument("--rounds", type=int)
@@ -80,6 +81,8 @@ def parse_args():
     parser.add_argument("--skip-trustzone", action="store_true",
                         help="Skip TrustZone test if OP-TEE is unavailable.")
     args = parser.parse_args()
+
+    apply_threshold_defaults(args)
 
     if args.core is not None and args.core < 0:
         parser.error("--core must be >= 0")

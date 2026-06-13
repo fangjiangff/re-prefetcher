@@ -77,6 +77,10 @@
 #define SAME_EL0_TRIGGER 0
 #endif
 
+#ifndef CONTEXT_SWITCH_ONLY
+#define CONTEXT_SWITCH_ONLY 0
+#endif
+
 static uint8_t *user_page;
 static uint8_t *dummy_buffer;
 static uint8_t array1[100 * LINE_SIZE] = {0};
@@ -138,7 +142,7 @@ static void train_in_el0(int stride_bytes) {
 }
 
 #if !NO_TRIGGER
-#if SAME_EL0_TRIGGER
+#if SAME_EL0_TRIGGER || CONTEXT_SWITCH_ONLY
 static void trigger_in_el0(size_t trigger_offset) {
 #if TRAIN_ACCESS_LOAD
     mLoad_noinline(user_page + trigger_offset);
@@ -152,7 +156,30 @@ static void trigger_in_el0(size_t trigger_offset) {
 }
 #endif
 
-#if !SAME_EL0_TRIGGER
+#if !SAME_EL0_TRIGGER || CONTEXT_SWITCH_ONLY
+static void context_switch_in_el1(int trigger_fd) {
+    ssize_t ret;
+
+    do {
+        ret =
+#if TRAIN_ACCESS_LOAD
+            write(trigger_fd, dummy_buffer, 1);
+#else
+            read(trigger_fd, dummy_buffer, 1);
+#endif
+    } while (ret < 0 && errno == EINTR);
+
+    if (ret != 1) {
+#if TRAIN_ACCESS_LOAD
+        die("write /dev/null context switch");
+#else
+        die("read /dev/zero context switch");
+#endif
+    }
+}
+#endif
+
+#if !SAME_EL0_TRIGGER && !CONTEXT_SWITCH_ONLY
 static void trigger_in_el1(int trigger_fd, size_t trigger_offset) {
     uint8_t *trigger_addr =
         user_page + trigger_offset;
@@ -184,7 +211,7 @@ static void delay_after_trigger(void) {
     for (int k = 0; k < 100; k++) {
         dummy += array1[k * LINE_SIZE];
     }
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 100; i++) {
         nop();
     }
 
@@ -207,7 +234,9 @@ static void print_header(int stride_bytes, int trigger_line,
 #else
            "store",
 #endif
-#if SAME_EL0_TRIGGER
+#if CONTEXT_SWITCH_ONLY
+           "EL0_after_EL1_context_switch"
+#elif SAME_EL0_TRIGGER
            "EL0"
 #else
            "EL1"
@@ -234,6 +263,8 @@ static void print_header(int stride_bytes, int trigger_line,
     printf("# trigger=%s\n",
 #if NO_TRIGGER
            "disabled"
+#elif CONTEXT_SWITCH_ONLY
+           "el1_context_switch_then_same_el0"
 #elif SAME_EL0_TRIGGER
            "same_el0"
 #elif TRAIN_ACCESS_LOAD
@@ -316,7 +347,10 @@ int main(void) {
 
         train_in_el0(stride_bytes);
 #if !NO_TRIGGER
-#if SAME_EL0_TRIGGER
+#if CONTEXT_SWITCH_ONLY
+        context_switch_in_el1(trigger_fd);
+        trigger_in_el0(trigger_offset);
+#elif SAME_EL0_TRIGGER
         trigger_in_el0(trigger_offset);
 #else
         trigger_in_el1(trigger_fd, trigger_offset);

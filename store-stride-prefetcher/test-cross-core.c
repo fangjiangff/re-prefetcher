@@ -60,6 +60,10 @@
 #define NO_TRIGGER 0
 #endif
 
+#ifndef CONTEXT_SWITCH_ONLY
+#define CONTEXT_SWITCH_ONLY 0
+#endif
+
 static uint8_t array1[100 * LINE_SIZE] = {0};
 static uint8_t *shared_page;
 static uint8_t *dummy_buffer;
@@ -97,14 +101,7 @@ static void flush_shared_page(void) {
 }
 
 static void dummyAccesses(void) {
-// #if TRAIN_ACCESS_LOAD
-//     for (size_t i = 0; i < DUMMY_BUFFER_SIZE; i += LINE_SIZE) {
-//         mStore_inline(dummy_buffer + i);
-//     }
-//     mfence();
-// #else
     dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
-// #endif
 }
 
 static inline __attribute__((always_inline)) void access_for_test(void *addr) {
@@ -125,13 +122,17 @@ static void train_on_train_core(int stride_bytes) {
     }
 }
 
+static void trigger_on_train_core(size_t offset) {
+    access_for_test(shared_page + offset);
+}
+
 static void delay_after_trigger(void) {
     uint64_t dummy = 0;
 
     for (int k = 0; k < 100; k++) {
         dummy += array1[k * LINE_SIZE];
     }
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 100; i++) {
         nop();
     }
 
@@ -172,7 +173,11 @@ static void *trigger_thread_main(void *arg) {
         }
         pthread_mutex_unlock(&trigger_mutex);
 
+#if CONTEXT_SWITCH_ONLY
+        dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+#else
         access_for_test(shared_page + trigger_offset);
+#endif
 
         pthread_mutex_lock(&trigger_mutex);
         trigger_state = 2;
@@ -220,6 +225,8 @@ static void print_header(int stride_bytes, int trigger_line,
     printf("# trigger=%s\n",
 #if NO_TRIGGER
            "disabled"
+#elif CONTEXT_SWITCH_ONLY
+           "trigger_core_context_switch_then_train_core"
 #else
            "trigger_core_thread"
 #endif
@@ -299,6 +306,9 @@ int main(void) {
         train_on_train_core(stride_bytes);
 #if !NO_TRIGGER
         request_trigger();
+#if CONTEXT_SWITCH_ONLY
+        trigger_on_train_core(trigger_offset);
+#endif
 #endif
         delay_after_trigger();
 
