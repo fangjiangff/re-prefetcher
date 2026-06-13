@@ -43,6 +43,17 @@ ARCH_CONFIG = {
             "load": 5,
         },
     },
+    "A76": {
+        "core": 1,
+        "cross_core": {
+            "train_core": 1,
+            "trigger_core": 0,
+        },
+        "train_accesses": {
+            "store": 3,
+            "load": 3,
+        },
+    },
 }
 
 
