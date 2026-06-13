@@ -77,11 +77,17 @@ static inline __attribute__((always_inline)) uint64_t timestamp(void) {
 static inline __attribute__((always_inline)) void dummyAccess(void *buffer,
                                                              size_t size) {
     uint8_t *dummy_buffer = (uint8_t *)buffer;
+    size_t lines = size / LINE_SIZE;
+    size_t step = 97;
 
-    for (size_t i = 0; i < size; i += LINE_SIZE) {
-        mLoad(dummy_buffer + i);
+
+    for (size_t n = 0; n < lines; n++) {
+        size_t line = (n * step) % lines;
+        // mLoad_inline(dummy_buffer + line * LINE_SIZE);
+        // use pfrm
+        asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(dummy_buffer + line * LINE_SIZE) : "memory");
     }
-    mfence();
+    // mfence();
 }
 
 #endif

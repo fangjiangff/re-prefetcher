@@ -4,6 +4,12 @@ import os
 import subprocess
 import sys
 
+from cross_test_config import (
+    apply_single_core_defaults,
+    apply_train_access_defaults,
+    arch_choices,
+)
+from cross_plot import plot_cross_bar_chart
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(BASE_DIR, "test-cross-trustzone.c")
@@ -11,34 +17,25 @@ UTIL_SRC = os.path.join(BASE_DIR, "until.c")
 TA_DIR = os.path.join(BASE_DIR, "optee_store_stride_ta")
 OUT = os.path.join(BASE_DIR, "bin", "test-cross-trustzone")
 
-DEFAULT_ARCH = "A55"
-DEFAULT_CORE = 1
 DEFAULT_STRIDE_LINES = 5
-DEFAULT_TRAIN_ACCESSES = 5
 DEFAULT_ROUNDS = 4000
 DEFAULT_PROBE_POSITIONS = 64
-DEFAULT_HIT_THRESHOLD_NS = 120
+DEFAULT_HIT_THRESHOLD_NS = 150
 DEFAULT_TA_UUID = "b6a189a0-7697-4aa8-9d62-80f64ec4e74d"
 DEFAULT_TEE_DEVICE = "/dev/tee0"
-
-ROLE_COLORS = {
-    "trained": "#D55E00",
-    "trigger": "#CC79A7",
-    "predicted": "#0072B2",
-    "prefetched": "#56B4E9",
-    "cache_miss": "#BDBDBD",
-}
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Compile, run, and plot Normal/Secure TrustZone stride test."
     )
-    parser.add_argument("--arch", default=DEFAULT_ARCH)
-    parser.add_argument("--core", type=int, default=DEFAULT_CORE)
+    parser.add_argument("--arch", required=True, choices=arch_choices())
+    parser.add_argument("--core", type=int, default=None,
+                        help="Override CPU core. Default is selected from --arch.")
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE_LINES)
     parser.add_argument("--train-accesses", type=int,
-                        default=DEFAULT_TRAIN_ACCESSES)
+                        default=None,
+                        help="Override trigger accesses. Default is selected "
+                             "from --arch and --access.")
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
     parser.add_argument("--probe-positions", type=int,
                         default=DEFAULT_PROBE_POSITIONS)
@@ -62,6 +59,9 @@ def parse_args():
     parser.add_argument("--no-control", action="store_true",
                         help="Skip the no-trigger baseline run.")
     args = parser.parse_args()
+
+    apply_single_core_defaults(args)
+    apply_train_access_defaults(args)
 
     if args.core < 0:
         parser.error("--core must be >= 0")
@@ -374,88 +374,32 @@ def print_summary(rows, label):
 
 
 def plot_bar_chart(rows, no_trigger_avg_ns=None, title=None, path=None):
-    try:
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Patch
-    except ModuleNotFoundError as exc:
-        print(f"Skipping bar plot: missing Python package '{exc.name}'.")
-        print("Install plotting dependencies with:")
-        print("  sudo apt install python3-matplotlib")
-        print("or, for the current Python environment:")
-        print("  python3 -m pip install matplotlib")
-        return
-
-    sorted_rows = sorted(rows, key=lambda row: row["position"])
-    positions = [row["position"] for row in sorted_rows]
-    values = [row["avg_ns"] for row in sorted_rows]
-    colors = [
-        ROLE_COLORS.get(row["role"], ROLE_COLORS["cache_miss"])
-        for row in sorted_rows
-    ]
-
-    width = min(max(args.probe_positions / 5, 10), 18)
-    fig, ax = plt.subplots(1, 1, figsize=(width, 4))
-
-    ax.bar(positions, values, color=colors, width=0.85,
-           edgecolor="black", linewidth=0.25)
-    ax.axhline(args.hit_threshold_ns, color="black",
-               linestyle="--", linewidth=0.9)
-    ax.axvline(trigger_line_for(), color="#CC79A7",
-               linestyle=":", linewidth=1.0)
-    ax.axvline(predicted_line_for(), color="#0072B2",
-               linestyle=":", linewidth=1.0)
-
     if title is None:
         if args.access == "load":
             title = "NS load train, Secure World no-op, NS load trigger"
         else:
             title = "Normal World store train, Secure World store trigger"
-    ax.set_title(title, loc="left", pad=4)
-    ax.set_ylabel("Average reload ns")
-    ax.set_xlabel("Probe cache-line index")
-    ax.set_ylim(0, max(300, max(values) * 1.05 if values else 300))
-    ax.set_xlim(-1, max(positions) + 1 if positions else args.probe_positions)
-    ax.grid(axis="y", alpha=0.25)
-
-    tick_step = max(1, args.probe_positions // 16)
-    ax.set_xticks(range(0, args.probe_positions, tick_step))
-
-    legend_items = [
-        Patch(facecolor=ROLE_COLORS["trained"], edgecolor="black",
-              label=f"{args.access} trained"),
-        Patch(facecolor=ROLE_COLORS["trigger"], edgecolor="black",
-              label=f"{args.access} trigger"),
-        Patch(facecolor=ROLE_COLORS["predicted"], edgecolor="black",
-              label="predicted"),
-        Patch(facecolor=ROLE_COLORS["prefetched"], edgecolor="black",
-              label="other prefetched"),
-        Patch(facecolor=ROLE_COLORS["cache_miss"], edgecolor="black",
-              label="cache_miss"),
-    ]
-    ax.legend(handles=legend_items, loc="upper right", frameon=False, ncol=3)
-
-    no_trigger_text = ""
-    if no_trigger_avg_ns is not None:
-        no_trigger_text = (
-            f", no_trigger_line{predicted_line_for()}"
-            f"={no_trigger_avg_ns} ns"
-        )
-
-    fig.suptitle(
-        f"{args.arch} core {args.core}, stride={args.stride}, "
-        f"train_only={train_only_count()}, trigger_accesses={args.train_accesses}, "
-        f"{pc_summary()}, "
-        f"threshold={args.hit_threshold_ns} ns"
-        f"{no_trigger_text}",
-        x=0.01,
-        ha="left",
-    )
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
     if path is None:
         path = plot_path()
-    fig.savefig(path, dpi=300)
-    plt.close(fig)
-    print(f"Saved bar chart to {path}")
+    plot_cross_bar_chart(
+        rows,
+        args=args,
+        trigger_line=trigger_line_for(),
+        predicted_line=predicted_line_for(),
+        train_only_accesses=train_only_count(),
+        default_title=title,
+        trained_label=f"{args.access} trained",
+        trigger_label=f"{args.access} trigger",
+        summary_text=(
+            f"{args.arch} core {args.core}, stride={args.stride}, "
+            f"train_only={train_only_count()}, "
+            f"trigger_accesses={args.train_accesses}, "
+            f"{pc_summary()}"
+        ),
+        output_path=path,
+        no_trigger_avg_ns=no_trigger_avg_ns,
+        title=title,
+    )
 
 
 if __name__ == "__main__":

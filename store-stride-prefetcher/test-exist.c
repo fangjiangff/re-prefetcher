@@ -44,14 +44,7 @@ uint8_t array1[100*LINE_SIZE]={0};
 static uint8_t* dummy_buffer;
 
 void dummyAccesses(void){
-#if TRAIN_ACCESS_LOAD
-    for (size_t i = 0; i < DUMMY_BUFFER_SIZE; i += LINE_SIZE) {
-        mStore_inline(dummy_buffer + i);
-    }
-    mfence();
-#else
-    dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
-#endif
+  dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
@@ -131,14 +124,16 @@ int main(){
     print_test_header(stride, train_step, rounds);
       // for(int train_step = 1; train_step <= 32 ; train_step++){
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
-              for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
+            dummyAccesses();//for dummy accesses , reset the prefetcher state
+
+
+            for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
               }
             //   mfence();
-              dummyAccesses();//for dummy accesses , reset the prefetcher state
-
+             
               // with stride prefetcher training
-              // for(int repeat = 0; repeat < 5; repeat ++) {
+              for(int repeat = 0; repeat < 5; repeat ++) {
 
                 for(int step = 0; step < train_step -1; step++){
                     stride_access(array2 + (step * stride));
@@ -164,13 +159,13 @@ int main(){
                 // array2[51*LINE_SIZE] = 1;//one more store to trigger the prefetcher, and this store is not prefetched.
                 // array2[59*LINE_SIZE] = 1;//two more stores to trigger the prefetcher, and this store is not prefetched.
 
-              
+              }
               uint64_t dummy = 0;
               for(int k =0;k<100;k++){//wait for prefetch done.
                 dummy += array1[k*64];
                 // mfence();
               }
-              for(int i=0;i<1000;i++) {
+              for(int i=0;i<100;i++) {
                 nop();
               }
             //   mfence();
@@ -178,7 +173,7 @@ int main(){
               int probe_pos = atkRound % PROBE_POSITIONS;//test one position each round
               
               probe_addr = array2 + (probe_pos * LINE_SIZE);
-
+              
             //   mfence();
               time1 = timestamp();
               junk = *probe_addr;

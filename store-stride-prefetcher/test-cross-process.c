@@ -171,14 +171,7 @@ static void flush_shared_page(void) {
 }
 
 static void dummyAccesses(void) {
-#if TRAIN_ACCESS_LOAD
-    for (size_t i = 0; i < DUMMY_BUFFER_SIZE; i += LINE_SIZE) {
-        mStore_inline(dummy_buffer + i);
-    }
-    mfence();
-#else
     dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
-#endif
 }
 
 static inline __attribute__((always_inline)) void access_for_test(void *addr) {
@@ -195,7 +188,7 @@ static inline __attribute__((always_inline)) void access_for_test(void *addr) {
 
 static void train_in_parent(int stride_bytes) {
     for (int step = 0; step < TRAIN_ONLY_ACCESSES; step++) {
-        access_for_test(shared_page + ((size_t)step * (size_t)stride_bytes));
+        access_for_test(shared_page + ((size_t)(step) * (size_t)stride_bytes));
     }
 }
 
@@ -458,7 +451,8 @@ int main(int argc, char **argv) {
     print_header(stride_bytes, trigger_line, predicted_line, child, child_addr);
 
     for (uint64_t round = 0; round < ROUNDS; round++) {
-        int probe_pos = round % PROBE_POSITIONS;
+        // int probe_pos = round % PROBE_POSITIONS;
+        int probe_pos = (round * 73) % PROBE_POSITIONS;
         volatile uint8_t *probe_addr = shared_page + (probe_pos * LINE_SIZE);
         uint64_t time1;
         uint64_t time2;
@@ -479,7 +473,11 @@ int main(int argc, char **argv) {
 #endif
 #endif
 
-        delay_after_trigger();
+        // delay_after_trigger();
+        for (int i = 0; i < 1000; i++) {
+            nop();
+        }
+
 
         time1 = timestamp();
         junk += *probe_addr;

@@ -6,22 +6,20 @@ import sys
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(BASE_DIR, "test-corss-process.c")
+SRC = os.path.join(BASE_DIR, "test-single-shared-page-access.c")
 UTIL_SRC = os.path.join(BASE_DIR, "until.c")
-OUT = os.path.join(BASE_DIR, "bin", "test-corss-process")
+OUT = os.path.join(BASE_DIR, "bin", "test-single-shared-page-access")
 
-DEFAULT_ARCH = "A55"
-DEFAULT_CORE = 1
-DEFAULT_STRIDE_LINES = 5
-DEFAULT_TRAIN_ACCESSES = 5
+DEFAULT_ARCH = "A78"
+DEFAULT_CORE = 4
+DEFAULT_ACCESS_LINE = 24
 DEFAULT_ROUNDS = 4000
-DEFAULT_PROBE_POSITIONS = 64
+DEFAULT_RELOAD_STEP = 17
+DEFAULT_WAIT_NOPS = 1000
 DEFAULT_HIT_THRESHOLD_NS = 120
 
 ROLE_COLORS = {
-    "trained": "#D55E00",
-    "trigger": "#CC79A7",
-    "predicted": "#0072B2",
+    "accessed": "#D55E00",
     "prefetched": "#56B4E9",
     "cache_miss": "#BDBDBD",
 }
@@ -29,23 +27,19 @@ ROLE_COLORS = {
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Compile, run, and plot cross-process store-stride test."
+        description="Compile, run, and plot single shared-page access reload test."
     )
     parser.add_argument("--arch", default=DEFAULT_ARCH)
     parser.add_argument("--core", type=int, default=DEFAULT_CORE)
-    parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE_LINES,
-                        help="Stride in cache lines. Default: 5")
-    parser.add_argument("--train-accesses", type=int,
-                        default=DEFAULT_TRAIN_ACCESSES,
-                        help="Stores before the child trigger. Default: 5")
+    parser.add_argument("--access-line", type=int, default=DEFAULT_ACCESS_LINE)
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
-    parser.add_argument("--probe-positions", type=int,
-                        default=DEFAULT_PROBE_POSITIONS)
+    parser.add_argument("--reload-step", type=int, default=DEFAULT_RELOAD_STEP)
+    parser.add_argument("--wait-nops", type=int, default=DEFAULT_WAIT_NOPS)
     parser.add_argument("--hit-threshold-ns", type=int,
                         default=DEFAULT_HIT_THRESHOLD_NS)
-    parser.add_argument("--inline-store", action="store_true",
-                        help="Use inline store call sites instead of same-PC "
-                             "noinline stores.")
+    parser.add_argument("--access", choices=["store", "load"], default="store")
+    parser.add_argument("--inline", action="store_true",
+                        help="Use inline access instead of noinline access.")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"))
     parser.add_argument("--plot-only", action="store_true")
     parser.add_argument("--no-plot", action="store_true")
@@ -53,41 +47,51 @@ def parse_args():
 
     if args.core < 0:
         parser.error("--core must be >= 0")
-    if args.stride < 1:
-        parser.error("--stride must be >= 1")
-    if args.train_accesses < 1:
-        parser.error("--train-accesses must be >= 1")
+    if args.access_line < 0 or args.access_line >= 64:
+        parser.error("--access-line must be in [0, 63]")
     if args.rounds < 1:
         parser.error("--rounds must be >= 1")
-    if args.probe_positions < 1 or args.probe_positions > 64:
-        parser.error("--probe-positions must be in [1, 64]")
+    if args.reload_step < 1:
+        parser.error("--reload-step must be >= 1")
+    if gcd(args.reload_step, 64) != 1:
+        parser.error("--reload-step must be coprime with 64")
+    if args.wait_nops < 0:
+        parser.error("--wait-nops must be >= 0")
     if args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
-
-    predicted_line = (args.train_accesses + 1) * args.stride
-    if predicted_line >= 64:
-        parser.error("train/trigger/predicted lines must fit in one 4KB page")
-
     return args
 
 
+def gcd(a, b):
+    while b:
+        a, b = b, a % b
+    return abs(a)
+
+
 args = parse_args()
-result_dir = os.path.join(BASE_DIR, "res", "cross-process")
+result_dir = os.path.join(BASE_DIR, "res", "single-shared-page-access")
 plot_dir = os.path.join(BASE_DIR, "res", "barplots")
 raw_dir = os.path.join(result_dir, "raw")
 
 
+def pc_mode():
+    return "inline" if args.inline else "noinline"
+
+
 def micro_arch_name():
-    store_mode = "inline" if args.inline_store else "noinline"
     return (
-        f"{args.arch}-core{args.core}-cross-process"
-        f"-stride{args.stride}-train{args.train_accesses}"
-        f"-probe{args.probe_positions}-{store_mode}"
+        f"{args.arch}-core{args.core}-single-shared-page"
+        f"-line{args.access_line}-{args.access}-{pc_mode()}"
+        f"-rounds{args.rounds}-reloadstep{args.reload_step}"
     )
 
 
 def tsv_path():
     return os.path.join(result_dir, f"{micro_arch_name()}.tsv")
+
+
+def raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}.txt")
 
 
 def plot_path():
@@ -97,31 +101,13 @@ def plot_path():
 def ensure_dirs():
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     os.makedirs(result_dir, exist_ok=True)
-    os.makedirs(plot_dir, exist_ok=True)
     os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(plot_dir, exist_ok=True)
 
 
-def trained_offsets():
-    return {
-        step * args.stride * 64 for step in range(args.train_accesses)
-    }
-
-
-def trigger_offset():
-    return args.train_accesses * args.stride * 64
-
-
-def predicted_offset():
-    return (args.train_accesses + 1) * args.stride * 64
-
-
-def classify_position(offset_bytes, avg_ns, probes):
-    if offset_bytes in trained_offsets():
-        return "trained"
-    if offset_bytes == trigger_offset():
-        return "trigger"
-    if offset_bytes == predicted_offset():
-        return "predicted"
+def classify_position(position, avg_ns, probes):
+    if position == args.access_line:
+        return "accessed"
     if probes > 0 and avg_ns <= args.hit_threshold_ns:
         return "prefetched"
     return "cache_miss"
@@ -129,7 +115,6 @@ def classify_position(offset_bytes, avg_ns, probes):
 
 def parse_output(output):
     rows = []
-
     for line in output.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -152,11 +137,10 @@ def parse_output(output):
         rows.append({
             "position": position,
             "offset_bytes": offset_bytes,
-            "role": classify_position(offset_bytes, avg_ns, probes),
+            "role": classify_position(position, avg_ns, probes),
             "avg_ns": avg_ns,
             "probes": probes,
         })
-
     return rows
 
 
@@ -173,7 +157,6 @@ def write_tsv(rows, path):
 
 def read_tsv(path):
     rows = []
-
     with open(path, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
@@ -188,18 +171,18 @@ def read_tsv(path):
 
 
 def compile_test():
-    use_noinline = 0 if args.inline_store else 1
     compile_cmd = [
         args.cc,
         "-std=gnu11",
         "-O0",
         "-static",
-        f"-DSTRIDE_LINES={args.stride}",
-        f"-DTRAIN_ACCESSES={args.train_accesses}",
-        f"-DROUNDS={args.rounds}",
-        f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DCPU_ID={args.core}",
-        f"-DUSE_NOINLINE_STORE={use_noinline}",
+        f"-DACCESS_LINE={args.access_line}",
+        f"-DACCESS_IS_LOAD={1 if args.access == 'load' else 0}",
+        f"-DUSE_NOINLINE_ACCESS={0 if args.inline else 1}",
+        f"-DROUNDS={args.rounds}",
+        f"-DRELOAD_STEP={args.reload_step}",
+        f"-DWAIT_NOPS={args.wait_nops}",
         "-o",
         OUT,
         SRC,
@@ -211,12 +194,10 @@ def compile_test():
 def run_test():
     print("=" * 60)
     print(
-        f"cross-process store-stride, arch={args.arch}, core={args.core}, "
-        f"stride={args.stride} lines, train_accesses={args.train_accesses}, "
-        f"trigger_line={args.train_accesses * args.stride}, "
-        f"predicted_line={(args.train_accesses + 1) * args.stride}, "
-        f"probe_positions={args.probe_positions}, rounds={args.rounds}, "
-        f"store={'inline' if args.inline_store else 'noinline'}"
+        f"single shared-page access, arch={args.arch}, core={args.core}, "
+        f"line={args.access_line}, access={args.access}, pc={pc_mode()}, "
+        f"rounds={args.rounds}, reload_step={args.reload_step}, "
+        f"wait_nops={args.wait_nops}"
     )
 
     compiled = compile_test()
@@ -231,24 +212,35 @@ def run_test():
     )
     if run.returncode != 0:
         print("Execution failed")
+        if run.stdout:
+            print(run.stdout)
         if run.stderr:
             print(run.stderr)
         return []
 
-    raw_path = os.path.join(raw_dir, f"{micro_arch_name()}.txt")
-    with open(raw_path, "w") as f:
+    with open(raw_path(), "w") as f:
         f.write(run.stdout)
-    print(f"Saved raw output to {raw_path}")
+    print(f"Saved raw output to {raw_path()}")
 
     rows = parse_output(run.stdout)
     if not rows:
         print("No results to save or plot")
         return []
 
-    path = tsv_path()
-    write_tsv(rows, path)
-    print(f"Saved parsed results to {path}")
+    write_tsv(rows, tsv_path())
+    print(f"Saved parsed results to {tsv_path()}")
+    print_summary(rows)
     return rows
+
+
+def print_summary(rows):
+    print("Result summary:")
+    for row in rows:
+        if row["position"] in range(0, 16) or row["position"] == args.access_line:
+            print(
+                f"  line {row['position']:2d}: "
+                f"{row['role']:10s} {row['avg_ns']:4d} ns"
+            )
 
 
 def plot_bar_chart(rows):
@@ -257,10 +249,6 @@ def plot_bar_chart(rows):
         from matplotlib.patches import Patch
     except ModuleNotFoundError as exc:
         print(f"Skipping bar plot: missing Python package '{exc.name}'.")
-        print("Install plotting dependencies with:")
-        print("  sudo apt install python3-matplotlib")
-        print("or, for the current Python environment:")
-        print("  python3 -m pip install matplotlib")
         return
 
     sorted_rows = sorted(rows, key=lambda row: row["position"])
@@ -271,65 +259,53 @@ def plot_bar_chart(rows):
         for row in sorted_rows
     ]
 
-    width = min(max(args.probe_positions / 5, 10), 18)
-    fig, ax = plt.subplots(1, 1, figsize=(width, 4))
-
+    fig, ax = plt.subplots(1, 1, figsize=(14, 4))
     ax.bar(positions, values, color=colors, width=0.85,
            edgecolor="black", linewidth=0.25)
     ax.axhline(args.hit_threshold_ns, color="black",
                linestyle="--", linewidth=0.9)
-    ax.axvline(args.train_accesses * args.stride, color="#CC79A7",
-               linestyle=":", linewidth=1.0)
-    ax.axvline((args.train_accesses + 1) * args.stride, color="#0072B2",
+    ax.axvline(args.access_line, color="#D55E00",
                linestyle=":", linewidth=1.0)
 
-    ax.set_title("Cross-process trigger", loc="left", pad=4)
+    ax.set_title("Single shared-page access reload map", loc="left", pad=4)
     ax.set_ylabel("Average reload ns")
-    ax.set_xlabel("Probe cache-line index")
+    ax.set_xlabel("Cache-line index")
+    ax.set_xlim(-1, 64)
     ax.set_ylim(0, max(300, max(values) * 1.05 if values else 300))
-    ax.set_xlim(-1, max(positions) + 1 if positions else args.probe_positions)
+    ax.set_xticks(range(0, 64, 4))
     ax.grid(axis="y", alpha=0.25)
 
-    tick_step = max(1, args.probe_positions // 16)
-    ax.set_xticks(range(0, args.probe_positions, tick_step))
-
     legend_items = [
-        Patch(facecolor=ROLE_COLORS["trained"], edgecolor="black",
-              label="parent trained"),
-        Patch(facecolor=ROLE_COLORS["trigger"], edgecolor="black",
-              label="child trigger"),
-        Patch(facecolor=ROLE_COLORS["predicted"], edgecolor="black",
-              label="predicted"),
+        Patch(facecolor=ROLE_COLORS["accessed"], edgecolor="black",
+              label="accessed"),
         Patch(facecolor=ROLE_COLORS["prefetched"], edgecolor="black",
-              label="other prefetched"),
+              label="prefetched"),
         Patch(facecolor=ROLE_COLORS["cache_miss"], edgecolor="black",
               label="cache_miss"),
     ]
     ax.legend(handles=legend_items, loc="upper right", frameon=False, ncol=3)
 
     fig.suptitle(
-        f"{args.arch} core {args.core}, stride={args.stride}, "
-        f"train={args.train_accesses}, "
-        f"store={'inline' if args.inline_store else 'noinline'}, "
-        f"threshold={args.hit_threshold_ns} ns",
+        f"{args.arch} core {args.core}, line={args.access_line}, "
+        f"access={args.access}, pc={pc_mode()}, rounds={args.rounds}, "
+        f"reload_step={args.reload_step}, threshold={args.hit_threshold_ns} ns",
         x=0.01,
         ha="left",
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
-    path = plot_path()
-    fig.savefig(path, dpi=300)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    fig.savefig(plot_path(), dpi=300)
     plt.close(fig)
-    print(f"Saved bar chart to {path}")
+    print(f"Saved bar chart to {plot_path()}")
 
 
 if __name__ == "__main__":
     ensure_dirs()
     if args.plot_only:
-        path = tsv_path()
-        if not os.path.exists(path):
-            print(f"Error: TSV result '{path}' not found.")
+        if not os.path.exists(tsv_path()):
+            print(f"Error: TSV result '{tsv_path()}' not found.")
             sys.exit(1)
-        result_rows = read_tsv(path)
+        result_rows = read_tsv(tsv_path())
+        print_summary(result_rows)
     else:
         result_rows = run_test()
 

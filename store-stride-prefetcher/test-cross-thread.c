@@ -95,14 +95,14 @@ static void flush_shared_page(void) {
 }
 
 static void dummyAccesses(void) {
-#if TRAIN_ACCESS_LOAD
-    for (size_t i = 0; i < DUMMY_BUFFER_SIZE; i += LINE_SIZE) {
-        mStore_inline(dummy_buffer + i);
-    }
-    mfence();
-#else
+// #if TRAIN_ACCESS_LOAD
+//     for (size_t i = 0; i < DUMMY_BUFFER_SIZE; i += LINE_SIZE) {
+//         mStore_inline(dummy_buffer + i);
+//     }
+//     mfence();
+// #else
     dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
-#endif
+// #endif
 }
 
 static inline __attribute__((always_inline)) void access_for_test(void *addr) {
