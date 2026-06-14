@@ -581,6 +581,7 @@ int main(void) {
     uint64_t t2;
     uint64_t t3;
     uint64_t t4;
+    uint64_t t5;
 
     long detected_page_size = sysconf(_SC_PAGESIZE);
     if (detected_page_size <= 0) {
@@ -663,6 +664,10 @@ int main(void) {
     t4 = run_cross_process_case(&t4_child, train_store, fixed_shared,
                                 fixed_shared, stride_bytes);
 
+    t5 = run_same_process_case(train_store, trigger_store,
+                               private_a, private_b,
+                               private_a, private_b, 1, stride_bytes);
+
     printf("# arm64 store-stride index-mode test\n");
     printf("# TRAIN_ACCESSES=%d STRIDE_LINES=%d ROUNDS=%d CPU_ID=%d\n",
            TRAIN_ACCESSES, STRIDE_LINES, ROUNDS, CPU_ID);
@@ -693,6 +698,8 @@ int main(void) {
     print_result("T2", "VA_index", "different", "same", "different", t2);
     print_result("T3", "PA_index", "different", "different", "same", t3);
     print_result("T4", "VA_PA_index", "different", "same", "same", t4);
+    print_result("T5", "negative_different_pc_va_pa", "different",
+                 "different", "different", t5);
 
     stop_child(&t2_child);
     stop_child(&t4_child);

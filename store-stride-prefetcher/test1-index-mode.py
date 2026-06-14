@@ -31,6 +31,7 @@ SUMMARY_LABELS = {
     "T2": "T2 (VA index?)",
     "T3": "T3 (PA index?)",
     "T4": "T4 (VA&PA index?)",
+    "T5": "T5 (negative: different PC/VA/PA)",
 }
 
 
@@ -153,7 +154,7 @@ def parse_results(output):
             raise ValueError(f"invalid latency row: {line}") from exc
         rows[test_id] = avg_ns
 
-    required = ("T0_no_trigger", "T0_trigger", "T1", "T2", "T3", "T4")
+    required = ("T0_no_trigger", "T0_trigger", "T1", "T2", "T3", "T4", "T5")
     missing = [test_id for test_id in required if test_id not in rows]
     if missing:
         raise ValueError(f"missing result rows: {', '.join(missing)}")
@@ -187,7 +188,7 @@ def validate_t0(rows, threshold_ns, train_accesses):
 
 
 def print_summary(rows, threshold_ns):
-    for test_id in ("T0_no_trigger", "T0_trigger", "T1", "T2", "T3", "T4"):
+    for test_id in ("T0_no_trigger", "T0_trigger", "T1", "T2", "T3", "T4", "T5"):
         prefetched = is_prefetched(rows, test_id, threshold_ns)
         verdict = "yes" if prefetched else "no"
         color = GREEN if prefetched else RED
