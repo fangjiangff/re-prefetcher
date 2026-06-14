@@ -8,9 +8,9 @@ from cross_test_config import ARCH_CONFIG, arch_choices
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(BASE_DIR, "test-exist.c")
+SRC = os.path.join(BASE_DIR, "test0-exist.c")
 UTIL_SRC = os.path.join(BASE_DIR, "until.c")
-OUT = os.path.join(BASE_DIR, "bin", "test-exist")
+OUT = os.path.join(BASE_DIR, "bin", "test0-exist")
 
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_TRAIN_STEP = 3
