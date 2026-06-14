@@ -25,6 +25,7 @@ DEFAULT_STRIDE_LINES = 5
 DEFAULT_MAX_STEP = 20
 DEFAULT_PROBE_POSITIONS = 40
 DEFAULT_ROUNDS = 100
+PAGE_BOUNDARY_BYTES = 4096
 
 
 def parse_args():
@@ -191,6 +192,36 @@ def read_tsv(path):
     return rows
 
 
+def infer_stride_bytes(rows):
+    for row in rows:
+        probe_pos = row["probe_pos"]
+        if probe_pos > 0 and row["offset_bytes"] % probe_pos == 0:
+            return row["offset_bytes"] // probe_pos
+    return None
+
+
+def draw_page_boundaries(ax, rows, probe_labels):
+    stride_bytes = infer_stride_bytes(rows)
+    if stride_bytes is None:
+        return
+
+    max_extent = (max(probe_labels) + 1) * stride_bytes
+    drawn_positions = set()
+    for boundary in range(PAGE_BOUNDARY_BYTES, max_extent, PAGE_BOUNDARY_BYTES):
+        x = (boundary + stride_bytes - 1) // stride_bytes
+        if x in drawn_positions:
+            continue
+        if 0 < x < len(probe_labels):
+            drawn_positions.add(x)
+            ax.axvline(
+                x=x,
+                color="red",
+                linewidth=2.0,
+                alpha=0.95,
+                zorder=20,
+            )
+
+
 def plot_heatmap(path, rows, title):
     try:
         import matplotlib.pyplot as plt
@@ -259,6 +290,8 @@ def plot_heatmap(path, rows, title):
 
     ax.set_yticks(np.arange(len(step_labels)) + 0.5)
     ax.set_yticklabels(step_labels, fontsize=12)
+
+    draw_page_boundaries(ax, rows, probe_labels)
 
     cbar = ax.collections[0].colorbar
     if cbar is not None:

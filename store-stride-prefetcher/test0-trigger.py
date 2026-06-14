@@ -211,23 +211,25 @@ def plot_heatmap(path, rows, title):
         vmin=0,
         vmax=350,
         cbar=True,
+        cbar_kws={"pad": 0.01},
         yticklabels=False,
     )
 
-    ax.set_title(title, loc="left", pad=8)
-    ax.set_xlabel("Access count")
-    ax.set_ylabel("Stride (cache lines)")
+    ax.set_title(title, loc="left", pad=8, fontsize=16)
+    ax.set_xlabel("Access count", fontsize=14)
+    ax.set_ylabel("Stride (cache lines)", fontsize=14)
     ax.set_xticks(np.arange(len(step_labels)) + 0.5)
-    ax.set_xticklabels(step_labels)
+    ax.set_xticklabels(step_labels, fontsize=12)
 
     y_tick_step = max(1, len(stride_labels) // 24)
     y_ticks = list(range(0, len(stride_labels), y_tick_step))
     ax.set_yticks(np.array(y_ticks) + 0.5)
-    ax.set_yticklabels([stride_labels[i] for i in y_ticks])
+    ax.set_yticklabels([stride_labels[i] for i in y_ticks], fontsize=12)
 
     cbar = ax.collections[0].colorbar
     if cbar is not None:
-        cbar.set_label("Average reload latency (ns)")
+        cbar.set_label("Average reload latency (ns)", fontsize=14)
+        cbar.ax.tick_params(labelsize=12)
     fig.tight_layout()
     fig.savefig(path, dpi=300)
     plt.close(fig)
