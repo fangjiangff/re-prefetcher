@@ -292,14 +292,18 @@ static void delay_after_trigger(void) {
     for (int k = 0; k < 100; k++) {
         maccess(&array1[k * LINE_SIZE]);
     }
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 100; i++) {
         nop();
     }
 }
 
 static uint64_t probe_latency(uint8_t *addr) {
-    uint64_t t1 = timestamp();
-    maccess(addr);
+    volatile uint8_t *probe_addr = addr;
+    volatile uint8_t junk;
+    uint64_t t1;
+
+    t1 = timestamp();
+    junk = *probe_addr;
     return timestamp() - t1;
 }
 
