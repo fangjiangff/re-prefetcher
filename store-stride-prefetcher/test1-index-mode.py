@@ -42,6 +42,16 @@ def parse_int_auto(value):
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+def runtime_page_size():
+    try:
+        page_size = os.sysconf("SC_PAGESIZE")
+    except (AttributeError, OSError, ValueError) as exc:
+        raise RuntimeError("failed to detect runtime page size") from exc
+    if page_size <= 0:
+        raise RuntimeError("failed to detect runtime page size")
+    return page_size
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Compile and classify store-stride prefetcher index mode."
@@ -86,8 +96,13 @@ def parse_args():
         parser.error("--rounds must be >= 1")
     if args.threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
-    if (args.train_accesses + 1) * args.stride >= 128:
-        parser.error("train/trigger/probe sequence must fit in two 4KB pages")
+    args.page_size = runtime_page_size()
+    page_lines = args.page_size // 64
+    if (args.train_accesses + 1) * args.stride >= page_lines * 2:
+        parser.error(
+            "train/trigger/probe sequence must fit in two runtime pages "
+            f"({args.page_size} bytes each)"
+        )
     if args.train_pc == args.trigger_pc:
         parser.error("--train-pc and --trigger-pc must be different")
 
@@ -111,6 +126,7 @@ def compile_test(args):
         f"-DSTRIDE_LINES={args.stride}",
         f"-DROUNDS={args.rounds}",
         f"-DCPU_ID={args.core}",
+        f"-DPAGE_SIZE={args.page_size}",
         f"-DTRAIN_PC=0x{args.train_pc:x}ULL",
         f"-DTRIGGER_PC=0x{args.trigger_pc:x}ULL",
         "-o",
