@@ -1,0 +1,33 @@
+# store-stride entry-capacity test
+# stride=320 rounds=1000 page_size=4096 store_pc=0x0000000500000120 victim_buffer=0x0000000600000000
+# STRIDE_LINES=5 TRAIN_ACCESSES=5 COMPETITOR_ACCESSES=5 PROBE_LINES=64 max_competitors=20 page_step_pages=1
+# victim training: 5 stores, stride_lines=5
+# victim trigger line: 31
+# victim probe/predicted line: 25
+# competitor accesses per page: 5 stores, stride_lines=5
+# lower latency means that victim line was more likely prefetched
+# FENCE_AFTER_EACH_STORE=0
+# FLUSH_COMPETITORS_AFTER_TRAIN=0
+# no_trigger_n0_latency_ns=155
+n	probe_line	offset_bytes	role	avg_ns	probes
+0	25	1600	predicted	150	1000
+1	25	1600	predicted	191	1000
+2	25	1600	predicted	186	1000
+3	25	1600	predicted	191	1000
+4	25	1600	predicted	178	1000
+5	25	1600	predicted	160	1000
+6	25	1600	predicted	140	1000
+7	25	1600	predicted	103	1000
+8	25	1600	predicted	76	1000
+9	25	1600	predicted	75	1000
+10	25	1600	predicted	74	1000
+11	25	1600	predicted	76	1000
+12	25	1600	predicted	75	1000
+13	25	1600	predicted	77	1000
+14	25	1600	predicted	77	1000
+15	25	1600	predicted	75	1000
+16	25	1600	predicted	77	1000
+17	25	1600	predicted	76	1000
+18	25	1600	predicted	77	1000
+19	25	1600	predicted	76	1000
+20	25	1600	predicted	76	1000

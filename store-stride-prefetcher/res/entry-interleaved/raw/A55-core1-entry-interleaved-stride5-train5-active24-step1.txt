@@ -1,0 +1,31 @@
+# store-stride interleaved entry-capacity test
+# access pattern: for step in train_accesses, for page in active_pages, store page+step*stride
+# store_pc=0x0000000500000120 stream_buffer=0x0000000600000000 page_size=4096
+# stride_lines=5 stride_bytes=320 train_accesses=5 predicted_line=25
+# active_pages=24 rounds=1000 page_step=1
+# lower avg_latency_ns means that stream's predicted line was more likely prefetched
+# active_pages	stream	avg_latency_ns	probes
+24	0	210	1000
+24	1	209	1000
+24	2	207	1000
+24	3	209	1000
+24	4	207	1000
+24	5	206	1000
+24	6	205	1000
+24	7	206	1000
+24	8	208	1000
+24	9	206	1000
+24	10	209	1000
+24	11	206	1000
+24	12	208	1000
+24	13	208	1000
+24	14	207	1000
+24	15	207	1000
+24	16	207	1000
+24	17	207	1000
+24	18	206	1000
+24	19	209	1000
+24	20	210	1000
+24	21	208	1000
+24	22	208	1000
+24	23	209	1000

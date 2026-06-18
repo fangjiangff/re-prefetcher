@@ -1,0 +1,7 @@
+active_pages	stream	avg_latency_ns	prefetched	threshold_ns	probes
+6	0	282	no	120	1000
+6	1	282	no	120	1000
+6	2	282	no	120	1000
+6	3	282	no	120	1000
+6	4	280	no	120	1000
+6	5	273	no	120	1000
