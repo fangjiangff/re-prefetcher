@@ -135,7 +135,7 @@ int main(){
               // with stride prefetcher training
               for(int repeat = 0; repeat < 5; repeat ++) {
 
-                for(int step = 0; step < train_step -1; step++){
+                for(int step = 0; step < train_step -2; step++){
                     stride_access(array2 + (step * stride));
                 }
                 // array2[0*LINE_SIZE] = 1;
@@ -144,9 +144,20 @@ int main(){
                 // array2[15*LINE_SIZE] = 8;
                 // array2[20*LINE_SIZE] = 1;
 
+              // for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
+              //     flush(&array2[offset]);
+              // }
+
+              
                 //trigger
 #if !NO_TRIGGER
-                stride_access(array2 + ((train_step -1) * stride));//the same PC to trigger the prefetcher, and this access is not prefetched.
+                // stride_access(array2 + 61*LINE_SIZE);
+                // mLoad_noinline(array2 + 61*LINE_SIZE);
+                // mStore_noinline(array2 + 5*LINE_SIZE);
+                stride_access(array2 + ((train_step -2) * stride));//the same PC to trigger the prefetcher, and this access is not prefetched.
+                stride_access(array2 + ((train_step -1) * stride));
+                // // stride_access(array2 + 11*LINE_SIZE + ((train_step -1) * stride));//the same PC to trigger the prefetcher, and this access is not prefetched.
+                // stride_access(array2 + 11*LINE_SIZE + ((train_step) * stride));
 #endif
 
                 // test load

@@ -16,9 +16,9 @@
 
 /*
  * store-stride:
- *   line 0, 5, 10, 15, 20
- * predicted:
- *   line 25
+ *   train:   line 0, 5, 10, 15
+ *   trigger: line 20, 25
+ *   probe:   line 30
  */
 #ifndef STRIDE_LINES
 #define STRIDE_LINES 5
@@ -38,17 +38,9 @@
 #define PROBE_LINES 64
 #endif
 
-/*
- * victim trigger line:
- *   必须在同一个 4KB page 内；
- *   不能是训练 line: 0,5,10,15,20；
- *   不能是 probe line: 25。
- *
- * 你前面的测试里 line 31 比较稳定。
- */
-#ifndef VICTIM_TRIGGER_LINE
-#define VICTIM_TRIGGER_LINE 31
-#endif
+#define VICTIM_TRIGGER0_LINE (TRAIN_ACCESSES * STRIDE_LINES)
+#define VICTIM_TRIGGER1_LINE ((TRAIN_ACCESSES + 1) * STRIDE_LINES)
+#define VICTIM_PROBE_LINE ((TRAIN_ACCESSES + 2) * STRIDE_LINES)
 
 /*
  * competitor page 地址间隔，单位是 page。
@@ -62,20 +54,6 @@
 #define DEFAULT_COMPETITOR_PAGE_STEP 1
 
 #define MAX_MAPPED_REGIONS 1024
-
-/*
- * 默认不在每次 store 后加 DSB/ISB，更接近连续 store stream。
- * 如果你校准 threshold 时每次 store 后有 fence，可以改成 1。
- */
-#define FENCE_AFTER_EACH_STORE 0
-
-/*
- * 如果担心 competitor 的数据 cache footprint 干扰 probe，
- * 可以改成 1：在 competitor 训练后、victim trigger 前 flush competitor lines。
- *
- * 注意：这可能也改变实验时序，因此默认 0。
- */
-#define FLUSH_COMPETITORS_AFTER_TRAIN 0
 
 typedef void (*store_gadget_f)(void *);
 
@@ -256,8 +234,6 @@ static void dummy_accesses(void) {
     for (uint64_t i = 0; i < dummy_buffer_size; i += LINE_SIZE) {
         maccess(&dummy_buffer[i]);
     }
-
-    // mfence();
 }
 
 static void flush_dummy_buffer(void) {
@@ -306,17 +282,15 @@ static void flush_competitor_lines(int competitor_count,
         uint8_t *page = competitor_page(i, page_step_pages);
 
         for (int step = 0; step < COMPETITOR_ACCESSES; step++) {
-            flush_line_addr(page +
+            flush_line_addr(page + 3 * LINE_SIZE +
                             ((uint64_t)step * (uint64_t)stride));
         }
     }
 }
 
 static void train_victim(store_gadget_f store_gadget, int stride) {
-    (void)store_gadget;
-
     for (int step = 0; step < TRAIN_ACCESSES; step++) {
-        mStore_inline(victim_buffer +
+        store_gadget(victim_buffer +
                       ((uint64_t)step * (uint64_t)stride));
     }
 }
@@ -325,13 +299,11 @@ static void train_competitors(store_gadget_f store_gadget,
                               int competitor_count,
                               int page_step_pages,
                               int stride) {
-    (void)store_gadget;
-
     for (int i = 0; i < competitor_count; i++) {
         uint8_t *page = competitor_page(i, page_step_pages);
 
         for (int step = 0; step < COMPETITOR_ACCESSES; step++) {
-            mLoad_inline(page + 3 * LINE_SIZE +
+            store_gadget(page + 3 * LINE_SIZE +
                          ((uint64_t)step * (uint64_t)stride));
         }
     }
@@ -347,13 +319,13 @@ static uint64_t run_one_round(store_gadget_f store_gadget,
         victim_buffer + ((uint64_t)probe_line * (uint64_t)LINE_SIZE);
 
     flush_dummy_buffer();
-    mfence();
+    // mfence();
     dummy_accesses();
     
 
     flush_victim_lines();
     flush_competitor_lines(competitor_count, page_step_pages, stride);
-    mfence();
+
 
     train_victim(store_gadget, stride);
 
@@ -362,23 +334,15 @@ static uint64_t run_one_round(store_gadget_f store_gadget,
                       page_step_pages,
                       stride);
 
-// #if FLUSH_COMPETITORS_AFTER_TRAIN
-//     flush_competitor_lines(competitor_count, page_step_pages, stride);
-//     // mfence();
-// #endif
-
-    /*
-     * 3. victim trigger
-     *    选择 victim page 内一个新 line，而不是 line 25。
-     */
+    // flush_victim_lines();
     if (do_trigger) {
-        mStore_inline(victim_buffer +
-                      ((uintptr_t)VICTIM_TRIGGER_LINE *
+        store_gadget(victim_buffer +
+                      ((uintptr_t)VICTIM_TRIGGER0_LINE *
+                       (uintptr_t)LINE_SIZE));
+        store_gadget(victim_buffer +
+                      ((uintptr_t)VICTIM_TRIGGER1_LINE *
                        (uintptr_t)LINE_SIZE));
 
-// #if FENCE_AFTER_EACH_STORE
-//         mfence();
-// #endif
     }
 
     // mfence();
@@ -403,7 +367,8 @@ static const char *probe_role(int probe_line, int predicted_line) {
         }
     }
 
-    if (probe_line == VICTIM_TRIGGER_LINE) {
+    if (probe_line == VICTIM_TRIGGER0_LINE ||
+        probe_line == VICTIM_TRIGGER1_LINE) {
         return "trigger";
     }
 
@@ -481,24 +446,24 @@ int main(int argc, char **argv) {
     }
 
     uint64_t predicted_offset =
-        (uint64_t)TRAIN_ACCESSES * (uint64_t)stride;
+        (uint64_t)VICTIM_PROBE_LINE * (uint64_t)LINE_SIZE;
 
-    uint64_t trigger_offset =
-        (uint64_t)VICTIM_TRIGGER_LINE * (uint64_t)LINE_SIZE;
+    uint64_t trigger1_offset =
+        (uint64_t)VICTIM_TRIGGER1_LINE * (uint64_t)LINE_SIZE;
 
     if (predicted_offset + LINE_SIZE > page_size ||
-        trigger_offset + LINE_SIZE > page_size ||
+        trigger1_offset + LINE_SIZE > page_size ||
         (uint64_t)PROBE_LINES * (uint64_t)LINE_SIZE > page_size) {
         fprintf(stderr,
-                "victim offsets exceed one page: predicted_offset=%lu trigger_offset=%lu probe_lines=%d page_size=%lu\n",
+                "victim offsets exceed one page: predicted_offset=%lu trigger1_offset=%lu probe_lines=%d page_size=%lu\n",
                 (unsigned long)predicted_offset,
-                (unsigned long)trigger_offset,
+                (unsigned long)trigger1_offset,
                 PROBE_LINES,
                 (unsigned long)page_size);
         return 1;
     }
 
-    int predicted_line = TRAIN_ACCESSES * STRIDE_LINES;
+    int predicted_line = VICTIM_PROBE_LINE;
 
     /*
      * victim page
@@ -587,16 +552,16 @@ int main(int argc, char **argv) {
     printf("# victim training: %d stores, stride_lines=%d\n",
            TRAIN_ACCESSES,
            STRIDE_LINES);
-    printf("# victim trigger line: %d\n", VICTIM_TRIGGER_LINE);
+    printf("# victim trigger lines: %d %d\n",
+           VICTIM_TRIGGER0_LINE,
+           VICTIM_TRIGGER1_LINE);
     printf("# victim probe/predicted line: %lu\n",
            (unsigned long)(predicted_offset / LINE_SIZE));
 
-    printf("# competitor accesses per page: %d loads, stride_lines=%d\n",
+    printf("# competitor accesses per page: %d stores, stride_lines=%d\n",
            COMPETITOR_ACCESSES,
            STRIDE_LINES);
     printf("# lower latency means that victim line was more likely prefetched\n");
-    printf("# FENCE_AFTER_EACH_STORE=%d\n", FENCE_AFTER_EACH_STORE);
-    printf("# FLUSH_COMPETITORS_AFTER_TRAIN=%d\n", FLUSH_COMPETITORS_AFTER_TRAIN);
 
     /*
      * no-trigger calibration:
@@ -620,41 +585,25 @@ int main(int argc, char **argv) {
 
     printf("n\tprobe_line\toffset_bytes\trole\tavg_ns\tprobes\n");
 
-    for (int n = 5; n <= max_competitors; n++) {
-         uint64_t latency = 0;
-        for (int probe_line = 0; probe_line < PROBE_LINES; probe_line++) {
-        int rnd_probe_line = (probe_line * 73) % PROBE_LINES;
-           latency = 0;
-            for (int r = 0; r < rounds; r++) {
-                latency += run_one_round(store_gadget,
-                                         n,
-                                         page_step_pages,
-                                         0,
-                                         stride,
-                                         rnd_probe_line);
-            }
-            if(rnd_probe_line == 25){
-            // if(n == 7 || n == 8){
-                printf("%d\t%d\t%d\t%s\t%lu\t%lu\n",
-                    n,
-                    rnd_probe_line,
-                    rnd_probe_line * LINE_SIZE,
-                    probe_role(rnd_probe_line, predicted_line),
-                    (unsigned long)(latency / (uint64_t)rounds),
-                    (unsigned long)rounds);
-            }
+    for (int n = 0; n <= max_competitors; n++) {
+        uint64_t latency = 0;
+
+        for (int r = 0; r < rounds; r++) {
+            latency += run_one_round(store_gadget,
+                                     n,
+                                     page_step_pages,
+                                     1,
+                                     stride,
+                                     predicted_line);
         }
-        // if(max_competitors == 7 || max_competitors == 8){
-        //     for(int k=0;k<64;k++){
-        //            printf("%d\t%d\t%d\t%s\t%lu\t%lu\n",
-        //             n,
-        //             k,
-        //             k * LINE_SIZE,
-        //             probe_role(k, predicted_line),
-        //             (unsigned long)(latency / (uint64_t)rounds),
-        //             (unsigned long)rounds);
-        //     }
-        // }
+
+        printf("%d\t%d\t%d\t%s\t%lu\t%lu\n",
+               n,
+               predicted_line,
+               predicted_line * LINE_SIZE,
+               probe_role(predicted_line, predicted_line),
+               (unsigned long)(latency / (uint64_t)rounds),
+               (unsigned long)rounds);
     }
 
     return 0;
