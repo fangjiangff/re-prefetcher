@@ -5,21 +5,28 @@ import subprocess
 import sys
 
 from cross_test_config import (
+    apply_access_defaults,
     apply_single_core_defaults,
-    apply_train_access_defaults,
+    apply_threshold_defaults,
     arch_choices,
 )
 from cross_plot import plot_cross_bar_chart
+from cross_result_eval import (
+    compute_cross_threshold,
+    print_cross_evaluation,
+    reclassify_cross_rows,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(BASE_DIR, "test-cross-thread.c")
+SRC = os.path.join(BASE_DIR, "test3-cross-thread.c")
 UTIL_SRC = os.path.join(BASE_DIR, "until.c")
-OUT = os.path.join(BASE_DIR, "bin", "test-cross-thread")
+OUT = os.path.join(BASE_DIR, "bin", "test3-cross-thread")
 
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_ROUNDS = 4000
 DEFAULT_PROBE_POSITIONS = 64
-DEFAULT_HIT_THRESHOLD_NS = 150
+ANSI_GREEN = "\033[32m"
+ANSI_RESET = "\033[0m"
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -29,15 +36,21 @@ def parse_args():
     parser.add_argument("--core", type=int, default=None,
                         help="Override CPU core. Default is selected from --arch.")
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE_LINES)
+    parser.add_argument("--accesses", type=int,
+                        default=None,
+                        help="Total train+trigger accesses. "
+                             "Default is selected from --arch and --access.")
     parser.add_argument("--train-accesses", type=int,
                         default=None,
-                        help="Total accesses including the trigger. "
-                             "Default is selected from --arch and --access.")
+                        help="Deprecated alias for --accesses.")
+    parser.add_argument("--trigger-accesses", type=int, default=1,
+                        help="Number of trigger accesses at the end of the stride sequence.")
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
     parser.add_argument("--probe-positions", type=int,
                         default=DEFAULT_PROBE_POSITIONS)
     parser.add_argument("--hit-threshold-ns", type=int,
-                        default=DEFAULT_HIT_THRESHOLD_NS)
+                        default=None,
+                        help="Override the arch-specific cache hit threshold.")
     parser.add_argument("--access", choices=["store", "load"], default="store",
                         help="Stride instruction to test. Default: store")
     parser.add_argument("--inline-store", action="store_true",
@@ -48,17 +61,25 @@ def parse_args():
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()
 
+    if args.accesses is not None and args.train_accesses is not None:
+        parser.error("use only one of --accesses or deprecated --train-accesses")
+    if args.accesses is None and args.train_accesses is not None:
+        args.accesses = args.train_accesses
+
     apply_single_core_defaults(args)
-    apply_train_access_defaults(args)
+    apply_access_defaults(args)
+    apply_threshold_defaults(args)
 
     if args.core < 0:
         parser.error("--core must be >= 0")
     if args.stride < 1:
         parser.error("--stride must be >= 1")
-    if args.train_accesses < 1:
-        parser.error("--train-accesses must be >= 1")
-    if args.access == "load" and args.train_accesses < 2:
-        parser.error("--train-accesses must be >= 2 for load")
+    if args.accesses < 1:
+        parser.error("--accesses must be >= 1")
+    if args.trigger_accesses < 1 or args.trigger_accesses > 2:
+        parser.error("--trigger-accesses must be 1 or 2")
+    if args.trigger_accesses >= args.accesses:
+        parser.error("--trigger-accesses must be smaller than --accesses")
     if args.rounds < 1:
         parser.error("--rounds must be >= 1")
     if args.probe_positions < 1 or args.probe_positions > 64:
@@ -66,10 +87,7 @@ def parse_args():
     if args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
 
-    if args.access == "load":
-        predicted_line = args.train_accesses * args.stride
-    else:
-        predicted_line = (args.train_accesses + 1) * args.stride
+    predicted_line = args.accesses * args.stride
     if predicted_line >= 64:
         parser.error("train/trigger/predicted lines must fit in one 4KB page")
 
@@ -83,19 +101,19 @@ raw_dir = os.path.join(result_dir, "raw")
 
 
 def train_only_accesses():
-    if args.access == "load":
-        return args.train_accesses - 1
-    return args.train_accesses
+    return args.accesses - args.trigger_accesses
 
 
 def trigger_line():
-    if args.access == "load":
-        return (args.train_accesses - 1) * args.stride
-    return args.train_accesses * args.stride
+    return train_only_accesses() * args.stride
+
+
+def last_trigger_line():
+    return (args.accesses - 1) * args.stride
 
 
 def predicted_line():
-    return trigger_line() + args.stride
+    return args.accesses * args.stride
 
 
 def micro_arch_name():
@@ -105,49 +123,78 @@ def micro_arch_name():
         pc_mode = "inline" if args.inline_store else "noinline"
     return (
         f"{args.arch}-core{args.core}-cross-thread"
-        f"-stride{args.stride}-train{args.train_accesses}"
+        f"-stride{args.stride}-accesses{args.accesses}"
+        f"-trigger{args.trigger_accesses}"
         f"-probe{args.probe_positions}-{args.access}-{pc_mode}"
     )
 
 
 def tsv_path():
-    return os.path.join(result_dir, f"{micro_arch_name()}.tsv")
+    return experiment4_tsv_path()
 
 
 def raw_path():
-    return os.path.join(raw_dir, f"{micro_arch_name()}.txt")
+    return experiment4_raw_path()
 
 
 def plot_path():
-    return os.path.join(plot_dir, f"{micro_arch_name()}-avg_ns.png")
+    return experiment4_plot_path()
 
 
-def control_plot_path():
+def baseline1_plot_path():
     return os.path.join(
-        plot_dir, f"{micro_arch_name()}-no-trigger-control-avg_ns.png"
+        plot_dir, f"{micro_arch_name()}-baseline1-thread0-trigger-avg_ns.png"
     )
 
 
-def context_switch_plot_path():
+def baseline2_plot_path():
     return os.path.join(
-        plot_dir, f"{micro_arch_name()}-context-switch-baseline-avg_ns.png"
+        plot_dir, f"{micro_arch_name()}-baseline2-no-trigger-avg_ns.png"
     )
 
 
-def control_tsv_path():
-    return os.path.join(result_dir, f"{micro_arch_name()}-no-trigger-control.tsv")
+def experiment3_plot_path():
+    return os.path.join(
+        plot_dir, f"{micro_arch_name()}-exp3-thread1-context-thread0-trigger-avg_ns.png"
+    )
 
 
-def control_raw_path():
-    return os.path.join(raw_dir, f"{micro_arch_name()}-no-trigger-control.txt")
+def experiment4_plot_path():
+    return os.path.join(
+        plot_dir, f"{micro_arch_name()}-exp4-thread1-trigger-avg_ns.png"
+    )
 
 
-def context_switch_tsv_path():
-    return os.path.join(result_dir, f"{micro_arch_name()}-context-switch-baseline.tsv")
+def baseline1_tsv_path():
+    return os.path.join(result_dir, f"{micro_arch_name()}-baseline1-thread0-trigger.tsv")
 
 
-def context_switch_raw_path():
-    return os.path.join(raw_dir, f"{micro_arch_name()}-context-switch-baseline.txt")
+def baseline1_raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}-baseline1-thread0-trigger.txt")
+
+
+def baseline2_tsv_path():
+    return os.path.join(result_dir, f"{micro_arch_name()}-baseline2-no-trigger.tsv")
+
+
+def baseline2_raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}-baseline2-no-trigger.txt")
+
+
+def experiment3_tsv_path():
+    return os.path.join(result_dir, f"{micro_arch_name()}-exp3-thread1-context-thread0-trigger.tsv")
+
+
+def experiment3_raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}-exp3-thread1-context-thread0-trigger.txt")
+
+
+def experiment4_tsv_path():
+    return os.path.join(result_dir, f"{micro_arch_name()}-exp4-thread1-trigger.tsv")
+
+
+def experiment4_raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}-exp4-thread1-trigger.txt")
 
 
 def ensure_dirs():
@@ -167,6 +214,13 @@ def trigger_offset():
     return trigger_line() * 64
 
 
+def trigger_offsets():
+    return {
+        (train_only_accesses() + trigger_index) * args.stride * 64
+        for trigger_index in range(args.trigger_accesses)
+    }
+
+
 def predicted_offset():
     return predicted_line() * 64
 
@@ -174,7 +228,7 @@ def predicted_offset():
 def classify_position(offset_bytes, avg_ns, probes):
     if offset_bytes in trained_offsets():
         return "trained"
-    if offset_bytes == trigger_offset():
+    if offset_bytes in trigger_offsets():
         return "trigger"
     if offset_bytes == predicted_offset():
         return "predicted"
@@ -243,7 +297,7 @@ def read_tsv(path):
     return rows
 
 
-def compile_test(no_trigger=False, context_switch=False):
+def compile_test(no_trigger=False, context_switch=False, thread0_trigger=False):
     use_noinline = 0 if args.inline_store else 1
     train_access_load = 1 if args.access == "load" else 0
     compile_cmd = [
@@ -253,7 +307,8 @@ def compile_test(no_trigger=False, context_switch=False):
         "-static",
         "-pthread",
         f"-DSTRIDE_LINES={args.stride}",
-        f"-DTRAIN_ACCESSES={args.train_accesses}",
+        f"-DTRAIN_ACCESSES={train_only_accesses()}",
+        f"-DTRIGGER_ACCESSES={args.trigger_accesses}",
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DCPU_ID={args.core}",
@@ -261,6 +316,7 @@ def compile_test(no_trigger=False, context_switch=False):
         f"-DTRAIN_ACCESS_LOAD={train_access_load}",
         f"-DNO_TRIGGER={1 if no_trigger else 0}",
         f"-DCONTEXT_SWITCH_ONLY={1 if context_switch else 0}",
+        f"-DTHREAD0_TRIGGER={1 if thread0_trigger else 0}",
         "-o",
         OUT,
         SRC,
@@ -277,8 +333,20 @@ def run_binary():
     )
 
 
-def run_one(no_trigger=False, context_switch=False):
-    compiled = compile_test(no_trigger=no_trigger, context_switch=context_switch)
+def result_paths(no_trigger=False, context_switch=False, thread0_trigger=False):
+    if no_trigger:
+        return baseline2_raw_path(), baseline2_tsv_path()
+    if context_switch:
+        return experiment3_raw_path(), experiment3_tsv_path()
+    if thread0_trigger:
+        return baseline1_raw_path(), baseline1_tsv_path()
+    return experiment4_raw_path(), experiment4_tsv_path()
+
+
+def run_one(no_trigger=False, context_switch=False, thread0_trigger=False):
+    compiled = compile_test(no_trigger=no_trigger,
+                            context_switch=context_switch,
+                            thread0_trigger=thread0_trigger)
     if compiled.returncode != 0:
         print("Compile failed")
         return []
@@ -292,10 +360,12 @@ def run_one(no_trigger=False, context_switch=False):
             print(run.stderr)
         return []
 
-    if context_switch:
-        path = context_switch_raw_path()
-    else:
-        path = control_raw_path() if no_trigger else raw_path()
+    raw_result_path, tsv_result_path = result_paths(
+        no_trigger=no_trigger,
+        context_switch=context_switch,
+        thread0_trigger=thread0_trigger,
+    )
+    path = raw_result_path
     with open(path, "w") as f:
         f.write(run.stdout)
 
@@ -304,44 +374,16 @@ def run_one(no_trigger=False, context_switch=False):
         print("No parsed rows")
         return []
 
-    if context_switch:
-        out_path = context_switch_tsv_path()
-    else:
-        out_path = control_tsv_path() if no_trigger else tsv_path()
-    write_tsv(rows, out_path)
-    return rows
-
-
-def no_trigger_baseline(rows=None):
-    if rows is None:
-        rows = run_one(no_trigger=True)
-    if not rows:
-        return None
-
-    predicted = predicted_line()
-    print_summary(rows, "No-trigger result:")
-    for row in rows:
-        if row["position"] == predicted:
-            print(
-                f"No-trigger control: line {predicted} "
-                f"avg_ns={row['avg_ns']}"
-            )
-            return row["avg_ns"]
-
-    print(f"No-trigger control missing line {predicted}")
-    return None
-
-
-def run_context_switch_baseline():
-    rows = run_one(context_switch=True)
-    if not rows:
-        return []
-    print_summary(rows, "Context-switch baseline result:")
+    write_tsv(rows, tsv_result_path)
     return rows
 
 
 def print_summary(rows, label):
-    targets = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45]
+    targets = [
+        step * args.stride
+        for step in range(args.accesses + 4)
+        if step * args.stride < args.probe_positions
+    ]
     print(label)
     for pos in targets:
         if pos < len(rows):
@@ -349,13 +391,31 @@ def print_summary(rows, label):
             print(f"  line {pos:2d}: {row['role']:10s} {row['avg_ns']:4d} ns")
 
 
+def print_green(text):
+    print(f"{ANSI_GREEN}{text}{ANSI_RESET}")
+
+
+def effective_threshold_and_reclassify(*row_sets):
+    threshold_ns, threshold_source = compute_cross_threshold(
+        configured_threshold_ns=args.hit_threshold_ns,
+        auto_threshold=args.hit_threshold_ns_auto,
+        baseline1_rows=row_sets[0] if len(row_sets) > 0 else None,
+        baseline2_rows=row_sets[1] if len(row_sets) > 1 else None,
+    )
+    for rows in row_sets:
+        reclassify_cross_rows(rows, threshold_ns)
+    return threshold_ns, threshold_source
+
+
 def run_test():
     print("=" * 60)
     print(
         f"cross-thread {args.access}-stride, arch={args.arch}, core={args.core}, "
-        f"stride={args.stride} lines, train_accesses={args.train_accesses}, "
+        f"stride={args.stride} lines, accesses={args.accesses}, "
         f"train_only_accesses={train_only_accesses()}, "
-        f"trigger_line={trigger_line()}, predicted_line={predicted_line()}, "
+        f"trigger_accesses={args.trigger_accesses}, "
+        f"trigger_line={trigger_line()}, last_trigger_line={last_trigger_line()}, "
+        f"predicted_line={predicted_line()}, "
         f"probe_positions={args.probe_positions}, rounds={args.rounds}, "
         f"{args.access}={'noinline' if args.access == 'load' else ('inline' if args.inline_store else 'noinline')}"
     )
@@ -391,8 +451,9 @@ def plot_bar_chart(rows, no_trigger_avg_ns=None, title=None, path=None,
         trigger_label=trigger_label,
         summary_text=(
             f"{args.arch} core {args.core}, stride={args.stride}, "
+            f"accesses={args.accesses}, "
             f"train_only={train_only_accesses()}, "
-            f"trigger_accesses={args.train_accesses}, "
+            f"trigger_accesses={args.trigger_accesses}, "
             f"{args.access}={access_mode}"
         ),
         output_path=path,
@@ -404,50 +465,159 @@ def plot_bar_chart(rows, no_trigger_avg_ns=None, title=None, path=None,
 if __name__ == "__main__":
     ensure_dirs()
     baseline_avg_ns = None
-    control_rows = None
 
     if args.plot_only:
-        if not os.path.exists(tsv_path()):
-            print(f"Error: TSV result '{tsv_path()}' not found.")
-            sys.exit(1)
-        result_rows = read_tsv(tsv_path())
-        if os.path.exists(context_switch_tsv_path()):
-            context_rows = read_tsv(context_switch_tsv_path())
-            print_summary(context_rows, "Existing context-switch baseline result:")
+        baseline1_rows = None
+        baseline2_rows = None
+        experiment3_rows = None
+        experiment4_rows = None
+        if os.path.exists(baseline2_tsv_path()):
+            baseline2_rows = read_tsv(baseline2_tsv_path())
+            baseline_avg_ns = baseline2_rows[predicted_line()]["avg_ns"]
+            print_summary(baseline2_rows, "Existing baseline2 no-trigger result:")
+        if os.path.exists(baseline1_tsv_path()):
+            baseline1_rows = read_tsv(baseline1_tsv_path())
+            print_summary(baseline1_rows, "Existing baseline1 thread0-trigger result:")
             if not args.no_plot:
                 plot_bar_chart(
-                    context_rows,
-                    None,
-                    title=f"Thread context-switch {args.access} baseline",
-                    path=context_switch_plot_path(),
+                    baseline1_rows,
+                    baseline_avg_ns,
+                    title="Baseline1: thread0 train and trigger",
+                    path=baseline1_plot_path(),
+                    trigger_label=f"thread0 {args.access} trigger",
+                )
+        if os.path.exists(experiment3_tsv_path()):
+            experiment3_rows = read_tsv(experiment3_tsv_path())
+            print_summary(experiment3_rows, "Existing experiment3 context-switch result:")
+            if not args.no_plot:
+                plot_bar_chart(
+                    experiment3_rows,
+                    baseline_avg_ns,
+                    title="Experiment3: thread1 context switch, thread0 trigger",
+                    path=experiment3_plot_path(),
                     trigger_label=f"thread0 {args.access} trigger after thread1 context switch",
                 )
-        if os.path.exists(control_tsv_path()):
-            control_rows = read_tsv(control_tsv_path())
-            baseline_avg_ns = control_rows[predicted_line()]["avg_ns"]
-            print_summary(control_rows, "Existing no-trigger result:")
-        print_summary(result_rows, "Existing trigger result:")
-    else:
-        control_rows = run_one(no_trigger=True)
-        baseline_avg_ns = no_trigger_baseline(control_rows)
-        context_rows = run_context_switch_baseline()
-        if context_rows and not args.no_plot:
+        if os.path.exists(experiment4_tsv_path()):
+            experiment4_rows = read_tsv(experiment4_tsv_path())
+            print_summary(experiment4_rows, "Existing experiment4 thread1-trigger result:")
+            if not args.no_plot:
+                plot_bar_chart(
+                    experiment4_rows,
+                    baseline_avg_ns,
+                    title="Experiment4: thread0 train, thread1 trigger",
+                    path=experiment4_plot_path(),
+                )
+        threshold_ns, threshold_source = effective_threshold_and_reclassify(
+            baseline1_rows,
+            baseline2_rows,
+            experiment3_rows,
+            experiment4_rows,
+        )
+        print_cross_evaluation(
+            predicted_line=predicted_line(),
+            threshold_ns=threshold_ns,
+            threshold_source=threshold_source,
+            baseline1_rows=baseline1_rows,
+            baseline2_rows=baseline2_rows,
+            experiment3_rows=experiment3_rows,
+            experiment4_rows=experiment4_rows,
+        )
+        sys.exit(0)
+
+    print("=" * 60)
+    print(
+        f"cross-thread {args.access}-stride, arch={args.arch}, core={args.core}, "
+        f"stride={args.stride} lines, accesses={args.accesses}, "
+        f"train_only_accesses={train_only_accesses()}, "
+        f"trigger_accesses={args.trigger_accesses}, "
+        f"trigger_line={trigger_line()}, last_trigger_line={last_trigger_line()}, "
+        f"predicted_line={predicted_line()}, "
+        f"probe_positions={args.probe_positions}, rounds={args.rounds}, "
+        f"{args.access}={'noinline' if args.access == 'load' else ('inline' if args.inline_store else 'noinline')}"
+    )
+
+    baseline1_rows = run_one(thread0_trigger=True)
+    if baseline1_rows:
+        predicted = predicted_line()
+        print_green(
+            f"Baseline1 thread0-trigger: line {predicted} "
+            f"avg_ns={baseline1_rows[predicted]['avg_ns']}"
+        )
+        print_summary(baseline1_rows, "Baseline1 thread0-trigger result:")
+
+    baseline2_rows = run_one(no_trigger=True)
+    if baseline2_rows:
+        predicted = predicted_line()
+        baseline_avg_ns = baseline2_rows[predicted]["avg_ns"]
+        print_green(
+            f"Baseline2 no-trigger: line {predicted} "
+            f"avg_ns={baseline_avg_ns}"
+        )
+        print_summary(baseline2_rows, "Baseline2 no-trigger result:")
+
+    experiment3_rows = run_one(context_switch=True)
+    if experiment3_rows:
+        predicted = predicted_line()
+        print_green(
+            f"Experiment3 context-switch thread0-trigger: line {predicted} "
+            f"avg_ns={experiment3_rows[predicted]['avg_ns']}"
+        )
+        print_summary(experiment3_rows, "Experiment3 context-switch result:")
+
+    experiment4_rows = run_one()
+    if experiment4_rows:
+        predicted = predicted_line()
+        print_green(
+            f"Experiment4 thread1-trigger: line {predicted} "
+            f"avg_ns={experiment4_rows[predicted]['avg_ns']}"
+        )
+        print_summary(experiment4_rows, "Experiment4 thread1-trigger result:")
+
+    threshold_ns, threshold_source = effective_threshold_and_reclassify(
+        baseline1_rows,
+        baseline2_rows,
+        experiment3_rows,
+        experiment4_rows,
+    )
+    print_cross_evaluation(
+        predicted_line=predicted_line(),
+        threshold_ns=threshold_ns,
+        threshold_source=threshold_source,
+        baseline1_rows=baseline1_rows,
+        baseline2_rows=baseline2_rows,
+        experiment3_rows=experiment3_rows,
+        experiment4_rows=experiment4_rows,
+    )
+
+    if not args.no_plot:
+        if baseline1_rows:
             plot_bar_chart(
-                context_rows,
+                baseline1_rows,
                 baseline_avg_ns,
-                title=f"Thread context-switch {args.access} baseline",
-                path=context_switch_plot_path(),
+                title="Baseline1: thread0 train and trigger",
+                path=baseline1_plot_path(),
+                trigger_label=f"thread0 {args.access} trigger",
+            )
+        if baseline2_rows:
+            plot_bar_chart(
+                baseline2_rows,
+                None,
+                title="Baseline2: thread0 train, no trigger",
+                path=baseline2_plot_path(),
+                trigger_label="no trigger",
+            )
+        if experiment3_rows:
+            plot_bar_chart(
+                experiment3_rows,
+                baseline_avg_ns,
+                title="Experiment3: thread1 context switch, thread0 trigger",
+                path=experiment3_plot_path(),
                 trigger_label=f"thread0 {args.access} trigger after thread1 context switch",
             )
-        result_rows = run_test()
-
-    if control_rows and not args.no_plot:
-        plot_bar_chart(
-            control_rows,
-            None,
-            title="Thread0 train, no thread1 trigger",
-            path=control_plot_path(),
-        )
-
-    if result_rows and not args.no_plot:
-        plot_bar_chart(result_rows, baseline_avg_ns)
+        if experiment4_rows:
+            plot_bar_chart(
+                experiment4_rows,
+                baseline_avg_ns,
+                title="Experiment4: thread0 train, thread1 trigger",
+                path=experiment4_plot_path(),
+            )

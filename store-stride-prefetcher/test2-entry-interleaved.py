@@ -41,7 +41,7 @@ def parse_args():
                         help=f"Stride in cache lines. Default: {DEFAULT_STRIDE_LINES}")
     parser.add_argument("--train-accesses", type=int, default=None,
                         help="Number of same-page stores needed to critically trigger prefetch. "
-                             "Default is cross_test_config[arch]['train_accesses']['store'].")
+                             "Default is cross_test_config[arch]['accesses']['store'].")
     parser.add_argument("--active-pages", type=int, default=None,
                         help=f"Fixed number of simultaneously active 4KB pages. Default: {DEFAULT_ACTIVE_PAGES}")
     parser.add_argument("--max-pages", type=int, default=None,
@@ -281,7 +281,7 @@ def main():
     )
     print(
         "config default train_accesses="
-        f"{ARCH_CONFIG[args.arch]['train_accesses']['store']}"
+        f"{ARCH_CONFIG[args.arch]['accesses']['store']}"
     )
 
     if args.plot_only:

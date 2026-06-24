@@ -57,7 +57,7 @@ def parse_args():
     if args.core is None:
         args.core = ARCH_CONFIG[args.arch]["core"]
     if args.train_step is None:
-        args.train_step = ARCH_CONFIG[args.arch]["train_accesses"]["store"] + 1
+        args.train_step = ARCH_CONFIG[args.arch]["accesses"]["store"] + 1
     if args.threshold_ns is None:
         args.threshold_ns = ARCH_CONFIG[args.arch]["threshold_ns"]
 

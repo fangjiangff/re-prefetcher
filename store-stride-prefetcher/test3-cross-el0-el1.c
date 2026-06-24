@@ -59,15 +59,14 @@
 #define TRAIN_ACCESS_LOAD 0
 #endif
 
-#if TRAIN_ACCESS_LOAD
-#define TRAIN_ONLY_ACCESSES (TRAIN_ACCESSES - 1)
-#define TRIGGER_LINE_INDEX ((TRAIN_ACCESSES - 1) * STRIDE_LINES)
-#define PREDICTED_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
-#else
-#define TRAIN_ONLY_ACCESSES TRAIN_ACCESSES
-#define TRIGGER_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
-#define PREDICTED_LINE_INDEX ((TRAIN_ACCESSES + 1) * STRIDE_LINES)
+#ifndef TRIGGER_ACCESSES
+#define TRIGGER_ACCESSES 1
 #endif
+
+#define TRAIN_ONLY_ACCESSES TRAIN_ACCESSES
+#define FIRST_TRIGGER_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
+#define LAST_TRIGGER_LINE_INDEX ((TRAIN_ACCESSES + TRIGGER_ACCESSES - 1) * STRIDE_LINES)
+#define PREDICTED_LINE_INDEX ((TRAIN_ACCESSES + TRIGGER_ACCESSES) * STRIDE_LINES)
 
 #ifndef NO_TRIGGER
 #define NO_TRIGGER 0
@@ -142,8 +141,12 @@ static void train_in_el0(int stride_bytes) {
 }
 
 #if !NO_TRIGGER
+static size_t trigger_offset_for_index(int index, int stride_bytes) {
+    return (size_t)(TRAIN_ONLY_ACCESSES + index) * (size_t)stride_bytes;
+}
+
 #if SAME_EL0_TRIGGER || CONTEXT_SWITCH_ONLY
-static void trigger_in_el0(size_t trigger_offset) {
+static void trigger_one_in_el0(size_t trigger_offset) {
 #if TRAIN_ACCESS_LOAD
     mLoad_noinline(user_page + trigger_offset);
 #else
@@ -153,6 +156,12 @@ static void trigger_in_el0(size_t trigger_offset) {
     mStore_inline(user_page + trigger_offset);
 #endif
 #endif
+}
+
+static void trigger_in_el0(int stride_bytes) {
+    for (int index = 0; index < TRIGGER_ACCESSES; index++) {
+        trigger_one_in_el0(trigger_offset_for_index(index, stride_bytes));
+    }
 }
 #endif
 
@@ -180,7 +189,7 @@ static void context_switch_in_el1(int trigger_fd) {
 #endif
 
 #if !SAME_EL0_TRIGGER && !CONTEXT_SWITCH_ONLY
-static void trigger_in_el1(int trigger_fd, size_t trigger_offset) {
+static void trigger_one_in_el1(int trigger_fd, size_t trigger_offset) {
     uint8_t *trigger_addr =
         user_page + trigger_offset;
     ssize_t ret;
@@ -202,6 +211,13 @@ static void trigger_in_el1(int trigger_fd, size_t trigger_offset) {
 #endif
     }
 }
+
+static void trigger_in_el1(int trigger_fd, int stride_bytes) {
+    for (int index = 0; index < TRIGGER_ACCESSES; index++) {
+        trigger_one_in_el1(trigger_fd,
+                           trigger_offset_for_index(index, stride_bytes));
+    }
+}
 #endif
 #endif
 
@@ -218,7 +234,8 @@ static void delay_after_trigger(void) {
     (void)dummy;
 }
 
-static void print_header(int stride_bytes, int trigger_line,
+static void print_header(int stride_bytes, int first_trigger_line,
+                         int last_trigger_line,
                          int predicted_line) {
     printf("# arm64 EL0/EL1 %s-stride retention test\n",
 #if TRAIN_ACCESS_LOAD
@@ -227,7 +244,10 @@ static void print_header(int stride_bytes, int trigger_line,
            "store"
 #endif
     );
-    printf("# EL0 trains %d %ss, %s triggers access %d\n",
+    printf("# accesses=%d train_only_accesses=%d trigger_accesses=%d\n",
+           TRAIN_ONLY_ACCESSES + TRIGGER_ACCESSES,
+           TRAIN_ONLY_ACCESSES, TRIGGER_ACCESSES);
+    printf("# EL0 trains %d %ss, %s triggers %d access(es)\n",
            TRAIN_ONLY_ACCESSES,
 #if TRAIN_ACCESS_LOAD
            "load",
@@ -242,12 +262,12 @@ static void print_header(int stride_bytes, int trigger_line,
            "EL1"
 #endif
            ,
-           TRAIN_ACCESSES);
+           TRIGGER_ACCESSES);
     printf("# user_page=0x%016lx\n", (unsigned long)(uintptr_t)user_page);
     printf("# stride_lines=%d stride_bytes=%d rounds=%d probe_positions=%d\n",
            STRIDE_LINES, stride_bytes, ROUNDS, PROBE_POSITIONS);
-    printf("# trigger_line=%d predicted_line=%d access=%s pc=%s\n",
-           trigger_line, predicted_line,
+    printf("# trigger_lines=%d..%d predicted_line=%d access=%s pc=%s\n",
+           first_trigger_line, last_trigger_line, predicted_line,
 #if TRAIN_ACCESS_LOAD
            "load",
            "noinline_same_pc"
@@ -279,21 +299,18 @@ static void print_header(int stride_bytes, int trigger_line,
 int main(void) {
     int trigger_fd;
     int stride_bytes = STRIDE_LINES * LINE_SIZE;
-    int trigger_line = TRIGGER_LINE_INDEX;
+    int first_trigger_line = FIRST_TRIGGER_LINE_INDEX;
+    int last_trigger_line = LAST_TRIGGER_LINE_INDEX;
     int predicted_line = PREDICTED_LINE_INDEX;
     unsigned int junk = 0;
-#if !NO_TRIGGER
-    size_t trigger_offset =
-        (size_t)TRAIN_ONLY_ACCESSES * (size_t)stride_bytes;
-#endif
 
     if (stride_bytes <= 0 ||
         (size_t)PREDICTED_LINE_INDEX * LINE_SIZE >= PAGE_SIZE) {
         fprintf(stderr, "training/trigger/predicted lines must fit in one page\n");
         return 1;
     }
-    if (TRAIN_ACCESS_LOAD && TRAIN_ACCESSES < 2) {
-        fprintf(stderr, "TRAIN_ACCESSES must be >= 2 for load mode\n");
+    if (TRIGGER_ACCESSES < 1 || TRIGGER_ACCESSES > 2) {
+        fprintf(stderr, "TRIGGER_ACCESSES must be 1 or 2\n");
         return 1;
     }
     if (PROBE_POSITIONS > PAGE_LINES) {
@@ -334,7 +351,8 @@ int main(void) {
         mLoad(user_page + offset);
     }
 
-    print_header(stride_bytes, trigger_line, predicted_line);
+    print_header(stride_bytes, first_trigger_line, last_trigger_line,
+                 predicted_line);
 
     for (uint64_t round = 0; round < ROUNDS; round++) {
         int probe_pos = round % PROBE_POSITIONS;
@@ -349,11 +367,11 @@ int main(void) {
 #if !NO_TRIGGER
 #if CONTEXT_SWITCH_ONLY
         context_switch_in_el1(trigger_fd);
-        trigger_in_el0(trigger_offset);
+        trigger_in_el0(stride_bytes);
 #elif SAME_EL0_TRIGGER
-        trigger_in_el0(trigger_offset);
+        trigger_in_el0(stride_bytes);
 #else
-        trigger_in_el1(trigger_fd, trigger_offset);
+        trigger_in_el1(trigger_fd, stride_bytes);
 #endif
 #endif
         delay_after_trigger();

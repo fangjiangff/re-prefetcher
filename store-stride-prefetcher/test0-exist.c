@@ -133,20 +133,15 @@ int main(){
             //   mfence();
              
               // with stride prefetcher training
-              for(int repeat = 0; repeat < 5; repeat ++) {
+              // for(int repeat = 0; repeat < 5; repeat ++) {
 
-                for(int step = 0; step < train_step -2; step++){
-                    stride_access(array2 + (step * stride));
-                }
-                // array2[0*LINE_SIZE] = 1;
-                // array2[5*LINE_SIZE] = 12;
-                // array2[10*LINE_SIZE] = 4;
-                // array2[15*LINE_SIZE] = 8;
-                // array2[20*LINE_SIZE] = 1;
+              for(int step = 0; step < train_step -2; step++){
+                  stride_access(array2 + (step * stride));
+              }
 
-              // for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
-              //     flush(&array2[offset]);
-              // }
+              for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
+                  flush(&array2[offset]);
+              }
 
               
                 //trigger
@@ -160,17 +155,7 @@ int main(){
                 // stride_access(array2 + 11*LINE_SIZE + ((train_step) * stride));
 #endif
 
-                // test load
-                // int dump = array2[51*LINE_SIZE];
-                // int dump = array2[51*LINE_SIZE];
-               
-                // asm volatile("PRFM PSTL1KEEP, [%0]\n\t" :: "r"(array2 + 51*LINE_SIZE) : "memory");
-                // asm volatile("PRFM PSTL1KEEP, [%0]\n\t" :: "r"(array2 + 59*LINE_SIZE) : "memory");
-                
-                // array2[51*LINE_SIZE] = 1;//one more store to trigger the prefetcher, and this store is not prefetched.
-                // array2[59*LINE_SIZE] = 1;//two more stores to trigger the prefetcher, and this store is not prefetched.
-
-              }
+              // }
               uint64_t dummy = 0;
               for(int k =0;k<100;k++){//wait for prefetch done.
                 dummy += array1[k*64];

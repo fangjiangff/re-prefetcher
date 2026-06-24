@@ -46,15 +46,14 @@
 #define TRAIN_ACCESS_LOAD 0
 #endif
 
-#if TRAIN_ACCESS_LOAD
-#define TRAIN_ONLY_ACCESSES (TRAIN_ACCESSES - 1)
-#define TRIGGER_LINE_INDEX ((TRAIN_ACCESSES - 1) * STRIDE_LINES)
-#define PREDICTED_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
-#else
-#define TRAIN_ONLY_ACCESSES TRAIN_ACCESSES
-#define TRIGGER_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
-#define PREDICTED_LINE_INDEX ((TRAIN_ACCESSES + 1) * STRIDE_LINES)
+#ifndef TRIGGER_ACCESSES
+#define TRIGGER_ACCESSES 1
 #endif
+
+#define TRAIN_ONLY_ACCESSES TRAIN_ACCESSES
+#define FIRST_TRIGGER_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
+#define LAST_TRIGGER_LINE_INDEX ((TRAIN_ACCESSES + TRIGGER_ACCESSES - 1) * STRIDE_LINES)
+#define PREDICTED_LINE_INDEX ((TRAIN_ACCESSES + TRIGGER_ACCESSES) * STRIDE_LINES)
 
 #ifndef NO_TRIGGER
 #define NO_TRIGGER 0
@@ -64,6 +63,10 @@
 #define CONTEXT_SWITCH_ONLY 0
 #endif
 
+#ifndef TRAIN_CORE_TRIGGER
+#define TRAIN_CORE_TRIGGER 0
+#endif
+
 static uint8_t array1[100 * LINE_SIZE] = {0};
 static uint8_t *shared_page;
 static uint8_t *dummy_buffer;
@@ -71,8 +74,8 @@ static uint8_t *dummy_buffer;
 static long long latency_sum[PROBE_POSITIONS] = {0};
 static int probe_count[PROBE_POSITIONS] = {0};
 
-static size_t trigger_offset;
-#if !NO_TRIGGER
+static int trigger_index;
+#if !NO_TRIGGER && !TRAIN_CORE_TRIGGER
 static pthread_mutex_t trigger_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t trigger_cond = PTHREAD_COND_INITIALIZER;
 static int trigger_state = 0;
@@ -122,8 +125,15 @@ static void train_on_train_core(int stride_bytes) {
     }
 }
 
-static void trigger_on_train_core(size_t offset) {
-    access_for_test(shared_page + offset);
+static size_t trigger_offset_for_index(int index, int stride_bytes) {
+    return (size_t)(TRAIN_ONLY_ACCESSES + index) * (size_t)stride_bytes;
+}
+
+static void trigger_on_train_core(int stride_bytes) {
+    for (int index = 0; index < TRIGGER_ACCESSES; index++) {
+        access_for_test(shared_page + trigger_offset_for_index(index,
+                                                              stride_bytes));
+    }
 }
 
 static void delay_after_trigger(void) {
@@ -139,9 +149,10 @@ static void delay_after_trigger(void) {
     (void)dummy;
 }
 
-#if !NO_TRIGGER
-static void request_trigger(void) {
+#if !NO_TRIGGER && !TRAIN_CORE_TRIGGER
+static void request_trigger(int index) {
     pthread_mutex_lock(&trigger_mutex);
+    trigger_index = index;
     trigger_state = 1;
     pthread_cond_signal(&trigger_cond);
     while (trigger_state != 2) {
@@ -176,7 +187,8 @@ static void *trigger_thread_main(void *arg) {
 #if CONTEXT_SWITCH_ONLY
         dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
 #else
-        access_for_test(shared_page + trigger_offset);
+        access_for_test(shared_page + trigger_offset_for_index(trigger_index,
+                                                              STRIDE_LINES * LINE_SIZE));
 #endif
 
         pthread_mutex_lock(&trigger_mutex);
@@ -187,7 +199,8 @@ static void *trigger_thread_main(void *arg) {
 }
 #endif
 
-static void print_header(int stride_bytes, int trigger_line,
+static void print_header(int stride_bytes, int first_trigger_line,
+                         int last_trigger_line,
                          int predicted_line) {
     printf("# arm64 cross-core %s-stride retention test\n",
 #if TRAIN_ACCESS_LOAD
@@ -197,19 +210,22 @@ static void print_header(int stride_bytes, int trigger_line,
 #endif
     );
     printf("# train_core=%d trigger_core=%d\n", TRAIN_CORE, TRIGGER_CORE);
-    printf("# train core accesses %d %ss, trigger core triggers access %d\n",
+    printf("# accesses=%d train_only_accesses=%d trigger_accesses=%d\n",
+           TRAIN_ONLY_ACCESSES + TRIGGER_ACCESSES,
+           TRAIN_ONLY_ACCESSES, TRIGGER_ACCESSES);
+    printf("# train core accesses %d %ss, trigger core triggers %d access(es)\n",
            TRAIN_ONLY_ACCESSES,
 #if TRAIN_ACCESS_LOAD
            "load",
 #else
            "store",
 #endif
-           TRAIN_ACCESSES);
+           TRIGGER_ACCESSES);
     printf("# shared_page=0x%016lx\n", (unsigned long)(uintptr_t)shared_page);
     printf("# stride_lines=%d stride_bytes=%d rounds=%d probe_positions=%d\n",
            STRIDE_LINES, stride_bytes, ROUNDS, PROBE_POSITIONS);
-    printf("# trigger_line=%d predicted_line=%d access=%s pc=%s\n",
-           trigger_line, predicted_line,
+    printf("# trigger_lines=%d..%d predicted_line=%d access=%s pc=%s\n",
+           first_trigger_line, last_trigger_line, predicted_line,
 #if TRAIN_ACCESS_LOAD
            "load",
            "noinline_same_pc_per_process"
@@ -225,6 +241,8 @@ static void print_header(int stride_bytes, int trigger_line,
     printf("# trigger=%s\n",
 #if NO_TRIGGER
            "disabled"
+#elif TRAIN_CORE_TRIGGER
+           "train_core"
 #elif CONTEXT_SWITCH_ONLY
            "trigger_core_context_switch_then_train_core"
 #else
@@ -236,10 +254,11 @@ static void print_header(int stride_bytes, int trigger_line,
 
 int main(void) {
     int stride_bytes = STRIDE_LINES * LINE_SIZE;
-    int trigger_line = TRIGGER_LINE_INDEX;
+    int first_trigger_line = FIRST_TRIGGER_LINE_INDEX;
+    int last_trigger_line = LAST_TRIGGER_LINE_INDEX;
     int predicted_line = PREDICTED_LINE_INDEX;
     unsigned int junk = 0;
-#if !NO_TRIGGER
+#if !NO_TRIGGER && !TRAIN_CORE_TRIGGER
     pthread_t trigger_thread;
 #endif
 
@@ -247,7 +266,7 @@ int main(void) {
         fprintf(stderr, "TRAIN_CORE and TRIGGER_CORE must be >= 0\n");
         return 1;
     }
-    if (TRAIN_CORE == TRIGGER_CORE) {
+    if (!TRAIN_CORE_TRIGGER && TRAIN_CORE == TRIGGER_CORE) {
         fprintf(stderr, "TRAIN_CORE and TRIGGER_CORE must be different\n");
         return 1;
     }
@@ -256,8 +275,8 @@ int main(void) {
         fprintf(stderr, "training/trigger/predicted lines must fit in one page\n");
         return 1;
     }
-    if (TRAIN_ACCESS_LOAD && TRAIN_ACCESSES < 2) {
-        fprintf(stderr, "TRAIN_ACCESSES must be >= 2 for load mode\n");
+    if (TRIGGER_ACCESSES < 1 || TRIGGER_ACCESSES > 2) {
+        fprintf(stderr, "TRIGGER_ACCESSES must be 1 or 2\n");
         return 1;
     }
     if (PROBE_POSITIONS > PAGE_LINES) {
@@ -284,15 +303,14 @@ int main(void) {
         mLoad(shared_page + offset);
     }
 
-    trigger_offset = (size_t)TRAIN_ONLY_ACCESSES * (size_t)stride_bytes;
-
-#if !NO_TRIGGER
+#if !NO_TRIGGER && !TRAIN_CORE_TRIGGER
     if (pthread_create(&trigger_thread, NULL, trigger_thread_main, NULL) != 0) {
         die("pthread_create");
     }
 #endif
 
-    print_header(stride_bytes, trigger_line, predicted_line);
+    print_header(stride_bytes, first_trigger_line, last_trigger_line,
+                 predicted_line);
 
     for (uint64_t round = 0; round < ROUNDS; round++) {
         int probe_pos = round % PROBE_POSITIONS;
@@ -305,9 +323,17 @@ int main(void) {
 
         train_on_train_core(stride_bytes);
 #if !NO_TRIGGER
-        request_trigger();
+#if TRAIN_CORE_TRIGGER
+        trigger_on_train_core(stride_bytes);
+#else
 #if CONTEXT_SWITCH_ONLY
-        trigger_on_train_core(trigger_offset);
+        request_trigger(0);
+        trigger_on_train_core(stride_bytes);
+#else
+        for (int index = 0; index < TRIGGER_ACCESSES; index++) {
+            request_trigger(index);
+        }
+#endif
 #endif
 #endif
         delay_after_trigger();
@@ -330,7 +356,7 @@ int main(void) {
                pos, pos * LINE_SIZE, avg_ns, probe_count[pos]);
     }
 
-#if !NO_TRIGGER
+#if !NO_TRIGGER && !TRAIN_CORE_TRIGGER
     stop_trigger_thread();
     pthread_join(trigger_thread, NULL);
 #endif

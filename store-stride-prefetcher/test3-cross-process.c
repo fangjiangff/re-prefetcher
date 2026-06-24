@@ -50,15 +50,14 @@
 #define TRAIN_ACCESS_LOAD 0
 #endif
 
-#if TRAIN_ACCESS_LOAD
-#define TRAIN_ONLY_ACCESSES (TRAIN_ACCESSES - 1)
-#define TRIGGER_LINE_INDEX ((TRAIN_ACCESSES - 1) * STRIDE_LINES)
-#define PREDICTED_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
-#else
-#define TRAIN_ONLY_ACCESSES TRAIN_ACCESSES
-#define TRIGGER_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
-#define PREDICTED_LINE_INDEX ((TRAIN_ACCESSES + 1) * STRIDE_LINES)
+#ifndef TRIGGER_ACCESSES
+#define TRIGGER_ACCESSES 1
 #endif
+
+#define TRAIN_ONLY_ACCESSES TRAIN_ACCESSES
+#define FIRST_TRIGGER_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
+#define LAST_TRIGGER_LINE_INDEX ((TRAIN_ACCESSES + TRIGGER_ACCESSES - 1) * STRIDE_LINES)
+#define PREDICTED_LINE_INDEX ((TRAIN_ACCESSES + TRIGGER_ACCESSES) * STRIDE_LINES)
 
 #ifndef NO_TRIGGER
 #define NO_TRIGGER 0
@@ -197,8 +196,15 @@ static void train_in_parent(int stride_bytes) {
 }
 
 #if !NO_TRIGGER && (SAME_PROCESS_TRIGGER || PROCESS_SWITCH_ONLY)
-static void trigger_in_parent(size_t trigger_offset) {
-    access_for_test(shared_page + trigger_offset);
+static size_t trigger_offset_for_index(int index, int stride_bytes) {
+    return (size_t)(TRAIN_ONLY_ACCESSES + index) * (size_t)stride_bytes;
+}
+
+static void trigger_in_parent(int stride_bytes) {
+    for (int index = 0; index < TRIGGER_ACCESSES; index++) {
+        access_for_test(shared_page + trigger_offset_for_index(index,
+                                                              stride_bytes));
+    }
 }
 #endif
 
@@ -241,7 +247,6 @@ static int child_main(int argc, char **argv) {
     int done_fd;
     int shm_fd;
     uintptr_t mapped_addr;
-    size_t trigger_offset;
 
     if (argc != 5) {
         fprintf(stderr, "child usage: %s --child SHM START_FD DONE_FD\n",
@@ -266,9 +271,6 @@ static int child_main(int argc, char **argv) {
     mapped_addr = (uintptr_t)shared_page;
     write_exact(done_fd, &mapped_addr, sizeof(mapped_addr));
 
-    trigger_offset =
-        (size_t)TRAIN_ONLY_ACCESSES * (size_t)STRIDE_LINES * (size_t)LINE_SIZE;
-
     for (;;) {
         uint8_t command = read_command(start_fd);
 
@@ -279,12 +281,15 @@ static int child_main(int argc, char **argv) {
             write_command(done_fd, 'A');
             continue;
         }
-        if (command != 'T') {
-            fprintf(stderr, "unexpected child command: %u\n", command);
+        if (command < '0' || command >= '0' + TRIGGER_ACCESSES) {
+            fprintf(stderr, "unexpected child trigger command: %u\n", command);
             return 1;
         }
 
-        access_for_test(shared_page + trigger_offset);
+        access_for_test(shared_page +
+                        ((size_t)TRAIN_ONLY_ACCESSES +
+                         (size_t)(command - '0')) *
+                        (size_t)STRIDE_LINES * (size_t)LINE_SIZE);
         write_command(done_fd, 'A');
     }
 }
@@ -305,7 +310,8 @@ static int create_shared_object(char *name, size_t name_size) {
     return fd;
 }
 
-static void print_header(int stride_bytes, int trigger_line,
+static void print_header(int stride_bytes, int first_trigger_line,
+                         int last_trigger_line,
                          int predicted_line, pid_t child_pid,
                          uintptr_t child_addr) {
     printf("# arm64 strong cross-process %s-stride retention test\n",
@@ -315,7 +321,10 @@ static void print_header(int stride_bytes, int trigger_line,
            "store"
 #endif
     );
-    printf("# parent trains %d %ss, %s triggers access %d\n",
+    printf("# accesses=%d train_only_accesses=%d trigger_accesses=%d\n",
+           TRAIN_ONLY_ACCESSES + TRIGGER_ACCESSES,
+           TRAIN_ONLY_ACCESSES, TRIGGER_ACCESSES);
+    printf("# parent trains %d %ss, %s triggers %d access(es)\n",
            TRAIN_ONLY_ACCESSES,
 #if TRAIN_ACCESS_LOAD
            "load",
@@ -330,7 +339,7 @@ static void print_header(int stride_bytes, int trigger_line,
            "exec child"
 #endif
            ,
-           TRAIN_ACCESSES);
+           TRIGGER_ACCESSES);
     printf("# parent_pid=%ld child_pid=%ld\n",
            (long)getpid(), (long)child_pid);
     printf("# parent_page=0x%016lx child_page=0x%016lx same_va=%s\n",
@@ -339,8 +348,8 @@ static void print_header(int stride_bytes, int trigger_line,
            ((uintptr_t)shared_page == child_addr) ? "yes" : "no");
     printf("# stride_lines=%d stride_bytes=%d rounds=%d probe_positions=%d\n",
            STRIDE_LINES, stride_bytes, ROUNDS, PROBE_POSITIONS);
-    printf("# trigger_line=%d predicted_line=%d access=%s pc=%s\n",
-           trigger_line, predicted_line,
+    printf("# trigger_lines=%d..%d predicted_line=%d access=%s pc=%s\n",
+           first_trigger_line, last_trigger_line, predicted_line,
 #if TRAIN_ACCESS_LOAD
            "load",
            "noinline_same_pc_per_process"
@@ -375,15 +384,12 @@ int main(int argc, char **argv) {
     int child_to_parent[2];
     int shm_fd;
     int stride_bytes = STRIDE_LINES * LINE_SIZE;
-    int trigger_line = TRIGGER_LINE_INDEX;
+    int first_trigger_line = FIRST_TRIGGER_LINE_INDEX;
+    int last_trigger_line = LAST_TRIGGER_LINE_INDEX;
     int predicted_line = PREDICTED_LINE_INDEX;
     uintptr_t child_addr;
     pid_t child;
     unsigned int junk = 0;
-#if !NO_TRIGGER && (SAME_PROCESS_TRIGGER || PROCESS_SWITCH_ONLY)
-    size_t trigger_offset =
-        (size_t)TRAIN_ONLY_ACCESSES * (size_t)stride_bytes;
-#endif
 
     if (argc > 1 && strcmp(argv[1], "--child") == 0) {
         return child_main(argc, argv);
@@ -394,8 +400,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "training/trigger/predicted lines must fit in one page\n");
         return 1;
     }
-    if (TRAIN_ACCESS_LOAD && TRAIN_ACCESSES < 2) {
-        fprintf(stderr, "TRAIN_ACCESSES must be >= 2 for load mode\n");
+    if (TRIGGER_ACCESSES < 1 || TRIGGER_ACCESSES > 2) {
+        fprintf(stderr, "TRIGGER_ACCESSES must be 1 or 2\n");
         return 1;
     }
     if (PROBE_POSITIONS > PAGE_LINES) {
@@ -460,7 +466,8 @@ int main(int argc, char **argv) {
     }
     shm_unlink(shm_name);
 
-    print_header(stride_bytes, trigger_line, predicted_line, child, child_addr);
+    print_header(stride_bytes, first_trigger_line, last_trigger_line,
+                 predicted_line, child, child_addr);
 
     for (uint64_t round = 0; round < ROUNDS; round++) {
         // int probe_pos = round % PROBE_POSITIONS;
@@ -482,12 +489,14 @@ int main(int argc, char **argv) {
             break;
         }
 #endif
-        trigger_in_parent(trigger_offset);
+        trigger_in_parent(stride_bytes);
 #else
-        write_command(parent_to_child[1], 'T');
-        if (read_command(child_to_parent[0]) != 'A') {
-            fprintf(stderr, "child did not acknowledge trigger\n");
-            break;
+        for (int index = 0; index < TRIGGER_ACCESSES; index++) {
+            write_command(parent_to_child[1], (uint8_t)('0' + index));
+            if (read_command(child_to_parent[0]) != 'A') {
+                fprintf(stderr, "child did not acknowledge trigger\n");
+                break;
+            }
         }
 #endif
 #endif

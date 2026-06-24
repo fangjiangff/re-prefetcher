@@ -44,6 +44,7 @@ static TEE_Result trigger_store(uint32_t param_types, TEE_Param params[4]) {
     uint8_t *base;
     size_t size;
     size_t offset;
+    size_t second_offset;
 
     if (param_types != expected) {
         return TEE_ERROR_BAD_PARAMETERS;
@@ -52,12 +53,17 @@ static TEE_Result trigger_store(uint32_t param_types, TEE_Param params[4]) {
     base = params[0].memref.buffer;
     size = params[0].memref.size;
     offset = (size_t)params[1].value.a;
+    second_offset = (size_t)params[1].value.b;
 
-    if (!base || offset >= size) {
+    if (!base || offset >= size ||
+        (second_offset != 0 && second_offset >= size)) {
         return TEE_ERROR_BAD_PARAMETERS;
     }
 
     secure_trigger_store(base + offset);
+    if (second_offset != 0) {
+        secure_trigger_store(base + second_offset);
+    }
     return TEE_SUCCESS;
 }
 

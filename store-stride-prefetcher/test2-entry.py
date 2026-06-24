@@ -41,7 +41,7 @@ def parse_args():
                         help=f"Stride in cache lines. Default: {DEFAULT_STRIDE_LINES}")
     parser.add_argument("--train-accesses", type=int, default=None,
                         help="Victim store accesses before competitor pressure. "
-                             "Default is cross_test_config[arch]['train_accesses']['store'] - 1.")
+                             "Default is cross_test_config[arch]['accesses']['store'] - 1.")
     parser.add_argument("--max-competitors", type=int,
                         default=DEFAULT_MAX_COMPETITORS)
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
@@ -73,7 +73,7 @@ def parse_args():
     args.access = "store"
     apply_single_core_defaults(args)
     if args.train_accesses is None:
-        args.train_accesses = ARCH_CONFIG[args.arch]["train_accesses"]["store"] - 1
+        args.train_accesses = ARCH_CONFIG[args.arch]["accesses"]["store"] - 1
     apply_threshold_defaults(args)
 
     if args.core < 0:
@@ -301,7 +301,7 @@ def print_run_header():
     )
     print(
         "config default train_accesses="
-        f"{ARCH_CONFIG[args.arch]['train_accesses']['store'] - 1}"
+        f"{ARCH_CONFIG[args.arch]['accesses']['store'] - 1}"
     )
 
 

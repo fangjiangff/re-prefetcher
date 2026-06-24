@@ -6,7 +6,7 @@ ARCH_CONFIG = {
             "train_core": 6,
             "trigger_core": 7,
         },
-        "train_accesses": {
+        "accesses": {
             "store": 2,
             "load": 1,
         },
@@ -18,7 +18,7 @@ ARCH_CONFIG = {
             "train_core": 4,
             "trigger_core": 10,
         },
-        "train_accesses": {
+        "accesses": {
             "store": 5,
             "load": 5,
         },
@@ -30,8 +30,8 @@ ARCH_CONFIG = {
             "train_core": 4,
             "trigger_core": 5,
         },
-        "train_accesses": {
-            "store": 2,
+        "accesses": {
+            "store": 3,
             "load": 2,
         },
     },
@@ -42,8 +42,8 @@ ARCH_CONFIG = {
             "train_core": 1,
             "trigger_core": 0,
         },
-        "train_accesses": {
-            "store": 5,
+        "accesses": {
+            "store": 6,
             "load": 5,
         },
     },
@@ -54,7 +54,7 @@ ARCH_CONFIG = {
             "train_core": 1,
             "trigger_core": 0,
         },
-        "train_accesses": {
+        "accesses": {
             "store": 3,
             "load": 3,
         },
@@ -71,13 +71,22 @@ def apply_single_core_defaults(args):
         args.core = ARCH_CONFIG[args.arch]["core"]
 
 
+def apply_access_defaults(args):
+    if args.accesses is None:
+        args.accesses = ARCH_CONFIG[args.arch]["accesses"][args.access]
+
+
 def apply_train_access_defaults(args):
     if args.train_accesses is None:
-        args.train_accesses = ARCH_CONFIG[args.arch]["train_accesses"][args.access]
+        args.train_accesses = ARCH_CONFIG[args.arch]["accesses"][args.access]
 
 
 def apply_threshold_defaults(args):
-    if args.threshold_ns is None:
+    if hasattr(args, "hit_threshold_ns"):
+        args.hit_threshold_ns_auto = args.hit_threshold_ns is None
+        if args.hit_threshold_ns is None:
+            args.hit_threshold_ns = ARCH_CONFIG[args.arch]["threshold_ns"]
+    elif args.threshold_ns is None:
         args.threshold_ns = ARCH_CONFIG[args.arch]["threshold_ns"]
 
 

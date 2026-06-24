@@ -40,7 +40,7 @@ def parse_args():
                         help="Comma-separated guessed ways. Each guess uses N competitors plus one victim.")
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE_LINES)
     parser.add_argument("--train-accesses", type=int, default=None,
-                        help="Default is cross_test_config[arch]['train_accesses']['store'] - 1.")
+                        help="Default is cross_test_config[arch]['accesses']['store'] - 1.")
     parser.add_argument("--threshold-ns", type=int, default=None)
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"))
     parser.add_argument("--output", default=None)
@@ -52,7 +52,7 @@ def parse_args():
     args.access = "store"
     apply_single_core_defaults(args)
     if args.train_accesses is None:
-        args.train_accesses = ARCH_CONFIG[args.arch]["train_accesses"]["store"] - 1
+        args.train_accesses = ARCH_CONFIG[args.arch]["accesses"]["store"] - 1
     apply_threshold_defaults(args)
 
     guesses = []
@@ -263,7 +263,7 @@ def main():
     )
     print(
         "config default train_accesses="
-        f"{ARCH_CONFIG[args.arch]['train_accesses']['store'] - 1}"
+        f"{ARCH_CONFIG[args.arch]['accesses']['store'] - 1}"
     )
 
     if not args.no_compile and compile_test() != 0:

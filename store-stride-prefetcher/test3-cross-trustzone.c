@@ -23,21 +23,24 @@
  * that implements CMD_TRIGGER_STORE and CMD_TRIGGER_LOAD:
  *
  *   param0: MEMREF_INOUT, the shared 4KB page
- *   param1: VALUE_INPUT, a = trigger_offset
+ *   param1: VALUE_INPUT, a = first_trigger_offset,
+ *                        b = second_trigger_offset
  *
- * The TA should perform exactly one byte access to:
+ * The TA should perform exactly one byte access to each of:
  *
- *   memref_base + trigger_offset
+ *   memref_base + first_trigger_offset
+ *   memref_base + second_trigger_offset
  *
  * Store mode:
- *   Normal world stores line 0, 5, 10, 15, 20
+ *   Normal world stores line 0, 5, 10, 15
  *
- *   Secure world TA stores line 25 as the 6th access / trigger
+ *   Depending on the selected experiment, normal world or secure world stores
+ *   lines 20 and 25 as trigger accesses.
  *
  * Load mode:
  *   Normal world loads line 0, 5, 10, 15, switches to secure world for a
- *   no-op TA command, then optionally loads line 20 as the trigger. The load
- *   train and trigger accesses are from the same noinline normal-world PC.
+ *   no-op TA command, then optionally loads lines 20 and 25 as triggers. The
+ *   load train and trigger accesses are from the same noinline normal-world PC.
  *
  * Normal world:
  *   probe one line per round. The next stride after the trigger line is the
@@ -80,15 +83,14 @@
 #define TRAIN_ACCESS_LOAD 0
 #endif
 
-#if TRAIN_ACCESS_LOAD
-#define TRAIN_ONLY_ACCESSES (TRAIN_ACCESSES - 1)
-#define TRIGGER_LINE_INDEX ((TRAIN_ACCESSES - 1) * STRIDE_LINES)
-#define PREDICTED_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
-#else
-#define TRAIN_ONLY_ACCESSES TRAIN_ACCESSES
-#define TRIGGER_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
-#define PREDICTED_LINE_INDEX ((TRAIN_ACCESSES + 1) * STRIDE_LINES)
+#ifndef TRIGGER_ACCESSES
+#define TRIGGER_ACCESSES 2
 #endif
+
+#define TRAIN_ONLY_ACCESSES TRAIN_ACCESSES
+#define FIRST_TRIGGER_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
+#define LAST_TRIGGER_LINE_INDEX ((TRAIN_ACCESSES + TRIGGER_ACCESSES - 1) * STRIDE_LINES)
+#define PREDICTED_LINE_INDEX ((TRAIN_ACCESSES + TRIGGER_ACCESSES) * STRIDE_LINES)
 
 #ifndef CMD_TRIGGER_STORE
 #define CMD_TRIGGER_STORE 0
@@ -194,7 +196,7 @@ static void flush_shared_page(void) {
     for (size_t offset = 0; offset < PAGE_SIZE; offset += LINE_SIZE) {
         flush(shared_page + offset);
     }
-    mfence();
+    // mfence();
 }
 
 static void dummyAccesses(void) {
@@ -226,8 +228,12 @@ static void train_in_normal_world(int stride_bytes) {
     }
 }
 
-#if !NO_TRIGGER && (TRAIN_ACCESS_LOAD || NS_TRIGGER_AFTER_SECURE_NOOP)
-static void trigger_in_normal_world(size_t trigger_offset) {
+static size_t trigger_offset_for_index(int trigger_index, int stride_bytes) {
+    return (size_t)(TRAIN_ONLY_ACCESSES + trigger_index) * (size_t)stride_bytes;
+}
+
+#if !NO_TRIGGER && (TRAIN_ACCESS_LOAD || SKIP_SECURE_SWITCH || NS_TRIGGER_AFTER_SECURE_NOOP)
+static void trigger_one_in_normal_world(size_t trigger_offset) {
 #if TRAIN_ACCESS_LOAD
     mLoad_noinline(shared_page + trigger_offset);
 #else
@@ -237,6 +243,13 @@ static void trigger_in_normal_world(size_t trigger_offset) {
     mStore_inline(shared_page + trigger_offset);
 #endif
 #endif
+}
+
+static void trigger_in_normal_world(int stride_bytes) {
+    for (int trigger_index = 0; trigger_index < TRIGGER_ACCESSES; trigger_index++) {
+        trigger_one_in_normal_world(trigger_offset_for_index(trigger_index,
+                                                            stride_bytes));
+    }
 }
 #endif
 
@@ -385,21 +398,25 @@ static void invoke_secure_world(int tee_fd, uint32_t session, int shm_id,
 #endif
 
 static void print_header(const char *tee_path, int stride_bytes,
-                         int trigger_line, int predicted_line) {
+                         int first_trigger_line, int last_trigger_line,
+                         int predicted_line) {
     printf("# arm64 Normal/Secure TrustZone stride retention test\n");
-    printf("# training_mode=%s train_only_accesses=%d trigger_accesses=%d access=%s\n",
+    printf("# training_mode=%s accesses=%d train_only_accesses=%d trigger_accesses=%d access=%s\n",
 #if TRAIN_ACCESS_LOAD
 #if SKIP_SECURE_SWITCH
            "normal_world_train_normal_world_trigger_no_secure_switch",
 #else
            "normal_world_train_secure_world_noop_normal_world_trigger",
 #endif
+#elif SKIP_SECURE_SWITCH
+           "normal_world_train_normal_world_trigger_no_secure_switch",
 #elif NS_TRIGGER_AFTER_SECURE_NOOP
            "normal_world_train_secure_world_noop_normal_world_trigger",
 #else
            "normal_world_train_secure_world_trigger",
 #endif
-           TRAIN_ONLY_ACCESSES, TRAIN_ACCESSES,
+           TRAIN_ONLY_ACCESSES + TRIGGER_ACCESSES,
+           TRAIN_ONLY_ACCESSES, TRIGGER_ACCESSES,
 #if TRAIN_ACCESS_LOAD
            "load"
 #else
@@ -410,11 +427,11 @@ static void print_header(const char *tee_path, int stride_bytes,
            tee_path, (unsigned long)(uintptr_t)shared_page);
     printf("# stride_lines=%d stride_bytes=%d rounds=%d probe_positions=%d\n",
            STRIDE_LINES, stride_bytes, ROUNDS, PROBE_POSITIONS);
-    printf("# trigger_line=%d predicted_line=%d train_pc=%s\n",
-           trigger_line, predicted_line,
+    printf("# trigger_lines=%d..%d predicted_line=%d train_pc=%s\n",
+           first_trigger_line, last_trigger_line, predicted_line,
 #if TRAIN_ACCESS_LOAD
            "normal_world_load_noinline_same_pc"
-#elif NS_TRIGGER_AFTER_SECURE_NOOP
+#elif SKIP_SECURE_SWITCH || NS_TRIGGER_AFTER_SECURE_NOOP
 #if USE_NOINLINE_STORE
            "normal_world_store_noinline_same_pc"
 #else
@@ -422,9 +439,9 @@ static void print_header(const char *tee_path, int stride_bytes,
 #endif
 #else
 #if USE_NOINLINE_STORE
-           "noinline_same_pc"
+           "normal_world_train_noinline_secure_trigger"
 #else
-           "inline_call_site_pc"
+           "normal_world_train_inline_secure_trigger"
 #endif
 #endif
     );
@@ -441,6 +458,8 @@ static void print_header(const char *tee_path, int stride_bytes,
 #else
            "normal_world_load_after_secure_noop"
 #endif
+#elif SKIP_SECURE_SWITCH
+           "normal_world_store_without_secure_switch"
 #elif NS_TRIGGER_AFTER_SECURE_NOOP
            "normal_world_store_after_secure_noop"
 #else
@@ -450,7 +469,7 @@ static void print_header(const char *tee_path, int stride_bytes,
     printf("# no_trigger_command=%s\n",
 #if !NO_TRIGGER
            "not_applicable"
-#elif TRAIN_ACCESS_LOAD && SKIP_SECURE_SWITCH
+#elif SKIP_SECURE_SWITCH
            "none"
 #elif TRAIN_ACCESS_LOAD || NS_TRIGGER_AFTER_SECURE_NOOP
            "secure_world_ta_cmd_" XSTR(CMD_NOP)
@@ -470,13 +489,10 @@ int main(int argc, char **argv) {
     int shm_id;
     uint32_t session;
     int stride_bytes = STRIDE_LINES * LINE_SIZE;
-    int trigger_line = TRIGGER_LINE_INDEX;
+    int first_trigger_line = FIRST_TRIGGER_LINE_INDEX;
+    int last_trigger_line = LAST_TRIGGER_LINE_INDEX;
     int predicted_line = PREDICTED_LINE_INDEX;
     unsigned int junk = 0;
-#if !NO_TRIGGER
-    size_t trigger_offset =
-        (size_t)TRAIN_ONLY_ACCESSES * (size_t)stride_bytes;
-#endif
 
     if (argc > 3) {
         fprintf(stderr, "usage: %s [TA_UUID] [TEE_DEVICE]\n", argv[0]);
@@ -494,13 +510,13 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    if (TRIGGER_ACCESSES < 1 || TRIGGER_ACCESSES > 2) {
+        fprintf(stderr, "TRIGGER_ACCESSES must be 1 or 2\n");
+        return 1;
+    }
     if (stride_bytes <= 0 ||
         (size_t)PREDICTED_LINE_INDEX * LINE_SIZE >= PAGE_SIZE) {
         fprintf(stderr, "training/trigger/predicted lines must fit in one page\n");
-        return 1;
-    }
-    if (TRAIN_ACCESS_LOAD && TRAIN_ACCESSES < 2) {
-        fprintf(stderr, "TRAIN_ACCESSES must be >= 2 for load mode\n");
         return 1;
     }
     if (PROBE_POSITIONS > PAGE_LINES) {
@@ -525,7 +541,8 @@ int main(int argc, char **argv) {
         mLoad(shared_page + offset);
     }
 
-    print_header(tee_path, stride_bytes, trigger_line, predicted_line);
+    print_header(tee_path, stride_bytes, first_trigger_line,
+                 last_trigger_line, predicted_line);
 
     for (uint64_t round = 0; round < ROUNDS; round++) {
         int probe_pos = round % PROBE_POSITIONS;
@@ -542,16 +559,23 @@ int main(int argc, char **argv) {
         invoke_secure_world(tee_fd, session, shm_id, 0, 0);
 #endif
 #if !NO_TRIGGER
-        trigger_in_normal_world(trigger_offset);
+        trigger_in_normal_world(stride_bytes);
 #endif
 #else
         train_in_normal_world(stride_bytes);
 #if !NO_TRIGGER
-#if NS_TRIGGER_AFTER_SECURE_NOOP
+#if SKIP_SECURE_SWITCH
+        trigger_in_normal_world(stride_bytes);
+#elif NS_TRIGGER_AFTER_SECURE_NOOP
         invoke_secure_world(tee_fd, session, shm_id, 0, 0);
-        trigger_in_normal_world(trigger_offset);
+        trigger_in_normal_world(stride_bytes);
 #else
-        invoke_secure_world(tee_fd, session, shm_id, trigger_offset, 0);
+        size_t first_trigger_offset = trigger_offset_for_index(0, stride_bytes);
+        size_t second_trigger_offset =
+            TRIGGER_ACCESSES > 1 ? trigger_offset_for_index(1, stride_bytes) : 0;
+
+        invoke_secure_world(tee_fd, session, shm_id,
+                            first_trigger_offset, second_trigger_offset);
 #endif
 #endif
 #endif
