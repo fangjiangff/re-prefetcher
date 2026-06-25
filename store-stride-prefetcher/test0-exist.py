@@ -64,6 +64,10 @@ def parse_args():
                         help="Stride instruction to test. Default: store")
     parser.add_argument("--no-trigger", action="store_true",
                         help="Skip the final same-PC trigger access after training.")
+    parser.add_argument("--context-switch", action="store_true",
+                        help="Call sched_yield between training and trigger.")
+    parser.add_argument("--context-switch-yields", type=int, default=1,
+                        help="Number of sched_yield calls between training and trigger.")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
                         help="Compiler command. Default: $CC or gcc")
     parser.add_argument("--plot-only", action="store_true",
@@ -96,6 +100,8 @@ def parse_args():
         parser.error("--probe-positions must be >= 1")
     if args.hit_threshold_ns is not None and args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
+    if args.context_switch_yields < 1:
+        parser.error("--context-switch-yields must be >= 1")
     max_train_step = args.train_step_max if args.batch else args.train_step
     if max_train_step * args.stride >= args.probe_positions:
         parser.error("predicted position train_step * stride must be inside probe positions")
@@ -152,9 +158,13 @@ def train_steps():
 
 def micro_arch_name(arch, core, train_step):
     trigger_suffix = "-no-trigger" if args.no_trigger else ""
+    switch_suffix = (
+        f"-ctxswitch{args.context_switch_yields}"
+        if args.context_switch else ""
+    )
     return (
         f"{arch}-core{core}-stride{args.stride}"
-        f"-train{train_step}-{args.access}{trigger_suffix}"
+        f"-train{train_step}-{args.access}{trigger_suffix}{switch_suffix}"
     )
 
 
@@ -275,6 +285,8 @@ def compile_test(train_step):
         f"-DCPU_ID=0",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
+        f"-DCONTEXT_SWITCH_BEFORE_TRIGGER={1 if args.context_switch else 0}",
+        f"-DCONTEXT_SWITCH_YIELDS={args.context_switch_yields}",
         "-o",
         OUT,
         SRC,
@@ -298,7 +310,9 @@ def run_one(arch, core, train_step):
         f"access={args.access}, arch={arch}, core={core}, "
         f"stride={args.stride} lines, train_step={train_step}, "
         f"predicted_position={predicted_position(train_step)}, "
-        f"rounds={args.rounds}, threshold={threshold_ns} ns"
+        f"rounds={args.rounds}, threshold={threshold_ns} ns, "
+        f"context_switch={args.context_switch}, "
+        f"context_switch_yields={args.context_switch_yields}"
     )
 
     if compile_test(train_step) != 0:

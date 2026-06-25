@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE_LINES,
                         help="Stride in cache lines. Default: 5")
     parser.add_argument("--train-step", type=int, default=DEFAULT_TRAIN_STEP,
-                        help="Override test0-style train_step. Default is arch store train_accesses + 1.")
+                        help="Override test0-style train_step. Default is arch store accesses.")
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
     parser.add_argument("--probe-positions", type=int,
                         default=DEFAULT_PROBE_POSITIONS)
@@ -57,7 +57,7 @@ def parse_args():
     if args.core is None:
         args.core = ARCH_CONFIG[args.arch]["core"]
     if args.train_step is None:
-        args.train_step = ARCH_CONFIG[args.arch]["accesses"]["store"] + 1
+        args.train_step = ARCH_CONFIG[args.arch]["accesses"]["store"]
     if args.threshold_ns is None:
         args.threshold_ns = ARCH_CONFIG[args.arch]["threshold_ns"]
 

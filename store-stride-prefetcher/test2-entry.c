@@ -16,9 +16,9 @@
 
 /*
  * store-stride:
- *   train:   line 0, 5, 10, 15
- *   trigger: line 20, 25
- *   probe:   line 30
+ *   train:   line 0, 5, ...
+ *   trigger: the next TRIGGER_ACCESSES stride positions
+ *   probe:   the next stride position after trigger
  */
 #ifndef STRIDE_LINES
 #define STRIDE_LINES 5
@@ -30,6 +30,10 @@
 #define TRAIN_ACCESSES 5
 #endif
 
+#ifndef TRIGGER_ACCESSES
+#define TRIGGER_ACCESSES 1
+#endif
+
 #ifndef COMPETITOR_ACCESSES
 #define COMPETITOR_ACCESSES (TRAIN_ACCESSES)
 #endif
@@ -39,8 +43,8 @@
 #endif
 
 #define VICTIM_TRIGGER0_LINE (TRAIN_ACCESSES * STRIDE_LINES)
-#define VICTIM_TRIGGER1_LINE ((TRAIN_ACCESSES + 1) * STRIDE_LINES)
-#define VICTIM_PROBE_LINE ((TRAIN_ACCESSES + 2) * STRIDE_LINES)
+#define VICTIM_LAST_TRIGGER_LINE ((TRAIN_ACCESSES + TRIGGER_ACCESSES - 1) * STRIDE_LINES)
+#define VICTIM_PROBE_LINE ((TRAIN_ACCESSES + TRIGGER_ACCESSES) * STRIDE_LINES)
 
 /*
  * competitor page 地址间隔，单位是 page。
@@ -303,8 +307,10 @@ static void train_competitors(store_gadget_f store_gadget,
         uint8_t *page = competitor_page(i, page_step_pages);
 
         for (int step = 0; step < COMPETITOR_ACCESSES; step++) {
-            store_gadget(page + 3 * LINE_SIZE +
+                mStore_inline(page + 3 * LINE_SIZE +
                          ((uint64_t)step * (uint64_t)stride));
+            // store_gadget(page + 3 * LINE_SIZE +
+            //              ((uint64_t)step * (uint64_t)stride));
         }
     }
 }
@@ -336,13 +342,11 @@ static uint64_t run_one_round(store_gadget_f store_gadget,
 
     // flush_victim_lines();
     if (do_trigger) {
-        store_gadget(victim_buffer +
-                      ((uintptr_t)VICTIM_TRIGGER0_LINE *
-                       (uintptr_t)LINE_SIZE));
-        store_gadget(victim_buffer +
-                      ((uintptr_t)VICTIM_TRIGGER1_LINE *
-                       (uintptr_t)LINE_SIZE));
-
+        for (int index = 0; index < TRIGGER_ACCESSES; index++) {
+            store_gadget(victim_buffer +
+                         ((uintptr_t)(TRAIN_ACCESSES + index) *
+                          (uintptr_t)stride));
+        }
     }
 
     // mfence();
@@ -367,8 +371,9 @@ static const char *probe_role(int probe_line, int predicted_line) {
         }
     }
 
-    if (probe_line == VICTIM_TRIGGER0_LINE ||
-        probe_line == VICTIM_TRIGGER1_LINE) {
+    if (probe_line >= VICTIM_TRIGGER0_LINE &&
+        probe_line <= VICTIM_LAST_TRIGGER_LINE &&
+        ((probe_line - VICTIM_TRIGGER0_LINE) % stride_lines) == 0) {
         return "trigger";
     }
 
@@ -445,19 +450,24 @@ int main(int argc, char **argv) {
                 (unsigned long)victim_buffer_addr);
     }
 
+    if (TRIGGER_ACCESSES < 1 || TRIGGER_ACCESSES > 2) {
+        fprintf(stderr, "TRIGGER_ACCESSES must be 1 or 2\n");
+        return 1;
+    }
+
     uint64_t predicted_offset =
         (uint64_t)VICTIM_PROBE_LINE * (uint64_t)LINE_SIZE;
 
-    uint64_t trigger1_offset =
-        (uint64_t)VICTIM_TRIGGER1_LINE * (uint64_t)LINE_SIZE;
+    uint64_t last_trigger_offset =
+        (uint64_t)VICTIM_LAST_TRIGGER_LINE * (uint64_t)LINE_SIZE;
 
     if (predicted_offset + LINE_SIZE > page_size ||
-        trigger1_offset + LINE_SIZE > page_size ||
+        last_trigger_offset + LINE_SIZE > page_size ||
         (uint64_t)PROBE_LINES * (uint64_t)LINE_SIZE > page_size) {
         fprintf(stderr,
-                "victim offsets exceed one page: predicted_offset=%lu trigger1_offset=%lu probe_lines=%d page_size=%lu\n",
+                "victim offsets exceed one page: predicted_offset=%lu last_trigger_offset=%lu probe_lines=%d page_size=%lu\n",
                 (unsigned long)predicted_offset,
-                (unsigned long)trigger1_offset,
+                (unsigned long)last_trigger_offset,
                 PROBE_LINES,
                 (unsigned long)page_size);
         return 1;
@@ -541,20 +551,23 @@ int main(int argc, char **argv) {
            (unsigned long)store_pc,
            (unsigned long)victim_buffer_addr);
 
-    printf("# STRIDE_LINES=%d TRAIN_ACCESSES=%d COMPETITOR_ACCESSES=%d PROBE_LINES=%d max_competitors=%d page_step_pages=%d\n",
+    printf("# STRIDE_LINES=%d TRAIN_ACCESSES=%d TRIGGER_ACCESSES=%d COMPETITOR_ACCESSES=%d PROBE_LINES=%d max_competitors=%d page_step_pages=%d\n",
            STRIDE_LINES,
            TRAIN_ACCESSES,
+           TRIGGER_ACCESSES,
            COMPETITOR_ACCESSES,
            PROBE_LINES,
            max_competitors,
            page_step_pages);
 
-    printf("# victim training: %d stores, stride_lines=%d\n",
+    printf("# victim accesses=%d train_only_accesses=%d trigger_accesses=%d stride_lines=%d\n",
+           TRAIN_ACCESSES + TRIGGER_ACCESSES,
            TRAIN_ACCESSES,
+           TRIGGER_ACCESSES,
            STRIDE_LINES);
-    printf("# victim trigger lines: %d %d\n",
+    printf("# victim trigger lines: %d..%d\n",
            VICTIM_TRIGGER0_LINE,
-           VICTIM_TRIGGER1_LINE);
+           VICTIM_LAST_TRIGGER_LINE);
     printf("# victim probe/predicted line: %lu\n",
            (unsigned long)(predicted_offset / LINE_SIZE));
 

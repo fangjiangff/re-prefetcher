@@ -165,6 +165,12 @@ def experiment4_plot_path():
     )
 
 
+def experiment5_plot_path():
+    return os.path.join(
+        plot_dir, f"{micro_arch_name()}-exp5-thread1-context-no-trigger-avg_ns.png"
+    )
+
+
 def baseline1_tsv_path():
     return os.path.join(result_dir, f"{micro_arch_name()}-baseline1-thread0-trigger.tsv")
 
@@ -195,6 +201,14 @@ def experiment4_tsv_path():
 
 def experiment4_raw_path():
     return os.path.join(raw_dir, f"{micro_arch_name()}-exp4-thread1-trigger.txt")
+
+
+def experiment5_tsv_path():
+    return os.path.join(result_dir, f"{micro_arch_name()}-exp5-thread1-context-no-trigger.tsv")
+
+
+def experiment5_raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}-exp5-thread1-context-no-trigger.txt")
 
 
 def ensure_dirs():
@@ -334,6 +348,8 @@ def run_binary():
 
 
 def result_paths(no_trigger=False, context_switch=False, thread0_trigger=False):
+    if no_trigger and context_switch:
+        return experiment5_raw_path(), experiment5_tsv_path()
     if no_trigger:
         return baseline2_raw_path(), baseline2_tsv_path()
     if context_switch:
@@ -471,6 +487,7 @@ if __name__ == "__main__":
         baseline2_rows = None
         experiment3_rows = None
         experiment4_rows = None
+        experiment5_rows = None
         if os.path.exists(baseline2_tsv_path()):
             baseline2_rows = read_tsv(baseline2_tsv_path())
             baseline_avg_ns = baseline2_rows[predicted_line()]["avg_ns"]
@@ -507,6 +524,17 @@ if __name__ == "__main__":
                     title="Experiment4: thread0 train, thread1 trigger",
                     path=experiment4_plot_path(),
                 )
+        if os.path.exists(experiment5_tsv_path()):
+            experiment5_rows = read_tsv(experiment5_tsv_path())
+            print_summary(experiment5_rows, "Existing experiment5 context-switch no-trigger result:")
+            if not args.no_plot:
+                plot_bar_chart(
+                    experiment5_rows,
+                    baseline_avg_ns,
+                    title="Experiment5: thread1 context switch, no trigger",
+                    path=experiment5_plot_path(),
+                    trigger_label="no trigger after thread1 context switch",
+                )
         threshold_ns, threshold_source = effective_threshold_and_reclassify(
             baseline1_rows,
             baseline2_rows,
@@ -522,6 +550,12 @@ if __name__ == "__main__":
             experiment3_rows=experiment3_rows,
             experiment4_rows=experiment4_rows,
         )
+        if experiment5_rows:
+            exp5_avg = experiment5_rows[predicted_line()]["avg_ns"]
+            print(
+                f"  Experiment5 context-switch no-trigger line {predicted_line}: "
+                f"avg={exp5_avg} ns"
+            )
         sys.exit(0)
 
     print("=" * 60)
@@ -573,6 +607,15 @@ if __name__ == "__main__":
         )
         print_summary(experiment4_rows, "Experiment4 thread1-trigger result:")
 
+    experiment5_rows = run_one(no_trigger=True, context_switch=True)
+    if experiment5_rows:
+        predicted = predicted_line()
+        print_green(
+            f"Experiment5 context-switch no-trigger: line {predicted} "
+            f"avg_ns={experiment5_rows[predicted]['avg_ns']}"
+        )
+        print_summary(experiment5_rows, "Experiment5 context-switch no-trigger result:")
+
     threshold_ns, threshold_source = effective_threshold_and_reclassify(
         baseline1_rows,
         baseline2_rows,
@@ -588,6 +631,12 @@ if __name__ == "__main__":
         experiment3_rows=experiment3_rows,
         experiment4_rows=experiment4_rows,
     )
+    if experiment5_rows:
+        predicted = predicted_line()
+        print(
+            f"  Experiment5 context-switch no-trigger line {predicted}: "
+            f"avg={experiment5_rows[predicted]['avg_ns']} ns"
+        )
 
     if not args.no_plot:
         if baseline1_rows:
@@ -620,4 +669,12 @@ if __name__ == "__main__":
                 baseline_avg_ns,
                 title="Experiment4: thread0 train, thread1 trigger",
                 path=experiment4_plot_path(),
+            )
+        if experiment5_rows:
+            plot_bar_chart(
+                experiment5_rows,
+                baseline_avg_ns,
+                title="Experiment5: thread1 context switch, no trigger",
+                path=experiment5_plot_path(),
+                trigger_label="no trigger after thread1 context switch",
             )

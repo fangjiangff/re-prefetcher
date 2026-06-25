@@ -49,13 +49,13 @@ ARCH_CONFIG = {
     },
     "A76": {
         "core": 1,
-        "threshold_ns": 180,
+        "threshold_ns": 170,
         "cross_core": {
             "train_core": 1,
             "trigger_core": 0,
         },
         "accesses": {
-            "store": 3,
+            "store": 4,
             "load": 3,
         },
     },

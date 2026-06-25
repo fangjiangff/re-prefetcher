@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <sched.h>
 #include <sys/mman.h>
 #include "until.h"
 // #include "victim.h" 
@@ -32,12 +33,22 @@
 #define NO_TRIGGER 0
 #endif
 
+#ifndef CONTEXT_SWITCH_BEFORE_TRIGGER
+#define CONTEXT_SWITCH_BEFORE_TRIGGER 0
+#endif
+
+#ifndef CONTEXT_SWITCH_YIELDS
+#define CONTEXT_SWITCH_YIELDS 1
+#endif
+
 uint8_t array2[Items * LINE_SIZE] __attribute__((aligned(4096)));;
 
 long long int latency_sum[PROBE_POSITIONS] = {0};
 int probe_count[PROBE_POSITIONS] = {0};
 
 uint8_t array1[100*LINE_SIZE]={0};
+
+uint8_t array3[Items * LINE_SIZE] __attribute__((aligned(4096)));;
 
 #define DUMMY_BUFFER_SIZE (PAGE_SIZE * 10)
 
@@ -52,6 +63,14 @@ static inline __attribute__((always_inline)) void stride_access(void *addr) {
     mLoad_noinline(addr);
 #else
     mStore_noinline(addr);
+#endif
+}
+
+static void context_switch_before_trigger(void) {
+#if CONTEXT_SWITCH_BEFORE_TRIGGER
+    for (int i = 0; i < CONTEXT_SWITCH_YIELDS; i++) {
+        sched_yield();
+    }
 #endif
 }
 
@@ -135,24 +154,22 @@ int main(){
               // with stride prefetcher training
               // for(int repeat = 0; repeat < 5; repeat ++) {
 
-              for(int step = 0; step < train_step -2; step++){
-                  stride_access(array2 + (step * stride));
-              }
+              // for(int step = 0; step < train_step -1; step++){
+              //     stride_access(array2 + (step * stride));
+              // }
+              mLoad_inline(array2 + (0 * stride));
+              mLoad_inline(array2 + (1 * stride));
+              mLoad_inline(array2 + (2 * stride));
+              mLoad_inline(array2 + (3 * stride));
 
-              for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
-                  flush(&array2[offset]);
-              }
+              // mStore_inline(array3);
+              context_switch_before_trigger();
+              // dummyAccesses();
+              // mfence();
 
-              
                 //trigger
 #if !NO_TRIGGER
-                // stride_access(array2 + 61*LINE_SIZE);
-                // mLoad_noinline(array2 + 61*LINE_SIZE);
-                // mStore_noinline(array2 + 5*LINE_SIZE);
-                stride_access(array2 + ((train_step -2) * stride));//the same PC to trigger the prefetcher, and this access is not prefetched.
                 stride_access(array2 + ((train_step -1) * stride));
-                // // stride_access(array2 + 11*LINE_SIZE + ((train_step -1) * stride));//the same PC to trigger the prefetcher, and this access is not prefetched.
-                // stride_access(array2 + 11*LINE_SIZE + ((train_step) * stride));
 #endif
 
               // }
@@ -164,7 +181,7 @@ int main(){
               for(int i=0;i<100;i++) {
                 nop();
               }
-            //   mfence();
+              // mfence();
 
               int probe_pos = atkRound % PROBE_POSITIONS;//test one position each round
               

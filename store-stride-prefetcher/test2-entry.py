@@ -6,7 +6,7 @@ import sys
 from statistics import mean, median
 
 from cross_test_config import (
-    ARCH_CONFIG,
+    apply_access_defaults,
     apply_single_core_defaults,
     apply_threshold_defaults,
     arch_choices,
@@ -39,9 +39,13 @@ def parse_args():
                         help=f"Fixed VA for the victim page. Default: {DEFAULT_VICTIM_BUFFER}")
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE_LINES,
                         help=f"Stride in cache lines. Default: {DEFAULT_STRIDE_LINES}")
+    parser.add_argument("--accesses", type=int, default=None,
+                        help="Total victim train+trigger accesses. "
+                             "Default is selected from --arch store accesses.")
     parser.add_argument("--train-accesses", type=int, default=None,
-                        help="Victim store accesses before competitor pressure. "
-                             "Default is cross_test_config[arch]['accesses']['store'] - 1.")
+                        help="Deprecated alias for --accesses.")
+    parser.add_argument("--trigger-accesses", type=int, default=1,
+                        help="Number of trigger accesses at the end of the stride sequence.")
     parser.add_argument("--max-competitors", type=int,
                         default=DEFAULT_MAX_COMPETITORS)
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
@@ -71,17 +75,26 @@ def parse_args():
     args = parser.parse_args()
 
     args.access = "store"
+    if args.accesses is not None and args.train_accesses is not None:
+        parser.error("use only one of --accesses or deprecated --train-accesses")
+    if args.accesses is None and args.train_accesses is not None:
+        args.accesses = args.train_accesses
+
     apply_single_core_defaults(args)
-    if args.train_accesses is None:
-        args.train_accesses = ARCH_CONFIG[args.arch]["accesses"]["store"] - 1
+    apply_access_defaults(args)
     apply_threshold_defaults(args)
+    args.train_only_accesses = args.accesses - args.trigger_accesses
 
     if args.core < 0:
         parser.error("--core must be >= 0")
     if args.stride < 1:
         parser.error("--stride must be >= 1")
-    if args.train_accesses < 1:
-        parser.error("--train-accesses must be >= 1")
+    if args.accesses < 1:
+        parser.error("--accesses must be >= 1")
+    if args.trigger_accesses < 1 or args.trigger_accesses > 2:
+        parser.error("--trigger-accesses must be 1 or 2")
+    if args.trigger_accesses >= args.accesses:
+        parser.error("--trigger-accesses must be smaller than --accesses")
     if args.max_competitors < 0:
         parser.error("--max-competitors must be >= 0")
     if args.rounds < 1:
@@ -97,9 +110,9 @@ def parse_args():
     if args.scatter_ymax <= args.threshold_ns:
         parser.error("--scatter-ymax must be greater than --threshold-ns")
 
-    predicted_line = (args.train_accesses + 2) * args.stride
+    predicted_line = args.accesses * args.stride
     if predicted_line >= 64:
-        parser.error("(train_accesses + 2) * stride must keep probe line inside one 4KB page")
+        parser.error("train/trigger/predicted lines must fit in one 4KB page")
 
     return args
 
@@ -114,7 +127,8 @@ plot_dir = os.path.join(result_dir, "plots")
 def micro_arch_name():
     return (
         f"{args.arch}-core{args.core}-entry"
-        f"-stride{args.stride}-train{args.train_accesses}"
+        f"-stride{args.stride}-accesses{args.accesses}"
+        f"-trigger{args.trigger_accesses}"
         f"-max{args.max_competitors}-step{args.page_step}"
     )
 
@@ -199,7 +213,8 @@ def compile_test():
         "-O0",
         "-static",
         f"-DSTRIDE_LINES={args.stride}",
-        f"-DTRAIN_ACCESSES={args.train_accesses}",
+        f"-DTRAIN_ACCESSES={args.train_only_accesses}",
+        f"-DTRIGGER_ACCESSES={args.trigger_accesses}",
         f"-DPROBE_LINES={args.probe_lines}",
         "-o",
         OUT,
@@ -295,13 +310,10 @@ def first_eviction(rows):
 def print_run_header():
     print(
         f"arch={args.arch}, core={args.core}, stride={args.stride}, "
-        f"train_accesses={args.train_accesses}, max_competitors={args.max_competitors}, "
+        f"accesses={args.accesses}, train_only_accesses={args.train_only_accesses}, "
+        f"trigger_accesses={args.trigger_accesses}, max_competitors={args.max_competitors}, "
         f"rounds={args.rounds}, page_step={args.page_step}, probe_lines={args.probe_lines}, "
         f"threshold={args.threshold_ns} ns"
-    )
-    print(
-        "config default train_accesses="
-        f"{ARCH_CONFIG[args.arch]['accesses']['store'] - 1}"
     )
 
 

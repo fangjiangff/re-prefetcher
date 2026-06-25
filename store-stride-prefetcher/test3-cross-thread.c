@@ -70,11 +70,11 @@ static uint8_t *dummy_buffer;
 static long long latency_sum[PROBE_POSITIONS] = {0};
 static int probe_count[PROBE_POSITIONS] = {0};
 
-static int trigger_index;
-#if !NO_TRIGGER && !THREAD0_TRIGGER
+#if CONTEXT_SWITCH_ONLY || (!NO_TRIGGER && !THREAD0_TRIGGER)
 static pthread_mutex_t trigger_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t trigger_cond = PTHREAD_COND_INITIALIZER;
 static int trigger_state = 0;
+static int trigger_index;
 #endif
 
 static void die(const char *message) {
@@ -154,22 +154,76 @@ static void delay_after_trigger(void) {
     (void)dummy;
 }
 
-#if !NO_TRIGGER && !THREAD0_TRIGGER
+#if CONTEXT_SWITCH_ONLY || (!NO_TRIGGER && !THREAD0_TRIGGER)
+void minimal_thread1_activity(void);
+void publish_trigger_request(int index);
+void publish_trigger_done(void);
+void publish_trigger_stop(void);
+void clear_trigger_state(void);
+
+__asm__(
+    ".text\n\t"
+    ".align 2\n\t"
+    ".type minimal_thread1_activity, %function\n"
+    "minimal_thread1_activity:\n\t"
+    "adrp x0, dummy_buffer\n\t"
+    "ldr x0, [x0, #:lo12:dummy_buffer]\n\t"
+    "ldrb w0, [x0]\n\t"
+    "ret\n\t"
+    ".size minimal_thread1_activity, .-minimal_thread1_activity\n\t"
+
+    ".align 2\n\t"
+    ".type publish_trigger_request, %function\n"
+    "publish_trigger_request:\n\t"
+    "adrp x1, trigger_index\n\t"
+    "str w0, [x1, #:lo12:trigger_index]\n\t"
+    "adrp x1, trigger_state\n\t"
+    "mov w0, #1\n\t"
+    "str w0, [x1, #:lo12:trigger_state]\n\t"
+    "ret\n\t"
+    ".size publish_trigger_request, .-publish_trigger_request\n\t"
+
+    ".align 2\n\t"
+    ".type publish_trigger_done, %function\n"
+    "publish_trigger_done:\n\t"
+    "adrp x0, trigger_state\n\t"
+    "mov w1, #2\n\t"
+    "str w1, [x0, #:lo12:trigger_state]\n\t"
+    "ret\n\t"
+    ".size publish_trigger_done, .-publish_trigger_done\n\t"
+
+    ".align 2\n\t"
+    ".type publish_trigger_stop, %function\n"
+    "publish_trigger_stop:\n\t"
+    "adrp x0, trigger_state\n\t"
+    "mov w1, #3\n\t"
+    "str w1, [x0, #:lo12:trigger_state]\n\t"
+    "ret\n\t"
+    ".size publish_trigger_stop, .-publish_trigger_stop\n\t"
+
+    ".align 2\n\t"
+    ".type clear_trigger_state, %function\n"
+    "clear_trigger_state:\n\t"
+    "adrp x0, trigger_state\n\t"
+    "str wzr, [x0, #:lo12:trigger_state]\n\t"
+    "ret\n\t"
+    ".size clear_trigger_state, .-clear_trigger_state\n\t"
+);
+
 static void request_trigger(int index) {
     pthread_mutex_lock(&trigger_mutex);
-    trigger_index = index;
-    trigger_state = 1;
+    publish_trigger_request(index);
     pthread_cond_signal(&trigger_cond);
     while (trigger_state != 2) {
         pthread_cond_wait(&trigger_cond, &trigger_mutex);
     }
-    trigger_state = 0;
+    clear_trigger_state();
     pthread_mutex_unlock(&trigger_mutex);
 }
 
 static void stop_trigger_thread(void) {
     pthread_mutex_lock(&trigger_mutex);
-    trigger_state = 3;
+    publish_trigger_stop();
     pthread_cond_signal(&trigger_cond);
     pthread_mutex_unlock(&trigger_mutex);
 }
@@ -190,14 +244,14 @@ static void *trigger_thread_main(void *arg) {
         pthread_mutex_unlock(&trigger_mutex);
 
 #if CONTEXT_SWITCH_ONLY
-        dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+        minimal_thread1_activity();
 #else
         access_for_test(shared_page + trigger_offset_for_index(trigger_index,
                                                               STRIDE_LINES * LINE_SIZE));
 #endif
 
         pthread_mutex_lock(&trigger_mutex);
-        trigger_state = 2;
+        publish_trigger_done();
         pthread_cond_signal(&trigger_cond);
         pthread_mutex_unlock(&trigger_mutex);
     }
@@ -217,7 +271,7 @@ static void print_header(int stride_bytes, int first_trigger_line,
     printf("# accesses=%d train_only_accesses=%d trigger_accesses=%d\n",
            TRAIN_ONLY_ACCESSES + TRIGGER_ACCESSES,
            TRAIN_ONLY_ACCESSES, TRIGGER_ACCESSES);
-    printf("# thread0 trains %d %ss, thread1 triggers %d access(es)\n",
+    printf("# thread0 trains %d %ss, trigger_accesses=%d\n",
            TRAIN_ONLY_ACCESSES,
 #if TRAIN_ACCESS_LOAD
            "load",
@@ -243,7 +297,9 @@ static void print_header(int stride_bytes, int first_trigger_line,
 #endif
     );
     printf("# trigger=%s\n",
-#if NO_TRIGGER
+#if NO_TRIGGER && CONTEXT_SWITCH_ONLY
+           "thread1_context_switch_no_trigger"
+#elif NO_TRIGGER
            "disabled"
 #elif THREAD0_TRIGGER
            "thread0"
@@ -262,7 +318,7 @@ int main(void) {
     int last_trigger_line = LAST_TRIGGER_LINE_INDEX;
     int predicted_line = PREDICTED_LINE_INDEX;
     unsigned int junk = 0;
-#if !NO_TRIGGER && !THREAD0_TRIGGER
+#if CONTEXT_SWITCH_ONLY || (!NO_TRIGGER && !THREAD0_TRIGGER)
     pthread_t trigger_thread;
 #endif
 
@@ -299,7 +355,7 @@ int main(void) {
         mLoad(shared_page + offset);
     }
 
-#if !NO_TRIGGER && !THREAD0_TRIGGER
+#if CONTEXT_SWITCH_ONLY || (!NO_TRIGGER && !THREAD0_TRIGGER)
     if (pthread_create(&trigger_thread, NULL, trigger_thread_main, NULL) != 0) {
         die("pthread_create");
     }
@@ -309,7 +365,7 @@ int main(void) {
                  predicted_line);
 
     for (uint64_t round = 0; round < ROUNDS; round++) {
-        int probe_pos = round % PROBE_POSITIONS;
+        int probe_pos = (round*73) % PROBE_POSITIONS;
         volatile uint8_t *probe_addr = shared_page + (probe_pos * LINE_SIZE);
         uint64_t time1;
         uint64_t time2;
@@ -318,18 +374,18 @@ int main(void) {
         dummyAccesses();
 
         train_in_thread0(stride_bytes);
-#if !NO_TRIGGER
-#if THREAD0_TRIGGER
-        trigger_in_thread0(stride_bytes);
-#else
 #if CONTEXT_SWITCH_ONLY
         request_trigger(0);
+#if !NO_TRIGGER
+        trigger_in_thread0(stride_bytes);
+#endif
+#elif !NO_TRIGGER
+#if THREAD0_TRIGGER
         trigger_in_thread0(stride_bytes);
 #else
         for (int index = 0; index < TRIGGER_ACCESSES; index++) {
             request_trigger(index);
         }
-#endif
 #endif
 #endif
         delay_after_trigger();
@@ -352,7 +408,7 @@ int main(void) {
                pos, pos * LINE_SIZE, avg_ns, probe_count[pos]);
     }
 
-#if !NO_TRIGGER && !THREAD0_TRIGGER
+#if CONTEXT_SWITCH_ONLY || (!NO_TRIGGER && !THREAD0_TRIGGER)
     stop_trigger_thread();
     pthread_join(trigger_thread, NULL);
 #endif

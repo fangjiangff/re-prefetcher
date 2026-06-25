@@ -20,6 +20,10 @@
 #define STRIDE_LINES 5
 #endif
 
+#ifndef ARCH_NAME
+#define ARCH_NAME "unknown"
+#endif
+
 #ifndef TRAIN_STORES
 #define TRAIN_STORES 5
 #endif
@@ -309,8 +313,9 @@ static void print_header(uint64_t no_trigger_avg,
                          uint64_t ref_avg,
                          int ref_pa_known,
                          uint64_t ref_pa) {
-    printf("# arm64 A55 store-stride PA-index trigger sweep\n");
-    printf("# train stores: array2 + {0,5,10,15,20} * LINE_SIZE when STRIDE_LINES=5\n");
+    printf("# arm64 %s store-stride PA-index trigger sweep\n", ARCH_NAME);
+    printf("# train stores: %d stores, stride_lines=%d\n",
+           TRAIN_STORES, STRIDE_LINES);
     printf("# trigger: same mStore_noinline PC, variable target line\n");
     printf("# probe: array2 + %d * LINE_SIZE, expected prefetch target after stride-5 training\n",
            probe_line());
@@ -541,7 +546,7 @@ static int __attribute__((unused)) run_buddy_scan(void) {
 
     if (open_pagemap() != 0 ||
         virt_to_phys(ref_addr, &ref_pa) != 0) {
-        printf("# arm64 A55 store-stride PA-bit buddy scan\n");
+        printf("# arm64 %s store-stride PA-bit buddy scan\n", ARCH_NAME);
         printf("# ref_trigger_pa=unknown; run as root or with CAP_SYS_ADMIN to read /proc/self/pagemap PFNs\n");
         printf("pa_bit\tcandidate_va\tcandidate_pa\tpa_xor_ref\tavg_ns\tprefetched\tverdict\tsource\n");
         for (int bit = 0; bit <= MAX_PA_BIT; bit++) {
@@ -555,8 +560,9 @@ static int __attribute__((unused)) run_buddy_scan(void) {
     ref_avg = run_trigger_addr_case(ref_addr, REF_TRIGGER_LINE, 1);
     memset(done, 0, sizeof(done));
 
-    printf("# arm64 A55 store-stride PA-bit buddy scan\n");
-    printf("# train stores: array2 + {0,5,10,15,20} * LINE_SIZE when STRIDE_LINES=5\n");
+    printf("# arm64 %s store-stride PA-bit buddy scan\n", ARCH_NAME);
+    printf("# train stores: %d stores, stride_lines=%d\n",
+           TRAIN_STORES, STRIDE_LINES);
     printf("# probe: array2 + %d * LINE_SIZE\n", probe_line());
     printf("# STRIDE_LINES=%d TRAIN_STORES=%d REPEAT=%d ROUNDS=%d threshold_ns=%d CPU_ID=%d\n",
            STRIDE_LINES, TRAIN_STORES, REPEAT, ROUNDS, HIT_THRESHOLD_NS,
@@ -752,7 +758,7 @@ static int __attribute__((unused)) run_alias_scan(void) {
 
     if (open_pagemap() != 0 ||
         virt_to_phys(ref_page, &ref_page_pa) != 0) {
-        printf("# arm64 A55 store-stride low-PA alias scan\n");
+        printf("# arm64 %s store-stride low-PA alias scan\n", ARCH_NAME);
         printf("# ref_page_pa=unknown; run as root or with CAP_SYS_ADMIN to read /proc/self/pagemap PFNs\n");
         printf("m_bits\tcandidate_page_va\tcandidate_page_pa\tpage_pa_xor_ref\tavg_ns\tprefetched\tverdict\tsource\n");
         for (int m = ALIAS_MIN_M; m <= ALIAS_MAX_M; m++) {
@@ -766,8 +772,9 @@ static int __attribute__((unused)) run_alias_scan(void) {
     no_trigger_avg = run_trigger_addr_case(ref_trigger, REF_TRIGGER_LINE, 0);
     ref_avg = run_trigger_addr_case(ref_trigger, REF_TRIGGER_LINE, 1);
 
-    printf("# arm64 A55 store-stride low-PA alias scan\n");
-    printf("# train page: array2 page, train stores {0,5,10,15,20} lines when STRIDE_LINES=5\n");
+    printf("# arm64 %s store-stride low-PA alias scan\n", ARCH_NAME);
+    printf("# train page: array2 page, train stores=%d, stride_lines=%d\n",
+           TRAIN_STORES, STRIDE_LINES);
     printf("# trigger candidate: candidate_page + ref_trigger_page_offset, probe remains array2 + %d * LINE_SIZE\n",
            probe_line());
     printf("# STRIDE_LINES=%d TRAIN_STORES=%d REPEAT=%d ROUNDS=%d threshold_ns=%d CPU_ID=%d\n",

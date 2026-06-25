@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 from cross_test_config import (
+    ARCH_CONFIG,
     apply_single_core_defaults,
     apply_threshold_defaults,
     arch_choices,
@@ -17,7 +18,7 @@ UTIL_SRC = os.path.join(BASE_DIR, "until.c")
 OUT = os.path.join(BASE_DIR, "bin", "test1-index-pa")
 
 DEFAULT_STRIDE_LINES = 5
-DEFAULT_TRAIN_STORES = 5
+DEFAULT_TRAIN_STORES = None
 DEFAULT_REPEAT = 5
 DEFAULT_ROUNDS = 4000
 DEFAULT_TRIGGER_MIN_LINE = 0
@@ -80,7 +81,7 @@ def parse_args():
                         help="Stride in cache lines. Default: 5.")
     parser.add_argument("--train-stores", type=int,
                         default=DEFAULT_TRAIN_STORES,
-                        help="Number of training stores. Default: 5.")
+                        help="Number of training stores. Default is arch store accesses.")
     parser.add_argument("--repeat", type=int, default=DEFAULT_REPEAT,
                         help="Repeat train+trigger sequence per round. Default: 5.")
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
@@ -118,6 +119,8 @@ def parse_args():
     args = parser.parse_args()
 
     apply_single_core_defaults(args)
+    if args.train_stores is None:
+        args.train_stores = ARCH_CONFIG[args.arch]["accesses"]["store"]
     apply_threshold_defaults(args)
 
     if args.core < 0:
@@ -230,6 +233,7 @@ def compile_test():
         f"-DREF_TRIGGER_LINE={args.ref_trigger_line}",
         f"-DHIT_THRESHOLD_NS={args.threshold_ns}",
         f"-DCPU_ID={args.core}",
+        f"-DARCH_NAME=\"{args.arch}\"",
         f"-DMAX_PA_BIT={args.max_pa_bit}",
         f"-DBUDDY_SCAN={1 if args.mode == 'pa-bits' else 0}",
         f"-DALIAS_SCAN={1 if args.mode == 'low-pa-alias' else 0}",
