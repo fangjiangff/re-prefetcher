@@ -59,6 +59,18 @@ ARCH_CONFIG = {
             "load": 3,
         },
     },
+    "A53": {
+        "core": 0,
+        "threshold_ns": 170,
+        "cross_core": {
+            "train_core": 1,
+            "trigger_core": 0,
+        },
+        "accesses": {
+            "store": 3,
+            "load": 3,
+        },
+    },
 }
 
 

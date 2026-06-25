@@ -143,7 +143,7 @@ int main(){
     print_test_header(stride, train_step, rounds);
       // for(int train_step = 1; train_step <= 32 ; train_step++){
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
-            dummyAccesses();//for dummy accesses , reset the prefetcher state
+            // dummyAccesses();//for dummy accesses , reset the prefetcher state
 
 
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
@@ -151,22 +151,12 @@ int main(){
               }
             //   mfence();
              
-              // with stride prefetcher training
-              // for(int repeat = 0; repeat < 5; repeat ++) {
 
-              // for(int step = 0; step < train_step -1; step++){
-              //     stride_access(array2 + (step * stride));
-              // }
-              mLoad_inline(array2 + (0 * stride));
-              mLoad_inline(array2 + (1 * stride));
-              mLoad_inline(array2 + (2 * stride));
-              mLoad_inline(array2 + (3 * stride));
+              for(int step = 0; step < train_step -1; step++){
+                  stride_access(array2 + (step * stride));
+              }
 
-              // mStore_inline(array3);
-              context_switch_before_trigger();
-              // dummyAccesses();
-              // mfence();
-
+              // context_switch_before_trigger();
                 //trigger
 #if !NO_TRIGGER
                 stride_access(array2 + ((train_step -1) * stride));
