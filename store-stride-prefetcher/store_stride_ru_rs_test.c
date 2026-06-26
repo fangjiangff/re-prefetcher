@@ -40,7 +40,8 @@ static const char *mode_names[MODE_COUNT] = {
 	"positive_store_T",
 };
 
-static const int core1_probe_idx[CORE1_PROBE_N] = { 30, 35, 40 };
+// static const int core1_probe_idx[CORE1_PROBE_N] = { 30, 35, 40 };
+static const int core1_probe_idx[CORE1_PROBE_N] = { 9 };
 
 struct alignas_cacheline_u64 {
 	volatile uint64_t v;
@@ -147,7 +148,8 @@ static void run_baseline(struct shared_state *s)
 
 static void run_store_stride(struct shared_state *s, uint64_t iter)
 {
-	static const int idx[TRAIN_N] = { 0, 5, 10, 15, 20, 25 };
+	// static const int idx[TRAIN_N] = { 0, 5, 10, 15, 20, 25 };
+	static const int idx[TRAIN_N] = { 0, 3, 6};
 	int i;
 
 	for (i = 0; i < TRAIN_N; i++)
@@ -158,7 +160,8 @@ static void run_store_stride(struct shared_state *s, uint64_t iter)
 
 static void run_load_stride(struct shared_state *s)
 {
-	static const int idx[TRAIN_N] = { 0, 5, 10, 15, 20, 25 };
+	// static const int idx[TRAIN_N] = { 0, 5, 10, 15, 20, 25 };
+	static const int idx[TRAIN_N] = { 0, 3, 6};
 	int i;
 
 	for (i = 0; i < TRAIN_N; i++)

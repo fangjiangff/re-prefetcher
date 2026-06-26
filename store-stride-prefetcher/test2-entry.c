@@ -9,13 +9,13 @@
 
 #define DUMMY_BUFFER_PAGES 10
 
-#define DEFAULT_STORE_PC 0x500000120ull
+#define DEFAULT_ACCESS_PC 0x500000120ull
 #define DEFAULT_VICTIM_BUFFER_ADDR 0x600000000ull
 #define DEFAULT_MAX_COMPETITORS 512
 #define DEFAULT_ROUNDS 1000
 
 /*
- * store-stride:
+ * access-stride:
  *   train:   line 0, 5, ...
  *   trigger: the next TRIGGER_ACCESSES stride positions
  *   probe:   the next stride position after trigger
@@ -42,6 +42,10 @@
 #define PROBE_LINES 64
 #endif
 
+#ifndef TRAIN_ACCESS_LOAD
+#define TRAIN_ACCESS_LOAD 0
+#endif
+
 #define VICTIM_TRIGGER0_LINE (TRAIN_ACCESSES * STRIDE_LINES)
 #define VICTIM_LAST_TRIGGER_LINE ((TRAIN_ACCESSES + TRIGGER_ACCESSES - 1) * STRIDE_LINES)
 #define VICTIM_PROBE_LINE ((TRAIN_ACCESSES + TRIGGER_ACCESSES) * STRIDE_LINES)
@@ -59,7 +63,7 @@
 
 #define MAX_MAPPED_REGIONS 1024
 
-typedef void (*store_gadget_f)(void *);
+typedef void (*access_gadget_f)(void *);
 
 static uint8_t array1[100 * LINE_SIZE] = {0};
 
@@ -79,16 +83,20 @@ struct mapped_region {
 static struct mapped_region mapped_regions[MAX_MAPPED_REGIONS];
 static int mapped_region_count;
 
-extern char _store_gadget_asm_start[];
-extern char _store_gadget_asm_end[];
+extern char _access_gadget_asm_start[];
+extern char _access_gadget_asm_end[];
 
 asm(
-    ".global _store_gadget_asm_start\n"
-    ".global _store_gadget_asm_end\n"
-    "_store_gadget_asm_start:\n"
+    ".global _access_gadget_asm_start\n"
+    ".global _access_gadget_asm_end\n"
+    "_access_gadget_asm_start:\n"
+#if TRAIN_ACCESS_LOAD
+    "    ldrb w0, [x0]\n"
+#else
     "    strb w0, [x0]\n"
+#endif
     "    ret\n"
-    "_store_gadget_asm_end:\n"
+    "_access_gadget_asm_end:\n"
     "    nop\n"
 );
 
@@ -213,25 +221,49 @@ static uint8_t *map_data_buffer(uintptr_t address,
                                        name);
 }
 
-static store_gadget_f map_store_gadget(uintptr_t address) {
+static access_gadget_f map_access_gadget(uintptr_t address) {
     size_t gadget_size =
-        (size_t)(_store_gadget_asm_end - _store_gadget_asm_start);
+        (size_t)(_access_gadget_asm_end - _access_gadget_asm_start);
 
     uint8_t *code = (uint8_t *)map_fixed_region(address,
                                                 gadget_size,
                                                 PROT_READ | PROT_WRITE | PROT_EXEC,
-                                                "store gadget");
+                                                "access gadget");
 
     if (!code) {
         return NULL;
     }
 
-    memcpy(code, _store_gadget_asm_start, gadget_size);
+    memcpy(code, _access_gadget_asm_start, gadget_size);
 
     __builtin___clear_cache((char *)code,
                             (char *)(code + gadget_size));
 
-    return (store_gadget_f)(void *)code;
+    return (access_gadget_f)(void *)code;
+}
+
+static inline __attribute__((always_inline)) const char *access_name(void) {
+#if TRAIN_ACCESS_LOAD
+    return "load";
+#else
+    return "store";
+#endif
+}
+
+static inline __attribute__((always_inline)) const char *access_instruction(void) {
+#if TRAIN_ACCESS_LOAD
+    return "ldrb";
+#else
+    return "strb";
+#endif
+}
+
+static inline __attribute__((always_inline)) void competitor_access(void *addr) {
+#if TRAIN_ACCESS_LOAD
+    mLoad_inline(addr);
+#else
+    mStore_inline(addr);
+#endif
 }
 
 static void dummy_accesses(void) {
@@ -292,30 +324,32 @@ static void flush_competitor_lines(int competitor_count,
     }
 }
 
-static void train_victim(store_gadget_f store_gadget, int stride) {
+static void train_victim(access_gadget_f access_gadget, int stride) {
     for (int step = 0; step < TRAIN_ACCESSES; step++) {
-        store_gadget(victim_buffer +
+        access_gadget(victim_buffer +
                       ((uint64_t)step * (uint64_t)stride));
     }
 }
 
-static void train_competitors(store_gadget_f store_gadget,
+static void train_competitors(access_gadget_f access_gadget,
                               int competitor_count,
                               int page_step_pages,
                               int stride) {
+    (void)access_gadget;
+
     for (int i = 0; i < competitor_count; i++) {
         uint8_t *page = competitor_page(i, page_step_pages);
 
         for (int step = 0; step < COMPETITOR_ACCESSES; step++) {
-                mStore_inline(page + 3 * LINE_SIZE +
-                         ((uint64_t)step * (uint64_t)stride));
-            // store_gadget(page + 3 * LINE_SIZE +
+            competitor_access(page + 3 * LINE_SIZE +
+                              ((uint64_t)step * (uint64_t)stride));
+            // access_gadget(page + 3 * LINE_SIZE +
             //              ((uint64_t)step * (uint64_t)stride));
         }
     }
 }
 
-static uint64_t run_one_round(store_gadget_f store_gadget,
+static uint64_t run_one_round(access_gadget_f access_gadget,
                               int competitor_count,
                               int page_step_pages,
                               int do_trigger,
@@ -333,9 +367,9 @@ static uint64_t run_one_round(store_gadget_f store_gadget,
     flush_competitor_lines(competitor_count, page_step_pages, stride);
 
 
-    train_victim(store_gadget, stride);
+    train_victim(access_gadget, stride);
 
-    train_competitors(store_gadget,
+    train_competitors(access_gadget,
                       competitor_count,
                       page_step_pages,
                       stride);
@@ -343,7 +377,7 @@ static uint64_t run_one_round(store_gadget_f store_gadget,
     // flush_victim_lines();
     if (do_trigger) {
         for (int index = 0; index < TRIGGER_ACCESSES; index++) {
-            store_gadget(victim_buffer +
+            access_gadget(victim_buffer +
                          ((uintptr_t)(TRAIN_ACCESSES + index) *
                           (uintptr_t)stride));
         }
@@ -386,11 +420,11 @@ static const char *probe_role(int probe_line, int predicted_line) {
 
 static void print_usage(const char *prog) {
     fprintf(stderr,
-            "usage: %s [store_pc victim_buffer_addr max_competitors rounds [page_step_pages]]\n"
-            "default: store_pc=0x%lx victim_buffer_addr=0x%lx "
+            "usage: %s [access_pc victim_buffer_addr max_competitors rounds [page_step_pages]]\n"
+            "default: access_pc=0x%lx victim_buffer_addr=0x%lx "
             "max_competitors=%d rounds=%d page_step_pages=%d\n",
             prog,
-            (unsigned long)DEFAULT_STORE_PC,
+            (unsigned long)DEFAULT_ACCESS_PC,
             (unsigned long)DEFAULT_VICTIM_BUFFER_ADDR,
             DEFAULT_MAX_COMPETITORS,
             DEFAULT_ROUNDS,
@@ -398,7 +432,7 @@ static void print_usage(const char *prog) {
 }
 
 int main(int argc, char **argv) {
-    uintptr_t store_pc = DEFAULT_STORE_PC;
+    uintptr_t access_pc = DEFAULT_ACCESS_PC;
     uintptr_t victim_buffer_addr = DEFAULT_VICTIM_BUFFER_ADDR;
 
     int max_competitors = DEFAULT_MAX_COMPETITORS;
@@ -426,7 +460,7 @@ int main(int argc, char **argv) {
     }
 
     if (argc >= 5) {
-        store_pc = strtoull(argv[1], NULL, 0);
+        access_pc = strtoull(argv[1], NULL, 0);
         victim_buffer_addr = strtoull(argv[2], NULL, 0);
         max_competitors = atoi(argv[3]);
         rounds = atoi(argv[4]);
@@ -538,17 +572,20 @@ int main(int argc, char **argv) {
 
     memset(dummy_buffer, -1, dummy_buffer_size);
 
-    store_gadget_f store_gadget = map_store_gadget(store_pc);
-    if (!store_gadget) {
+    access_gadget_f access_gadget = map_access_gadget(access_pc);
+    if (!access_gadget) {
         return 1;
     }
 
-    printf("# store-stride entry-capacity test\n");
-    printf("# stride=%d rounds=%d page_size=%lu store_pc=0x%016lx victim_buffer=0x%016lx\n",
+    printf("# %s-stride entry-capacity test\n", access_name());
+    printf("# access mode: %s (%s), same fixed PC for victim train and trigger\n",
+           access_name(),
+           access_instruction());
+    printf("# stride=%d rounds=%d page_size=%lu access_pc=0x%016lx victim_buffer=0x%016lx\n",
            stride,
            rounds,
            (unsigned long)page_size,
-           (unsigned long)store_pc,
+           (unsigned long)access_pc,
            (unsigned long)victim_buffer_addr);
 
     printf("# STRIDE_LINES=%d TRAIN_ACCESSES=%d TRIGGER_ACCESSES=%d COMPETITOR_ACCESSES=%d PROBE_LINES=%d max_competitors=%d page_step_pages=%d\n",
@@ -571,8 +608,9 @@ int main(int argc, char **argv) {
     printf("# victim probe/predicted line: %lu\n",
            (unsigned long)(predicted_offset / LINE_SIZE));
 
-    printf("# competitor accesses per page: %d stores, stride_lines=%d\n",
+    printf("# competitor accesses per page: %d %ss, stride_lines=%d\n",
            COMPETITOR_ACCESSES,
+           access_name(),
            STRIDE_LINES);
     printf("# lower latency means that victim line was more likely prefetched\n");
 
@@ -584,7 +622,7 @@ int main(int argc, char **argv) {
         uint64_t latency = 0;
 
         for (int r = 0; r < rounds; r++) {
-            latency += run_one_round(store_gadget,
+            latency += run_one_round(access_gadget,
                                      0,
                                      page_step_pages,
                                      0,
@@ -602,7 +640,7 @@ int main(int argc, char **argv) {
         uint64_t latency = 0;
 
         for (int r = 0; r < rounds; r++) {
-            latency += run_one_round(store_gadget,
+            latency += run_one_round(access_gadget,
                                      n,
                                      page_step_pages,
                                      1,

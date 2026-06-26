@@ -17,7 +17,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(BASE_DIR, "test2-entry.c")
 OUT = os.path.join(BASE_DIR, "bin", "test2-entry")
 
-DEFAULT_STORE_PC = "0x500000120"
+DEFAULT_ACCESS_PC = "0x500000120"
 DEFAULT_VICTIM_BUFFER = "0x600000000"
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_MAX_COMPETITORS = 64
@@ -33,15 +33,17 @@ def parse_args():
     parser.add_argument("--arch", required=True, choices=arch_choices())
     parser.add_argument("--core", type=int, default=None,
                         help="Override CPU core. Default is selected from --arch.")
-    parser.add_argument("--store-pc", default=DEFAULT_STORE_PC,
-                        help=f"Fixed VA for the same-PC store gadget. Default: {DEFAULT_STORE_PC}")
+    parser.add_argument("--access-pc", default=DEFAULT_ACCESS_PC,
+                        help=f"Fixed VA for the same-PC access gadget. Default: {DEFAULT_ACCESS_PC}")
+    parser.add_argument("--store-pc", default=None,
+                        help="Deprecated alias for --access-pc.")
     parser.add_argument("--victim-buffer", default=DEFAULT_VICTIM_BUFFER,
                         help=f"Fixed VA for the victim page. Default: {DEFAULT_VICTIM_BUFFER}")
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE_LINES,
                         help=f"Stride in cache lines. Default: {DEFAULT_STRIDE_LINES}")
     parser.add_argument("--accesses", type=int, default=None,
                         help="Total victim train+trigger accesses. "
-                             "Default is selected from --arch store accesses.")
+                             "Default is selected from --arch and --access.")
     parser.add_argument("--train-accesses", type=int, default=None,
                         help="Deprecated alias for --accesses.")
     parser.add_argument("--trigger-accesses", type=int, default=1,
@@ -56,6 +58,8 @@ def parse_args():
     parser.add_argument("--threshold-ns", type=int, default=None,
                         help="Latency threshold for summary classification. "
                              "Default is selected from --arch.")
+    parser.add_argument("--access", choices=["store", "load"], default="store",
+                        help="Stride instruction to test. Default: store")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"))
     parser.add_argument("--output", default=None,
                         help="TSV output path. Default is derived from arch/core/config.")
@@ -74,7 +78,9 @@ def parse_args():
     parser.add_argument("--no-compile", action="store_true")
     args = parser.parse_args()
 
-    args.access = "store"
+    if args.store_pc is not None:
+        args.access_pc = args.store_pc
+
     if args.accesses is not None and args.train_accesses is not None:
         parser.error("use only one of --accesses or deprecated --train-accesses")
     if args.accesses is None and args.train_accesses is not None:
@@ -130,6 +136,7 @@ def micro_arch_name():
         f"-stride{args.stride}-accesses{args.accesses}"
         f"-trigger{args.trigger_accesses}"
         f"-max{args.max_competitors}-step{args.page_step}"
+        f"-{args.access}"
     )
 
 
@@ -216,6 +223,7 @@ def compile_test():
         f"-DTRAIN_ACCESSES={args.train_only_accesses}",
         f"-DTRIGGER_ACCESSES={args.trigger_accesses}",
         f"-DPROBE_LINES={args.probe_lines}",
+        f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         "-o",
         OUT,
         SRC,
@@ -231,7 +239,7 @@ def run_binary():
             "-c",
             str(args.core),
             OUT,
-            args.store_pc,
+            args.access_pc,
             args.victim_buffer,
             str(args.max_competitors),
             str(args.rounds),
@@ -310,6 +318,7 @@ def first_eviction(rows):
 def print_run_header():
     print(
         f"arch={args.arch}, core={args.core}, stride={args.stride}, "
+        f"access={args.access}, "
         f"accesses={args.accesses}, train_only_accesses={args.train_only_accesses}, "
         f"trigger_accesses={args.trigger_accesses}, max_competitors={args.max_competitors}, "
         f"rounds={args.rounds}, page_step={args.page_step}, probe_lines={args.probe_lines}, "
