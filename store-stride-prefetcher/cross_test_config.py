@@ -44,7 +44,7 @@ ARCH_CONFIG = {
         },
         "accesses": {
             "store": 6,
-            "load": 5,
+            "load": 4,
         },
     },
     "A76": {

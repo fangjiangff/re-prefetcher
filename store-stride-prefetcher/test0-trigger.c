@@ -122,7 +122,9 @@ int main(){
       int stride_lines = stride / LINE_SIZE;
       for(int train_step = 1; train_step <= MAX_STEP ; train_step++){
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
+
             dummyAccesses();//for dummy accesses , reset the prefetcher state
+            
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
@@ -133,7 +135,7 @@ int main(){
               // trigger.
               stride_access(array2 + ((train_step -1) * stride));
               
-              delay_after_trigger();
+              // delay_after_trigger();
 
               //probe
               uint64_t probe_offset = (uint64_t)train_step * (uint64_t)stride;

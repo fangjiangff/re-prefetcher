@@ -68,6 +68,14 @@ def parse_args():
                         help="Call sched_yield between training and trigger.")
     parser.add_argument("--context-switch-yields", type=int, default=1,
                         help="Number of sched_yield calls between training and trigger.")
+    parser.add_argument("--user-memory-pressure", action="store_true",
+                        help="Run userspace load/store pressure between training and trigger.")
+    parser.add_argument("--user-memory-pressure-iters", type=int, default=256,
+                        help="Iterations for --user-memory-pressure. Default: 256")
+    parser.add_argument("--busy-wait", action="store_true",
+                        help="Busy-wait in userspace between training and trigger.")
+    parser.add_argument("--busy-wait-ns", type=int, default=10960,
+                        help="Nanoseconds for --busy-wait. Default: 10960")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
                         help="Compiler command. Default: $CC or gcc")
     parser.add_argument("--plot-only", action="store_true",
@@ -102,6 +110,16 @@ def parse_args():
         parser.error("--hit-threshold-ns must be >= 1")
     if args.context_switch_yields < 1:
         parser.error("--context-switch-yields must be >= 1")
+    if args.user_memory_pressure_iters < 1:
+        parser.error("--user-memory-pressure-iters must be >= 1")
+    if args.busy_wait_ns < 1:
+        parser.error("--busy-wait-ns must be >= 1")
+    delay_modes = sum([args.context_switch, args.user_memory_pressure, args.busy_wait])
+    if delay_modes > 1:
+        parser.error(
+            "Use only one of --context-switch, --user-memory-pressure, "
+            "or --busy-wait"
+        )
     max_train_step = args.train_step_max if args.batch else args.train_step
     if max_train_step * args.stride >= args.probe_positions:
         parser.error("predicted position train_step * stride must be inside probe positions")
@@ -162,9 +180,18 @@ def micro_arch_name(arch, core, train_step):
         f"-ctxswitch{args.context_switch_yields}"
         if args.context_switch else ""
     )
+    pressure_suffix = (
+        f"-user-mem-pressure{args.user_memory_pressure_iters}"
+        if args.user_memory_pressure else ""
+    )
+    busy_wait_suffix = (
+        f"-busywait{args.busy_wait_ns}"
+        if args.busy_wait else ""
+    )
     return (
         f"{arch}-core{core}-stride{args.stride}"
-        f"-train{train_step}-{args.access}{trigger_suffix}{switch_suffix}"
+        f"-train{train_step}-{args.access}"
+        f"{trigger_suffix}{switch_suffix}{pressure_suffix}{busy_wait_suffix}"
     )
 
 
@@ -287,6 +314,10 @@ def compile_test(train_step):
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
         f"-DCONTEXT_SWITCH_BEFORE_TRIGGER={1 if args.context_switch else 0}",
         f"-DCONTEXT_SWITCH_YIELDS={args.context_switch_yields}",
+        f"-DUSER_MEMORY_PRESSURE_BEFORE_TRIGGER={1 if args.user_memory_pressure else 0}",
+        f"-DUSER_MEMORY_PRESSURE_ITERS={args.user_memory_pressure_iters}",
+        f"-DBUSY_WAIT_BEFORE_TRIGGER={1 if args.busy_wait else 0}",
+        f"-DBUSY_WAIT_NS={args.busy_wait_ns}",
         "-o",
         OUT,
         SRC,
@@ -312,7 +343,11 @@ def run_one(arch, core, train_step):
         f"predicted_position={predicted_position(train_step)}, "
         f"rounds={args.rounds}, threshold={threshold_ns} ns, "
         f"context_switch={args.context_switch}, "
-        f"context_switch_yields={args.context_switch_yields}"
+        f"context_switch_yields={args.context_switch_yields}, "
+        f"user_memory_pressure={args.user_memory_pressure}, "
+        f"user_memory_pressure_iters={args.user_memory_pressure_iters}, "
+        f"busy_wait={args.busy_wait}, "
+        f"busy_wait_ns={args.busy_wait_ns}"
     )
 
     if compile_test(train_step) != 0:
@@ -331,6 +366,12 @@ def run_one(arch, core, train_step):
     raw_path = raw_path_for(arch, core, train_step)
     with open(raw_path, "w") as f:
         f.write(run.stdout)
+    for line in run.stdout.splitlines():
+        if (
+            line.startswith("# user_memory_pressure_time_ns")
+            or line.startswith("# busy_wait_time_ns")
+        ):
+            print(line)
     rows = parse_output(run.stdout, train_step, threshold_ns)
     if not rows:
         print("No results to save")

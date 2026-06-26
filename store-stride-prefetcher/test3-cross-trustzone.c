@@ -348,7 +348,7 @@ static void close_ta_session(int tee_fd, uint32_t session) {
     }
 }
 
-#if (!NO_TRIGGER && !TRAIN_ACCESS_LOAD) || (TRAIN_ACCESS_LOAD && !SKIP_SECURE_SWITCH)
+#if !SKIP_SECURE_SWITCH
 static void invoke_secure_world(int tee_fd, uint32_t session, int shm_id,
                                 size_t arg_a, size_t arg_b) {
     enum { NUM_PARAMS = 2 };
@@ -361,7 +361,7 @@ static void invoke_secure_world(int tee_fd, uint32_t session, int shm_id,
         die("calloc invoke");
     }
 
-#if TRAIN_ACCESS_LOAD
+#if NO_TRIGGER || TRAIN_ACCESS_LOAD
     arg->func = CMD_NOP;
 #elif NS_TRIGGER_AFTER_SECURE_NOOP
     arg->func = CMD_NOP;
@@ -577,6 +577,8 @@ int main(int argc, char **argv) {
         invoke_secure_world(tee_fd, session, shm_id,
                             first_trigger_offset, second_trigger_offset);
 #endif
+#elif !SKIP_SECURE_SWITCH
+        invoke_secure_world(tee_fd, session, shm_id, 0, 0);
 #endif
 #endif
         delay_after_trigger();

@@ -188,6 +188,13 @@ def experiment4_plot_path():
     )
 
 
+def experiment5_plot_path():
+    return os.path.join(
+        plot_dir,
+        f"{micro_arch_name()}-exp5-secure-noop-no-trigger-avg_ns.png",
+    )
+
+
 def baseline2_tsv_path():
     return os.path.join(result_dir, f"{micro_arch_name()}-baseline2-no-secure-no-trigger.tsv")
 
@@ -218,6 +225,14 @@ def experiment4_tsv_path():
 
 def experiment4_raw_path():
     return os.path.join(raw_dir, f"{micro_arch_name()}-exp4-secure-trigger.txt")
+
+
+def experiment5_tsv_path():
+    return os.path.join(result_dir, f"{micro_arch_name()}-exp5-secure-noop-no-trigger.tsv")
+
+
+def experiment5_raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}-exp5-secure-noop-no-trigger.txt")
 
 
 def ensure_dirs():
@@ -369,8 +384,10 @@ def run_binary():
 
 def result_paths(no_trigger=False, skip_secure_switch=False,
                  ns_trigger_after_secure_noop=False):
-    if no_trigger:
+    if no_trigger and skip_secure_switch:
         return baseline2_raw_path(), baseline2_tsv_path()
+    if no_trigger:
+        return experiment5_raw_path(), experiment5_tsv_path()
     if ns_trigger_after_secure_noop:
         return experiment3_raw_path(), experiment3_tsv_path()
     if skip_secure_switch:
@@ -486,6 +503,7 @@ if __name__ == "__main__":
         baseline2_rows = None
         experiment3_rows = None
         experiment4_rows = None
+        experiment5_rows = None
         if os.path.exists(baseline2_tsv_path()):
             baseline2_rows = read_tsv(baseline2_tsv_path())
             predicted_line = predicted_line_for()
@@ -521,11 +539,22 @@ if __name__ == "__main__":
                     title="Experiment4: NS train, Secure World trigger",
                     path=experiment4_plot_path(),
                 )
+        if os.path.exists(experiment5_tsv_path()):
+            experiment5_rows = read_tsv(experiment5_tsv_path())
+            print_summary(experiment5_rows, "Existing experiment5 secure-noop no-trigger:")
+            if not args.no_plot:
+                plot_bar_chart(
+                    experiment5_rows,
+                    baseline_avg_ns,
+                    title="Experiment5: NS train, Secure World no-op, no trigger",
+                    path=experiment5_plot_path(),
+                )
         threshold_ns, threshold_source = effective_threshold_and_reclassify(
             baseline1_rows,
             baseline2_rows,
             experiment3_rows,
             experiment4_rows,
+            experiment5_rows,
         )
         print_cross_evaluation(
             predicted_line=predicted_line_for(),
@@ -535,6 +564,7 @@ if __name__ == "__main__":
             baseline2_rows=baseline2_rows,
             experiment3_rows=experiment3_rows,
             experiment4_rows=experiment4_rows,
+            experiment5_rows=experiment5_rows,
         )
         sys.exit(0)
 
@@ -592,6 +622,17 @@ if __name__ == "__main__":
         # print(f"Saved experiment3 parsed results to {experiment3_tsv_path()}")
         print_summary(experiment3_rows, "Experiment3 secure-noop NS-trigger result:")
 
+    experiment5_rows = run_one(no_trigger=True)
+    if experiment5_rows:
+        predicted_line = predicted_line_for()
+        print_green(
+            f"Experiment5 secure-noop no-trigger: line {predicted_line} "
+            f"avg_ns={experiment5_rows[predicted_line]['avg_ns']}"
+        )
+        # print(f"Saved experiment5 raw output to {experiment5_raw_path()}")
+        # print(f"Saved experiment5 parsed results to {experiment5_tsv_path()}")
+        print_summary(experiment5_rows, "Experiment5 secure-noop no-trigger result:")
+
     experiment4_rows = run_one(no_trigger=False)
     if experiment4_rows:
         predicted_line = predicted_line_for()
@@ -608,6 +649,7 @@ if __name__ == "__main__":
         baseline2_rows,
         experiment3_rows,
         experiment4_rows,
+        experiment5_rows,
     )
     print_cross_evaluation(
         predicted_line=predicted_line_for(),
@@ -617,6 +659,7 @@ if __name__ == "__main__":
         baseline2_rows=baseline2_rows,
         experiment3_rows=experiment3_rows,
         experiment4_rows=experiment4_rows,
+        experiment5_rows=experiment5_rows,
     )
 
     if not args.no_plot:
@@ -633,6 +676,13 @@ if __name__ == "__main__":
                 baseline_avg_ns,
                 title="Experiment3: Secure World no-op, NS train and trigger",
                 path=experiment3_plot_path(),
+            )
+        if experiment5_rows:
+            plot_bar_chart(
+                experiment5_rows,
+                baseline_avg_ns,
+                title="Experiment5: NS train, Secure World no-op, no trigger",
+                path=experiment5_plot_path(),
             )
         if baseline1_rows:
             plot_bar_chart(

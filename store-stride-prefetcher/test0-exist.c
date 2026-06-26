@@ -41,6 +41,32 @@
 #define CONTEXT_SWITCH_YIELDS 1
 #endif
 
+#ifndef USER_MEMORY_PRESSURE_BEFORE_TRIGGER
+#define USER_MEMORY_PRESSURE_BEFORE_TRIGGER 0
+#endif
+
+#ifndef USER_MEMORY_PRESSURE_ITERS
+#define USER_MEMORY_PRESSURE_ITERS 256
+#endif
+
+#ifndef BUSY_WAIT_BEFORE_TRIGGER
+#define BUSY_WAIT_BEFORE_TRIGGER 0
+#endif
+
+#ifndef BUSY_WAIT_NS
+#define BUSY_WAIT_NS 10960
+#endif
+
+static volatile long user_memory_pressure_sink;
+static uint64_t user_memory_pressure_time_sum_ns;
+static uint64_t user_memory_pressure_time_min_ns = UINT64_MAX;
+static uint64_t user_memory_pressure_time_max_ns;
+static uint64_t user_memory_pressure_time_count;
+static uint64_t busy_wait_time_sum_ns;
+static uint64_t busy_wait_time_min_ns = UINT64_MAX;
+static uint64_t busy_wait_time_max_ns;
+static uint64_t busy_wait_time_count;
+
 uint8_t array2[Items * LINE_SIZE] __attribute__((aligned(4096)));;
 
 long long int latency_sum[PROBE_POSITIONS] = {0};
@@ -71,6 +97,109 @@ static void context_switch_before_trigger(void) {
     for (int i = 0; i < CONTEXT_SWITCH_YIELDS; i++) {
         sched_yield();
     }
+#endif
+}
+
+static inline __attribute__((always_inline)) uint64_t read_cntvct(void) {
+    uint64_t value;
+
+    asm volatile("mrs %0, cntvct_el0" : "=r"(value));
+    return value;
+}
+
+static inline __attribute__((always_inline)) uint64_t read_cntfrq(void) {
+    uint64_t value;
+
+    asm volatile("mrs %0, cntfrq_el0" : "=r"(value));
+    return value;
+}
+
+static void user_memory_pressure_before_trigger(void) {
+#if USER_MEMORY_PRESSURE_BEFORE_TRIGGER
+    uint64_t start = timestamp();
+    long sum = 0;
+
+    for (int i = 0; i < USER_MEMORY_PRESSURE_ITERS; i++) {
+        uint8_t *addr = array3 + ((i * 97) % Items) * LINE_SIZE;
+        uint32_t value = (uint32_t)i;
+
+        asm volatile("strb %w0, [%1]\n\t"
+                     :
+                     : "r"(value), "r"(addr)
+                     : "memory");
+        sum += value;
+    }
+
+    user_memory_pressure_sink += sum;
+
+    uint64_t elapsed = timestamp() - start;
+
+    user_memory_pressure_time_sum_ns += elapsed;
+    if (elapsed < user_memory_pressure_time_min_ns) {
+        user_memory_pressure_time_min_ns = elapsed;
+    }
+    if (elapsed > user_memory_pressure_time_max_ns) {
+        user_memory_pressure_time_max_ns = elapsed;
+    }
+    user_memory_pressure_time_count++;
+#endif
+}
+
+static void busy_wait_before_trigger(void) {
+#if BUSY_WAIT_BEFORE_TRIGGER
+    uint64_t start_ns = timestamp();
+    uint64_t freq = read_cntfrq();
+    uint64_t ticks = (freq * (uint64_t)BUSY_WAIT_NS + 999999999ULL) / 1000000000ULL;
+    uint64_t end = read_cntvct() + (ticks ? ticks : 1);
+
+    while (read_cntvct() < end) {
+        nop();
+    }
+
+    uint64_t elapsed = timestamp() - start_ns;
+
+    busy_wait_time_sum_ns += elapsed;
+    if (elapsed < busy_wait_time_min_ns) {
+        busy_wait_time_min_ns = elapsed;
+    }
+    if (elapsed > busy_wait_time_max_ns) {
+        busy_wait_time_max_ns = elapsed;
+    }
+    busy_wait_time_count++;
+#endif
+}
+
+static void print_busy_wait_time_stats(void) {
+#if BUSY_WAIT_BEFORE_TRIGGER
+    uint64_t avg = 0;
+
+    if (busy_wait_time_count > 0) {
+        avg = busy_wait_time_sum_ns / busy_wait_time_count;
+    }
+
+    printf("# busy_wait_time_ns count=%llu avg=%llu min=%llu max=%llu target=%d\n",
+           (unsigned long long)busy_wait_time_count,
+           (unsigned long long)avg,
+           (unsigned long long)busy_wait_time_min_ns,
+           (unsigned long long)busy_wait_time_max_ns,
+           BUSY_WAIT_NS);
+#endif
+}
+
+static void print_user_memory_pressure_time_stats(void) {
+#if USER_MEMORY_PRESSURE_BEFORE_TRIGGER
+    uint64_t avg = 0;
+
+    if (user_memory_pressure_time_count > 0) {
+        avg = user_memory_pressure_time_sum_ns / user_memory_pressure_time_count;
+    }
+
+    printf("# user_memory_pressure_time_ns count=%llu avg=%llu min=%llu max=%llu iters=%d\n",
+           (unsigned long long)user_memory_pressure_time_count,
+           (unsigned long long)avg,
+           (unsigned long long)user_memory_pressure_time_min_ns,
+           (unsigned long long)user_memory_pressure_time_max_ns,
+           USER_MEMORY_PRESSURE_ITERS);
 #endif
 }
 
@@ -152,25 +281,27 @@ int main(){
             //   mfence();
              
 
-              for(int step = 0; step < train_step -1; step++){
+              for(int step = 0; step < train_step; step++){
                   stride_access(array2 + (step * stride));
               }
-
+              // mfence();
               context_switch_before_trigger();
+              user_memory_pressure_before_trigger();
+              busy_wait_before_trigger();
                 //trigger
-#if !NO_TRIGGER
-                stride_access(array2 + ((train_step -1) * stride));
-#endif
+// #if !NO_TRIGGER
+//                 stride_access(array2 + ((train_step -1) * stride));
+// #endif
 
               // }
-              uint64_t dummy = 0;
-              for(int k =0;k<100;k++){//wait for prefetch done.
-                dummy += array1[k*64];
-                // mfence();
-              }
-              for(int i=0;i<100;i++) {
-                nop();
-              }
+              // uint64_t dummy = 0;
+              // for(int k =0;k<100;k++){//wait for prefetch done.
+              //   dummy += array1[k*64];
+              //   // mfence();
+              // }
+              // for(int i=0;i<100;i++) {
+              //   nop();
+              // }
               // mfence();
 
               int probe_pos = atkRound % PROBE_POSITIONS;//test one position each round
@@ -196,6 +327,8 @@ int main(){
                      avg_ns,
                      probe_count[probe_pos]);
           }
+          print_user_memory_pressure_time_stats();
+          print_busy_wait_time_stats();
       // }
       printf("\n");
   // }

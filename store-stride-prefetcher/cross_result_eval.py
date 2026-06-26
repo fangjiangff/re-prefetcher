@@ -82,11 +82,13 @@ def print_cross_evaluation(
     baseline2_rows,
     experiment3_rows,
     experiment4_rows,
+    experiment5_rows=None,
 ):
     baseline1_avg = _avg_for_line(baseline1_rows, predicted_line)
     baseline2_avg = _avg_for_line(baseline2_rows, predicted_line)
     experiment3_avg = _avg_for_line(experiment3_rows, predicted_line)
     experiment4_avg = _avg_for_line(experiment4_rows, predicted_line)
+    experiment5_avg = _avg_for_line(experiment5_rows, predicted_line)
 
     baseline1_ok = baseline1_avg is not None and baseline1_avg < threshold_ns
     baseline2_ok = baseline2_avg is not None and baseline2_avg > threshold_ns
@@ -97,8 +99,15 @@ def print_cross_evaluation(
     experiment4_prefetch = (
         experiment4_avg is not None and experiment4_avg < threshold_ns
     )
+    experiment5_prefetch = (
+        experiment5_avg is not None and experiment5_avg < threshold_ns
+    )
+    experiment5_no_prefetch = (
+        experiment5_avg is not None and experiment5_avg > threshold_ns
+    )
     experiment3_ok = baselines_ok and experiment3_prefetch
     experiment4_ok = baselines_ok and experiment4_prefetch
+    experiment5_ok = baselines_ok and experiment5_no_prefetch
 
     print("Cross-test evaluation:")
     if threshold_source:
@@ -132,3 +141,13 @@ def print_cross_evaluation(
         "  Experiment4 proves prefetcher state is shared across contexts: "
         f"{_yes_no(experiment4_ok)}"
     )
+    if experiment5_rows is not None:
+        print(
+            f"  Experiment5 target line {predicted_line} no prefetch "
+            f"(> {threshold_ns} ns): {_yes_no(experiment5_no_prefetch)} "
+            f"avg={_avg_text(experiment5_avg)}"
+        )
+        print(
+            "  Experiment5 controls for Secure World switch without trigger: "
+            f"{_yes_no(experiment5_ok)}"
+        )
