@@ -60,8 +60,10 @@ def parse_args():
                         default=None,
                         help="Predicted line is treated as prefetched when "
                              "avg_ns <= this value. Default is selected from --arch.")
-    parser.add_argument("--access", choices=["store", "load"], default="store",
-                        help="Stride instruction to test. Default: store")
+    parser.add_argument("--access", choices=["store", "load", "prefetch"],
+                        default="store",
+                        help=("Stride instruction to test. "
+                              "prefetch uses PRFM PLDL1KEEP. Default: store"))
     parser.add_argument("--no-trigger", action="store_true",
                         help="Skip the final same-PC trigger access after training.")
     parser.add_argument("--context-switch", action="store_true",
@@ -311,6 +313,7 @@ def compile_test(train_step):
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DCPU_ID=0",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
+        f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
         f"-DCONTEXT_SWITCH_BEFORE_TRIGGER={1 if args.context_switch else 0}",
         f"-DCONTEXT_SWITCH_YIELDS={args.context_switch_yields}",

@@ -36,8 +36,10 @@ def parse_args():
                         help="Maximum stride in bytes. Default: 4096")
     parser.add_argument("--max-step", type=int, default=40,
                         help="Maximum access count. Default: 40")
-    parser.add_argument("--access", choices=["store", "load"], default="store",
-                        help="Access instruction used for training/trigger. Default: store")
+    parser.add_argument("--access", choices=["store", "load", "prefetch"],
+                        default="store",
+                        help=("Access instruction used for training/trigger. "
+                              "prefetch uses PRFM PLDL1KEEP. Default: store"))
     parser.add_argument("--hit-threshold-ns", dest="threshold_ns", type=int, default=None,
                         help="Latency <= this value is treated as prefetched. "
                              "Default is selected from --arch.")
@@ -106,6 +108,7 @@ def compile_test(args):
         f"-DMAX_STRIDE={args.max_stride}",
         f"-DMAX_STEP={args.max_step}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
+        f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
         "-o",
         OUT,
         SRC,

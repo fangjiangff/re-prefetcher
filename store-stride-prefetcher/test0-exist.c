@@ -29,6 +29,14 @@
 #define TRAIN_ACCESS_LOAD 0
 #endif
 
+#ifndef TRAIN_ACCESS_PREFETCH
+#define TRAIN_ACCESS_PREFETCH 0
+#endif
+
+#if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
+#error "Only one train access mode can be enabled"
+#endif
+
 #ifndef NO_TRIGGER
 #define NO_TRIGGER 0
 #endif
@@ -85,7 +93,9 @@ void dummyAccesses(void){
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
-#if TRAIN_ACCESS_LOAD
+#if TRAIN_ACCESS_PREFETCH
+    mPrefetch_noinline(addr);
+#elif TRAIN_ACCESS_LOAD
     mLoad_noinline(addr);
 #else
     mStore_noinline(addr);
@@ -205,14 +215,18 @@ static void print_user_memory_pressure_time_stats(void) {
 
 static void print_test_header(int stride, int train_step, uint64_t rounds) {
     printf("# arm64 %s-stride prefetch latency map\n",
-#if TRAIN_ACCESS_LOAD
+#if TRAIN_ACCESS_PREFETCH
+           "prefetch"
+#elif TRAIN_ACCESS_LOAD
            "load"
 #else
            "store"
 #endif
     );
     printf("# access mode: %s (%s), same noinline PC for train and trigger\n",
-#if TRAIN_ACCESS_LOAD
+#if TRAIN_ACCESS_PREFETCH
+           "prefetch", "PRFM PLDL1KEEP"
+#elif TRAIN_ACCESS_LOAD
            "load", "ldrb"
 #else
            "store", "strb"
@@ -278,31 +292,36 @@ int main(){
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
               }
-            //   mfence();
-             
+            //   mfence(); 
 
-              for(int step = 0; step < train_step; step++){
+              for(int step = 0; step < train_step-1; step++){
                   stride_access(array2 + (step * stride));
+                //   mfence();
               }
-              // mfence();
-              context_switch_before_trigger();
-              user_memory_pressure_before_trigger();
-              busy_wait_before_trigger();
-                //trigger
-// #if !NO_TRIGGER
-//                 stride_access(array2 + ((train_step -1) * stride));
-// #endif
 
+            //   for(int k=0;k<100;k++){nop();}
+            //   mfence();
+            //   context_switch_before_trigger();
+            //   user_memory_pressure_before_trigger();
+              
+  
+                //trigger
+#if !NO_TRIGGER
+                stride_access(array2 + ((train_step -1) * stride));
+#endif
+
+                // busy_wait_before_trigger();
               // }
-              // uint64_t dummy = 0;
-              // for(int k =0;k<100;k++){//wait for prefetch done.
-              //   dummy += array1[k*64];
-              //   // mfence();
-              // }
-              // for(int i=0;i<100;i++) {
-              //   nop();
-              // }
-              // mfence();
+            //   uint64_t dummy = 0;
+            //   for(int k =0;k<100;k++){//wait for prefetch done.
+            //     dummy += array1[k*64];
+            //     // mfence();
+            //   }
+            //   for(int i=0;i<100;i++) {
+            //     nop();
+            //   }
+
+            //   mfence();
 
               int probe_pos = atkRound % PROBE_POSITIONS;//test one position each round
               

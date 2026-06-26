@@ -42,8 +42,8 @@
  * STORE_TRIGGER_ACCESS 是 train+trigger 总访问数。
  *
  * 1-based:
- *   第 1..STORE_TRIGGER_ACCESS-1 次 store: training
- *   第 STORE_TRIGGER_ACCESS 次 store:       trigger
+ *   第 1..STORE_TRIGGER_ACCESS-1 次 access: training
+ *   第 STORE_TRIGGER_ACCESS 次 access:       trigger
  *   第 STORE_TRIGGER_ACCESS+1 个位置:       probe
  *
  * 0-based:
@@ -58,13 +58,36 @@
 #define MAX_MAPPED_PAGES 256
 
 /*
- * 默认不在每次 store 后加 DSB/ISB。
+ * 默认不在每次 stride access 后加 DSB/ISB。
  * 如果你之前校准 trigger access 时每次访问后都有 fence，
  * 可以把这里改成 1 保持实验条件一致。
  */
 #define FENCE_AFTER_EACH_STORE 0
 
 typedef void (*store_gadget_f)(void *);
+
+#ifndef STRIDE_ACCESS_PREFETCH
+#define STRIDE_ACCESS_PREFETCH 0
+#endif
+
+#ifndef STRIDE_ACCESS_LOAD
+#define STRIDE_ACCESS_LOAD 0
+#endif
+
+#if STRIDE_ACCESS_PREFETCH && STRIDE_ACCESS_LOAD
+#error "Only one stride access mode can be enabled"
+#endif
+
+#if STRIDE_ACCESS_PREFETCH
+#define STRIDE_ACCESS_NAME "prefetch"
+#define STRIDE_ACCESS_ASM "    PRFM PLDL1KEEP, [x0]\n"
+#elif STRIDE_ACCESS_LOAD
+#define STRIDE_ACCESS_NAME "load"
+#define STRIDE_ACCESS_ASM "    ldr x1, [x0]\n"
+#else
+#define STRIDE_ACCESS_NAME "store"
+#define STRIDE_ACCESS_ASM "    strb w0, [x0]\n"
+#endif
 
 static uint8_t array1[100 * LINE_SIZE] = {0};
 static uint8_t array2[ITEMS * LINE_SIZE] __attribute__((aligned(ARRAY_ALIGNMENT)));
@@ -80,21 +103,21 @@ extern char _store_gadget_asm_start[];
 extern char _store_gadget_asm_end[];
 
 /*
- * store gadget:
+ * stride access gadget:
  *
  *   x0 = target address
- *   strb w0, [x0]
+ *   store mode:    strb w0, [x0]
+ *   load mode:     ldr x1, [x0]
+ *   prefetch mode: PRFM PLDL1KEEP, [x0]
  *   ret
  *
- * 注意：这里写入的是 x0 低 8 位。
- * 对本实验来说写入值不重要，重要的是这是一条 store 指令，
- * 并且 store 指令的 PC 可控。
+ * 对本实验来说访问的值不重要，重要的是访问指令的 PC 可控。
  */
 asm(
     ".global _store_gadget_asm_start\n"
     ".global _store_gadget_asm_end\n"
     "_store_gadget_asm_start:\n"
-    "    strb w0, [x0]\n"
+    STRIDE_ACCESS_ASM
     "    ret\n"
     "_store_gadget_asm_end:\n"
     "    nop\n"
@@ -209,16 +232,16 @@ static uint64_t probe_latency(uint8_t *addr) {
 
 /*
  * do_trigger = 1:
- *   前 STORE_TRIGGER_ACCESS-1 次 store 用 train_store
- *   第 STORE_TRIGGER_ACCESS 次 store 用 trigger_store
+ *   前 STORE_TRIGGER_ACCESS-1 次 access 用 train_store
+ *   第 STORE_TRIGGER_ACCESS 次 access 用 trigger_store
  *   probe 第 STORE_TRIGGER_ACCESS+1 个位置
  *
  * do_trigger = 0:
- *   只做 training stores，不做 trigger
+ *   只做 training accesses，不做 trigger
  *   仍然 probe predicted 位置
  *
  * no_trigger baseline 很重要：
- * 如果 no_trigger 也低延迟，说明 training stores 已经能预取到 predicted 位置，
+ * 如果 no_trigger 也低延迟，说明 training accesses 已经能预取到 predicted 位置，
  * 那这个 trigger access 假设在当前配置下不干净。
  */
 static uint64_t run_one_round(store_gadget_f train_store,
@@ -229,7 +252,7 @@ static uint64_t run_one_round(store_gadget_f train_store,
     flush_array2();
 
     /*
-     * 第 1..STORE_TRIGGER_ACCESS-1 次 store: training
+     * 第 1..STORE_TRIGGER_ACCESS-1 次 access: training
      * 0-based index: 0..STORE_TRIGGER_ACCESS-2
      */
     for (int step = 0; step < STORE_TRIGGER_ACCESS - 1; step++) {
@@ -241,7 +264,7 @@ static uint64_t run_one_round(store_gadget_f train_store,
     }
 
     /*
-     * 第 STORE_TRIGGER_ACCESS 次 store: trigger
+     * 第 STORE_TRIGGER_ACCESS 次 access: trigger
      * 0-based index: STORE_TRIGGER_ACCESS-1
      */
     if (do_trigger) {
@@ -270,9 +293,10 @@ static uint64_t run_one_round(store_gadget_f train_store,
 
 static void print_usage(const char *prog) {
     fprintf(stderr,
-            "usage: %s [base_store_pc min_diff_bit max_diff_bit rounds]\n"
-            "default: base_store_pc=0x%lx min_diff_bit=%d max_diff_bit=%d rounds=%d\n",
+            "usage: %s [base_access_pc min_diff_bit max_diff_bit rounds]\n"
+            "default: access=%s base_access_pc=0x%lx min_diff_bit=%d max_diff_bit=%d rounds=%d\n",
             prog,
+            STRIDE_ACCESS_NAME,
             (unsigned long)DEFAULT_BASE_STORE_PC,
             DEFAULT_MIN_DIFF_BIT,
             DEFAULT_MAX_DIFF_BIT,
@@ -357,8 +381,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("# %s store-stride single-PC collision test\n", ARCH_NAME);
-    printf("# stride_lines=%d stride=%d rounds=%d page_size=%lu base_store_pc=0x%016lx\n",
+    printf("# %s %s-stride single-PC collision test\n",
+           ARCH_NAME,
+           STRIDE_ACCESS_NAME);
+    printf("# stride_lines=%d stride=%d rounds=%d page_size=%lu base_access_pc=0x%016lx\n",
            STRIDE_LINES,
            stride,
            rounds,
@@ -379,7 +405,7 @@ int main(int argc, char **argv) {
 
     /*
      * Baseline 1:
-     * 只做 training stores，不做 trigger。
+     * 只做 training accesses，不做 trigger。
      * 理想情况下，这个应该是高延迟。
      */
     {
@@ -398,7 +424,7 @@ int main(int argc, char **argv) {
 
     /*
      * Baseline 2:
-     * training stores 和 trigger 使用同一个 PC。
+     * training accesses 和 trigger 使用同一个 PC。
      * 理想情况下，这个应该是低延迟。
      */
     {
@@ -416,7 +442,7 @@ int main(int argc, char **argv) {
     }
     /*
  * Baseline 3:
- * trigger store 使用一个完全不同的 PC，
+ * trigger access 使用一个完全不同的 PC，
  * 但保留和 base_pc 相同的低位。
  *
  * base_pc             = 0x500000120
@@ -448,7 +474,7 @@ int main(int argc, char **argv) {
 
 /*
  * Baseline 4:
- * trigger store 使用另一个完全不同的 PC，
+ * trigger access 使用另一个完全不同的 PC，
  * 高位和低位都和 base_pc 不同。
  *
  * 如果这个也接近 same_pc，而不是 no_trigger，
@@ -486,7 +512,7 @@ int main(int argc, char **argv) {
      *   base_pc ^ (1 << diff_bit)
      *
      * 如果某个 diff_bit 的 latency 接近 same_pc，
-     * 说明翻转这个 bit 后，trigger store 仍然能触发 training stores 训练出的 stream。
+     * 说明翻转这个 bit 后，trigger access 仍然能触发 training accesses 训练出的 stream。
      *
      * 如果 latency 接近 no_trigger，
      * 说明这个 bit 的变化破坏了 store-stride prefetcher 的 PC 匹配。

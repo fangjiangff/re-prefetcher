@@ -38,6 +38,8 @@ def compile_test(args):
         f"-DARCH_NAME=\"{args.arch}\"",
         f"-DSTRIDE_LINES={args.stride}",
         f"-DSTORE_TRIGGER_ACCESS={args.accesses}",
+        f"-DSTRIDE_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
+        f"-DSTRIDE_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         "-o",
         OUT,
         SRC,
@@ -64,6 +66,7 @@ def micro_arch_name(args):
     return (
         f"{args.arch}-core{args.core}-pc-collision"
         f"-stride{args.stride}-accesses{args.accesses}"
+        f"-{args.access}"
         f"-bits{args.min_diff_bit}-{args.max_diff_bit}"
     )
 
@@ -187,8 +190,13 @@ def main():
                         help="Override CPU core. Default comes from --arch.")
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE_LINES,
                         help="Stride in cache lines. Default: 5.")
+    parser.add_argument("--access", choices=["store", "load", "prefetch"],
+                        default="store",
+                        help=("Stride access instruction. load uses ldr x1, [x0]; "
+                              "prefetch uses PRFM PLDL1KEEP."))
     parser.add_argument("--accesses", type=int, default=None,
-                        help="Total train+trigger accesses. Default is arch store accesses.")
+                        help=("Total train+trigger accesses. Default comes from arch/access; "
+                              "prefetch also uses the arch store default unless overridden."))
     parser.add_argument("--base-pc", default=DEFAULT_BASE_PC)
     parser.add_argument("--min-diff-bit", type=int, default=DEFAULT_MIN_DIFF_BIT)
     parser.add_argument("--max-diff-bit", type=int, default=DEFAULT_MAX_DIFF_BIT)
@@ -205,9 +213,13 @@ def main():
     parser.add_argument("--no-compile", action="store_true")
     args = parser.parse_args()
 
-    args.access = "store"
     apply_single_core_defaults(args)
-    apply_access_defaults(args)
+    if args.access == "prefetch" and args.accesses is None:
+        args.access = "store"
+        apply_access_defaults(args)
+        args.access = "prefetch"
+    else:
+        apply_access_defaults(args)
     apply_threshold_defaults(args)
 
     if args.core < 0:
@@ -227,6 +239,7 @@ def main():
 
     print(
         f"arch={args.arch}, core={args.core}, stride={args.stride}, "
+        f"access={args.access}, "
         f"accesses={args.accesses}, train_only_accesses={args.accesses - 1}, "
         f"rounds={args.rounds}, threshold={args.threshold_ns} ns"
     )
@@ -266,7 +279,7 @@ def main():
 
     if not args.no_plot:
         plot_title = (
-            f"{args.arch} core {args.core}: PC collision latency "
+            f"{args.arch} core {args.core}: {args.access} PC collision latency "
             f"(accesses={args.accesses}, base_pc={args.base_pc})"
         )
         plot_result(

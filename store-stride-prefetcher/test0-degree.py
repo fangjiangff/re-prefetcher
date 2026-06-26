@@ -44,8 +44,10 @@ def parse_args():
                         help=f"Positions to probe. Default: {DEFAULT_PROBE_POSITIONS}")
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS,
                         help=f"Rounds per access-count/probe-position point. Default: {DEFAULT_ROUNDS}")
-    parser.add_argument("--access", choices=["store", "load"], default="store",
-                        help="Access instruction used for training/trigger. Default: store")
+    parser.add_argument("--access", choices=["store", "load", "prefetch"],
+                        default="store",
+                        help=("Access instruction used for training/trigger. "
+                              "prefetch uses PRFM PLDL1KEEP. Default: store"))
     parser.add_argument("--hit-threshold-ns", dest="threshold_ns", type=int, default=180,
                         help="Candidate latency <= this value is treated as prefetched. "
                              "Default is selected from --arch.")
@@ -118,6 +120,7 @@ def compile_test(args):
         f"-DPROBES={args.probe_positions}",
         f"-DROUNDS={args.rounds}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
+        f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
         "-o",
         OUT,
         SRC,

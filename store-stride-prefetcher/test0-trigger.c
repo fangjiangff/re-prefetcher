@@ -25,6 +25,14 @@
 #define TRAIN_ACCESS_LOAD 0
 #endif
 
+#ifndef TRAIN_ACCESS_PREFETCH
+#define TRAIN_ACCESS_PREFETCH 0
+#endif
+
+#if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
+#error "Only one train access mode can be enabled"
+#endif
+
 // 64 cache lines.
 #ifndef MAX_STRIDE
 #define MAX_STRIDE 4096
@@ -48,12 +56,37 @@ uint8_t array1[100*LINE_SIZE]={0};
 
 static uint8_t* dummy_buffer;
 
+static uint32_t shuffle_state = 0x9e3779b9u;
+
+static uint32_t next_shuffle_rand(void) {
+    shuffle_state = shuffle_state * 1664525u + 1013904223u;
+    return shuffle_state;
+}
+
+static void shuffle_ints(int *values, int count) {
+    for (int i = count - 1; i > 0; i--) {
+        int j = (int)(next_shuffle_rand() % (uint32_t)(i + 1));
+        int tmp = values[i];
+
+        values[i] = values[j];
+        values[j] = tmp;
+    }
+}
+
 void dummyAccesses(void){
-  dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+  // dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+   for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        uint64_t i = j;
+        // asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
+     }
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
-#if TRAIN_ACCESS_LOAD
+#if TRAIN_ACCESS_PREFETCH
+    mPrefetch_noinline(addr);
+#elif TRAIN_ACCESS_LOAD
     mLoad_noinline(addr);
 #else
     mStore_noinline(addr);
@@ -110,7 +143,9 @@ int main(){
   }
 
   printf("# arm64 %s-stride trigger sweep\n",
-#if TRAIN_ACCESS_LOAD
+#if TRAIN_ACCESS_PREFETCH
+         "prefetch"
+#elif TRAIN_ACCESS_LOAD
          "load"
 #else
          "store"
@@ -118,9 +153,24 @@ int main(){
   );
   printf("# stride_lines train_step avg_ns\n");
 
-  for(int stride = 64; stride <= MAX_STRIDE; stride+=64){
-      int stride_lines = stride / LINE_SIZE;
-      for(int train_step = 1; train_step <= MAX_STEP ; train_step++){
+  int stride_order[MAX_STRIDE_LINES];
+  int train_step_order[MAX_STEP];
+
+  for (int i = 0; i < MAX_STRIDE_LINES; i++) {
+      stride_order[i] = i + 1;
+  }
+  for (int i = 0; i < MAX_STEP; i++) {
+      train_step_order[i] = i + 1;
+  }
+
+  shuffle_ints(stride_order, MAX_STRIDE_LINES);
+  shuffle_ints(train_step_order, MAX_STEP);
+
+  for(int stride_idx = 0; stride_idx < MAX_STRIDE_LINES; stride_idx++){
+      int stride_lines = stride_order[stride_idx];
+      int stride = stride_lines * LINE_SIZE;
+      for(int train_step_idx = 0; train_step_idx < MAX_STEP; train_step_idx++){
+          int train_step = train_step_order[train_step_idx];
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
 
             dummyAccesses();//for dummy accesses , reset the prefetcher state
@@ -128,14 +178,15 @@ int main(){
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
-              
+              // for(int repeat = 0; repeat < 5; repeat ++) {
               for(int step = 0; step < train_step -1; step++){
                   stride_access(array2 + (step * stride));
               }
+              // }
               // trigger.
               stride_access(array2 + ((train_step -1) * stride));
               
-              // delay_after_trigger();
+              delay_after_trigger();
 
               //probe
               uint64_t probe_offset = (uint64_t)train_step * (uint64_t)stride;

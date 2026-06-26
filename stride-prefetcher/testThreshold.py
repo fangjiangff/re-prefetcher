@@ -18,8 +18,8 @@ OUT = "bin/triggerThreshold-arm"
 # configs = [(1,1), (1,0), (0,1), (0,0)]
 # configs = [ (0,0), (1,0)]
 # // (0,0,0)miss load, (0,1,0) miss store; (1,0,0) hit load,(0,0,1) miss prefetch.
-# configs = [(0,0,0), (0,1,0), (1,0,0), (0,0,1)]
-configs = [(0,1,0)]
+configs = [(0,0,0), (0,1,0), (1,0,0), (0,0,1)]
+# configs = [(0,1,0)]
 # configs = [(0,0,0), (0,0,1)]
 DEFAULT_ARCH = "CortexA76"
 DEFAULT_CORE = 0
@@ -134,10 +134,10 @@ def run_tests():
 INPUT_FILE = f"res/threshold-{micro_arch}.xlsx"
 
 TARGET_SHEETS = [
-    # "HIT0-ST0-SW0",  # Miss Load
+    "HIT0-ST0-SW0",  # Miss Load
     "HIT0-ST1-SW0",  # Miss Store
-    # "HIT1-ST0-SW0",  # Hit Load
-    # "HIT0-ST0-SW1",  # Miss Prefetch
+    "HIT1-ST0-SW0",  # Hit Load
+    "HIT0-ST0-SW1",  # Miss Prefetch
 ]
 
 def plot_heatmaps():

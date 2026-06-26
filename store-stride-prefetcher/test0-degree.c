@@ -25,6 +25,14 @@
 #define TRAIN_ACCESS_LOAD 0
 #endif
 
+#ifndef TRAIN_ACCESS_PREFETCH
+#define TRAIN_ACCESS_PREFETCH 0
+#endif
+
+#if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
+#error "Only one train access mode can be enabled"
+#endif
+
 #ifndef MAX_STEP
 #define MAX_STEP 20
 #endif
@@ -45,7 +53,9 @@ void dummyAccesses(void){
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
-#if TRAIN_ACCESS_LOAD
+#if TRAIN_ACCESS_PREFETCH
+    mPrefetch_noinline(addr);
+#elif TRAIN_ACCESS_LOAD
     mLoad_noinline(addr);
 #else
     mStore_noinline(addr);
@@ -106,7 +116,9 @@ int main(){
   }
 
   printf("# arm64 %s-stride degree sweep\n",
-#if TRAIN_ACCESS_LOAD
+#if TRAIN_ACCESS_PREFETCH
+         "prefetch"
+#elif TRAIN_ACCESS_LOAD
          "load"
 #else
          "store"
