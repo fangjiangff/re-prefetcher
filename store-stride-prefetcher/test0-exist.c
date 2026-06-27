@@ -89,7 +89,14 @@ uint8_t array3[Items * LINE_SIZE] __attribute__((aligned(4096)));;
 static uint8_t* dummy_buffer;
 
 void dummyAccesses(void){
-  dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+//   dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+   for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        uint64_t i = j;
+        // asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
+        // mLoad_noinline(&dummy_buffer[i]);
+     }
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
@@ -301,8 +308,7 @@ int main(){
 
             //   for(int k=0;k<100;k++){nop();}
             //   mfence();
-            //   context_switch_before_trigger();
-            //   user_memory_pressure_before_trigger();
+              context_switch_before_trigger();
               
   
                 //trigger
@@ -312,14 +318,14 @@ int main(){
 
                 // busy_wait_before_trigger();
               // }
-            //   uint64_t dummy = 0;
-            //   for(int k =0;k<100;k++){//wait for prefetch done.
-            //     dummy += array1[k*64];
-            //     // mfence();
-            //   }
-            //   for(int i=0;i<100;i++) {
-            //     nop();
-            //   }
+              uint64_t dummy = 0;
+              for(int k =0;k<100;k++){//wait for prefetch done.
+                dummy += array1[k*64];
+                // mfence();
+              }
+              for(int i=0;i<100;i++) {
+                nop();
+              }
 
             //   mfence();
 

@@ -41,8 +41,7 @@ static inline __attribute__((always_inline)) void flush(void *addr) {
 
 #define _mPrefetch(pre, addr)                   \
     asm volatile(pre "PRFM PLDL1KEEP, [%0]\n\t" \
-                 :: "r"(addr)                   \
-                 : "memory")
+                 :: "r"(addr))
 
 static inline __attribute__((always_inline)) void mStore_inline(void *addr) {
     _mStore("", addr);
@@ -92,12 +91,13 @@ static inline __attribute__((always_inline)) void dummyAccess(void *buffer,
                                                              size_t size) {
     uint8_t *dummy_buffer = (uint8_t *)buffer;
     size_t lines = size / LINE_SIZE;
-    size_t step = 97;
+    // size_t step = 97;
 
 
     for (size_t n = 0; n < lines; n++) {
-        size_t line = (n) % lines;
-        mPrefetch_inline(dummy_buffer + line * LINE_SIZE);
+        // size_t line = (n) % lines;
+        mPrefetch_inline(dummy_buffer + n * LINE_SIZE);
+        // asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(dummy_buffer + line * LINE_SIZE));
     }
     // mfence();
 }

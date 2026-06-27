@@ -64,6 +64,22 @@ def parse_args():
                         default="store",
                         help=("Stride instruction to test. "
                               "prefetch uses PRFM PLDL1KEEP. Default: store"))
+    parser.add_argument("--dummy-access", choices=["load", "store", "prefetch"],
+                        default="prefetch",
+                        help="Instruction used by dummyAccesses. Default: prefetch")
+    parser.add_argument("--dummy-order", choices=["sequential", "permuted"],
+                        default="sequential",
+                        help="Address order used by dummyAccesses. Default: sequential")
+    parser.add_argument("--dummy-buffer-pages", type=int, default=10,
+                        help="Number of pages in dummy_buffer. Default: 10")
+    parser.add_argument("--dummy-sweep", action="store_true",
+                        help="Sweep dummy access/order/page-count configurations.")
+    parser.add_argument("--dummy-sweep-accesses", default="load,store,prefetch",
+                        help="Comma-separated dummy accesses for --dummy-sweep.")
+    parser.add_argument("--dummy-sweep-orders", default="sequential,permuted",
+                        help="Comma-separated dummy orders for --dummy-sweep.")
+    parser.add_argument("--dummy-sweep-pages", default="1,2,4,8,10,16,32",
+                        help="Comma-separated dummy page counts for --dummy-sweep.")
     parser.add_argument("--no-trigger", action="store_true",
                         help="Skip the final same-PC trigger access after training.")
     parser.add_argument("--context-switch", action="store_true",
@@ -80,6 +96,10 @@ def parse_args():
                         help="Nanoseconds for --busy-wait. Default: 10960")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
                         help="Compiler command. Default: $CC or gcc")
+    parser.add_argument("--objdump", default=os.environ.get("OBJDUMP", "objdump"),
+                        help="Objdump command used to generate .dump files. Default: $OBJDUMP or objdump")
+    parser.add_argument("--no-dump", action="store_true",
+                        help="Do not generate objdump disassembly files.")
     parser.add_argument("--plot-only", action="store_true",
                         help="Only read existing TSV results and print summaries.")
     parser.add_argument("--no-plot", action="store_true",
@@ -108,6 +128,8 @@ def parse_args():
         parser.error("--rounds must be >= 1")
     if args.probe_positions < 1:
         parser.error("--probe-positions must be >= 1")
+    if args.dummy_buffer_pages < 1:
+        parser.error("--dummy-buffer-pages must be >= 1")
     if args.hit_threshold_ns is not None and args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
     if args.context_switch_yields < 1:
@@ -125,6 +147,29 @@ def parse_args():
     max_train_step = args.train_step_max if args.batch else args.train_step
     if max_train_step * args.stride >= args.probe_positions:
         parser.error("predicted position train_step * stride must be inside probe positions")
+    if args.dummy_sweep:
+        valid_accesses = {"load", "store", "prefetch"}
+        valid_orders = {"sequential", "permuted"}
+        sweep_accesses = [item.strip() for item in args.dummy_sweep_accesses.split(",") if item.strip()]
+        sweep_orders = [item.strip() for item in args.dummy_sweep_orders.split(",") if item.strip()]
+        if not sweep_accesses:
+            parser.error("--dummy-sweep-accesses must not be empty")
+        if not sweep_orders:
+            parser.error("--dummy-sweep-orders must not be empty")
+        unknown_accesses = [item for item in sweep_accesses if item not in valid_accesses]
+        unknown_orders = [item for item in sweep_orders if item not in valid_orders]
+        if unknown_accesses:
+            parser.error("unknown dummy access(es): " + ", ".join(unknown_accesses))
+        if unknown_orders:
+            parser.error("unknown dummy order(s): " + ", ".join(unknown_orders))
+        try:
+            sweep_pages = [int(item.strip()) for item in args.dummy_sweep_pages.split(",") if item.strip()]
+        except ValueError:
+            parser.error("--dummy-sweep-pages must contain comma-separated integers")
+        if not sweep_pages:
+            parser.error("--dummy-sweep-pages must not be empty")
+        if any(pages < 1 for pages in sweep_pages):
+            parser.error("--dummy-sweep-pages values must be >= 1")
     return args
 
 
@@ -132,6 +177,7 @@ args = parse_args()
 result_dir = os.path.join(BASE_DIR, "res", "store-stride")
 plot_dir = os.path.join(BASE_DIR, "res", "barplots")
 raw_dir = os.path.join(result_dir, "raw")
+dump_dir = os.path.join(result_dir, "dump")
 
 
 def parse_csv_list(value):
@@ -176,6 +222,21 @@ def train_steps():
     return [args.train_step]
 
 
+def dummy_configs():
+    if not args.dummy_sweep:
+        return [(args.dummy_access, args.dummy_order, args.dummy_buffer_pages)]
+
+    accesses = parse_csv_list(args.dummy_sweep_accesses)
+    orders = parse_csv_list(args.dummy_sweep_orders)
+    pages = [int(item) for item in parse_csv_list(args.dummy_sweep_pages)]
+    return [
+        (dummy_access, dummy_order, dummy_pages)
+        for dummy_access in accesses
+        for dummy_order in orders
+        for dummy_pages in pages
+    ]
+
+
 def micro_arch_name(arch, core, train_step):
     trigger_suffix = "-no-trigger" if args.no_trigger else ""
     switch_suffix = (
@@ -190,10 +251,22 @@ def micro_arch_name(arch, core, train_step):
         f"-busywait{args.busy_wait_ns}"
         if args.busy_wait else ""
     )
+    dummy_suffix = ""
+    if (
+        args.dummy_sweep
+        or args.dummy_access != "prefetch"
+        or args.dummy_order != "sequential"
+        or args.dummy_buffer_pages != 10
+    ):
+        dummy_suffix = (
+            f"-dummy-{args.dummy_access}-{args.dummy_order}"
+            f"-pages{args.dummy_buffer_pages}"
+        )
     return (
         f"{arch}-core{core}-stride{args.stride}"
         f"-train{train_step}-{args.access}"
         f"{trigger_suffix}{switch_suffix}{pressure_suffix}{busy_wait_suffix}"
+        f"{dummy_suffix}"
     )
 
 
@@ -205,6 +278,10 @@ def raw_path_for(arch, core, train_step):
     return os.path.join(raw_dir, f"{micro_arch_name(arch, core, train_step)}.txt")
 
 
+def dump_path_for(arch, core, train_step):
+    return os.path.join(dump_dir, f"{micro_arch_name(arch, core, train_step)}.dump")
+
+
 def plot_path_for(arch, core, train_step):
     return os.path.join(plot_dir, f"{micro_arch_name(arch, core, train_step)}.png")
 
@@ -214,6 +291,7 @@ def ensure_dirs():
     os.makedirs(result_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
     os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(dump_dir, exist_ok=True)
 
 
 def accessed_offsets(train_step):
@@ -314,6 +392,10 @@ def compile_test(train_step):
         f"-DCPU_ID=0",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
+        f"-DDUMMY_BUFFER_PAGES={args.dummy_buffer_pages}",
+        f"-DDUMMY_ACCESS_LOAD={1 if args.dummy_access == 'load' else 0}",
+        f"-DDUMMY_ACCESS_STORE={1 if args.dummy_access == 'store' else 0}",
+        f"-DDUMMY_ACCESS_PERMUTED={1 if args.dummy_order == 'permuted' else 0}",
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
         f"-DCONTEXT_SWITCH_BEFORE_TRIGGER={1 if args.context_switch else 0}",
         f"-DCONTEXT_SWITCH_YIELDS={args.context_switch_yields}",
@@ -327,6 +409,27 @@ def compile_test(train_step):
         UTIL_SRC,
     ]
     return subprocess.run(compile_cmd).returncode
+
+
+def write_dump(arch, core, train_step):
+    if args.no_dump:
+        return
+
+    path = dump_path_for(arch, core, train_step)
+    run = subprocess.run(
+        [args.objdump, "-d", OUT],
+        capture_output=True,
+        text=True,
+    )
+    if run.returncode != 0:
+        print(f"Warning: failed to generate dump file '{path}'")
+        if run.stderr:
+            print(run.stderr, file=sys.stderr)
+        return
+
+    with open(path, "w") as f:
+        f.write(run.stdout)
+    print(f"Saved dump to {path}")
 
 
 def run_binary(core):
@@ -345,6 +448,9 @@ def run_one(arch, core, train_step):
         f"stride={args.stride} lines, train_step={train_step}, "
         f"predicted_position={predicted_position(train_step)}, "
         f"rounds={args.rounds}, threshold={threshold_ns} ns, "
+        f"dummy_access={args.dummy_access}, "
+        f"dummy_order={args.dummy_order}, "
+        f"dummy_buffer_pages={args.dummy_buffer_pages}, "
         f"context_switch={args.context_switch}, "
         f"context_switch_yields={args.context_switch_yields}, "
         f"user_memory_pressure={args.user_memory_pressure}, "
@@ -356,6 +462,7 @@ def run_one(arch, core, train_step):
     if compile_test(train_step) != 0:
         print("Compile failed")
         return []
+    write_dump(arch, core, train_step)
 
     run = run_binary(core)
     if run.returncode != 0:
@@ -490,19 +597,23 @@ def plot_bar_chart(rows, arch, core, train_step):
 def main():
     ensure_dirs()
     for arch, core in targets():
-        for train_step in train_steps():
-            if args.plot_only:
-                path = tsv_path_for(arch, core, train_step)
-                if not os.path.exists(path):
-                    print(f"Error: TSV result '{path}' not found.")
-                    continue
-                rows = read_tsv(path)
-            else:
-                rows = run_one(arch, core, train_step)
-            if rows:
-                print_predicted_result(arch, core, train_step, rows)
-                if not args.no_plot:
-                    plot_bar_chart(rows, arch, core, train_step)
+        for dummy_access, dummy_order, dummy_pages in dummy_configs():
+            args.dummy_access = dummy_access
+            args.dummy_order = dummy_order
+            args.dummy_buffer_pages = dummy_pages
+            for train_step in train_steps():
+                if args.plot_only:
+                    path = tsv_path_for(arch, core, train_step)
+                    if not os.path.exists(path):
+                        print(f"Error: TSV result '{path}' not found.")
+                        continue
+                    rows = read_tsv(path)
+                else:
+                    rows = run_one(arch, core, train_step)
+                if rows:
+                    print_predicted_result(arch, core, train_step, rows)
+                    if not args.no_plot:
+                        plot_bar_chart(rows, arch, core, train_step)
 
 
 if __name__ == "__main__":

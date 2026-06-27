@@ -267,9 +267,14 @@ static inline __attribute__((always_inline)) void competitor_access(void *addr) 
 }
 
 static void dummy_accesses(void) {
-    for (uint64_t i = 0; i < dummy_buffer_size; i += LINE_SIZE) {
-        maccess(&dummy_buffer[i]);
-    }
+    // for (uint64_t i = 0; i < dummy_buffer_size; i += LINE_SIZE) {
+    //     maccess(&dummy_buffer[i]);
+    // }
+   for(uint32_t j = 0; j < dummy_buffer_size; j+=64){
+        // asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
+     }
 }
 
 static void flush_dummy_buffer(void) {

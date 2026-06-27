@@ -43,7 +43,7 @@ ARCH_CONFIG = {
             "trigger_core": 0,
         },
         "accesses": {
-            "store": 6,
+            "store": 4,
             "load": 4,
         },
     },
