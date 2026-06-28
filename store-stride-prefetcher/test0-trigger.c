@@ -76,8 +76,8 @@ static void shuffle_ints(int *values, int count) {
 void dummyAccesses(void){
 //   dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
        for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
-        // asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
-        asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+        // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
         // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
      }
 }
@@ -174,10 +174,12 @@ int main(){
   shuffle_ints(train_step_order, MAX_STEP);
 
   for(int stride_idx = 0; stride_idx < MAX_STRIDE_LINES; stride_idx++){
-      int stride_lines = stride_order[stride_idx];
+    //   int stride_lines = stride_order[stride_idx];
+    int stride_lines = stride_idx + 1;
       int stride = stride_lines * LINE_SIZE;
       for(int train_step_idx = 0; train_step_idx < MAX_STEP; train_step_idx++){
-          int train_step = train_step_order[train_step_idx];
+        //   int train_step = train_step_order[train_step_idx];
+          int train_step = train_step_idx;
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
 
             dummyAccesses();//for dummy accesses , reset the prefetcher state

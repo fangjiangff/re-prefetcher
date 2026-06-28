@@ -550,7 +550,7 @@ Disassembly of section .text:
   400a08:	f9002fe0 	str	x0, [sp, #88]
   400a0c:	52802800 	mov	w0, #0x140                 	// #320
   400a10:	b90027e0 	str	w0, [sp, #36]
-  400a14:	528000e0 	mov	w0, #0x7                   	// #7
+  400a14:	528000a0 	mov	w0, #0x5                   	// #5
   400a18:	b9002be0 	str	w0, [sp, #40]
   400a1c:	b9402be0 	ldr	w0, [sp, #40]
   400a20:	7100001f 	cmp	w0, #0x0
