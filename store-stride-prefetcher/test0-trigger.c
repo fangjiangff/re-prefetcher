@@ -74,7 +74,12 @@ static void shuffle_ints(int *values, int count) {
 }
 
 void dummyAccesses(void){
-  dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+//   dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+       for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        // asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
+     }
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
@@ -175,20 +180,20 @@ int main(){
           int train_step = train_step_order[train_step_idx];
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
 
-            // dummyAccesses();//for dummy accesses , reset the prefetcher state
+            dummyAccesses();//for dummy accesses , reset the prefetcher state
             
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
-              // for(int repeat = 0; repeat < 5; repeat ++) {
+              for(int repeat = 0; repeat < 5; repeat ++) {
               for(int step = 0; step < train_step -1; step++){
                   stride_access(array2 + (step * stride));
               }
-              // }
+              }
               // trigger.
               stride_access(array2 + ((train_step -1) * stride));
               
-            //   delay_after_trigger();
+              delay_after_trigger();
 
               //probe
               uint64_t probe_offset = (uint64_t)train_step * (uint64_t)stride;

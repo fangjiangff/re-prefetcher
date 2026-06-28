@@ -1,0 +1,75 @@
+# store-stride entry-capacity test
+# stride=320 rounds=1000 page_size=4096 store_pc=0x0000000500000120 victim_buffer=0x0000000600000000
+# STRIDE_LINES=5 TRAIN_ACCESSES=4 COMPETITOR_ACCESSES=4 PROBE_LINES=64 max_competitors=64 page_step_pages=1
+# victim training: 4 stores, stride_lines=5
+# victim trigger lines: 20 25
+# victim probe/predicted line: 30
+# competitor accesses per page: 4 stores, stride_lines=5
+# lower latency means that victim line was more likely prefetched
+# no_trigger_n0_latency_ns=176
+n	probe_line	offset_bytes	role	avg_ns	probes
+0	30	1920	predicted	115	1000
+1	30	1920	predicted	135	1000
+2	30	1920	predicted	128	1000
+3	30	1920	predicted	136	1000
+4	30	1920	predicted	134	1000
+5	30	1920	predicted	96	1000
+6	30	1920	predicted	93	1000
+7	30	1920	predicted	93	1000
+8	30	1920	predicted	104	1000
+9	30	1920	predicted	96	1000
+10	30	1920	predicted	94	1000
+11	30	1920	predicted	96	1000
+12	30	1920	predicted	95	1000
+13	30	1920	predicted	98	1000
+14	30	1920	predicted	103	1000
+15	30	1920	predicted	114	1000
+16	30	1920	predicted	197	1000
+17	30	1920	predicted	174	1000
+18	30	1920	predicted	171	1000
+19	30	1920	predicted	170	1000
+20	30	1920	predicted	179	1000
+21	30	1920	predicted	174	1000
+22	30	1920	predicted	176	1000
+23	30	1920	predicted	173	1000
+24	30	1920	predicted	177	1000
+25	30	1920	predicted	180	1000
+26	30	1920	predicted	173	1000
+27	30	1920	predicted	175	1000
+28	30	1920	predicted	170	1000
+29	30	1920	predicted	175	1000
+30	30	1920	predicted	177	1000
+31	30	1920	predicted	174	1000
+32	30	1920	predicted	180	1000
+33	30	1920	predicted	171	1000
+34	30	1920	predicted	171	1000
+35	30	1920	predicted	176	1000
+36	30	1920	predicted	171	1000
+37	30	1920	predicted	178	1000
+38	30	1920	predicted	172	1000
+39	30	1920	predicted	176	1000
+40	30	1920	predicted	175	1000
+41	30	1920	predicted	179	1000
+42	30	1920	predicted	178	1000
+43	30	1920	predicted	174	1000
+44	30	1920	predicted	178	1000
+45	30	1920	predicted	178	1000
+46	30	1920	predicted	174	1000
+47	30	1920	predicted	178	1000
+48	30	1920	predicted	176	1000
+49	30	1920	predicted	176	1000
+50	30	1920	predicted	174	1000
+51	30	1920	predicted	176	1000
+52	30	1920	predicted	175	1000
+53	30	1920	predicted	169	1000
+54	30	1920	predicted	172	1000
+55	30	1920	predicted	167	1000
+56	30	1920	predicted	170	1000
+57	30	1920	predicted	175	1000
+58	30	1920	predicted	178	1000
+59	30	1920	predicted	176	1000
+60	30	1920	predicted	171	1000
+61	30	1920	predicted	168	1000
+62	30	1920	predicted	173	1000
+63	30	1920	predicted	174	1000
+64	30	1920	predicted	171	1000

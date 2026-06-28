@@ -364,19 +364,21 @@ int main(){
       // for(int train_step = 1; train_step <= 32 ; train_step++){
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
             
+            dummyAccesses();//for dummy accesses , reset the prefetcher state
+            
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
               }
              
 
-            dummyAccesses();//for dummy accesses , reset the prefetcher state
-            mfence(); 
+            
+            // mfence(); 
 
              for(int repeat = 0; repeat < 5; repeat ++) {
               for(int step = 0; step < train_step-1; step++){
                   stride_access(array2 + (step * stride));
                 // array2[step * stride] = 11;
-                mfence();
+                // mfence();
               }
              }
             // context_switch_before_trigger();//may be flush prefetcher entry and the prefetch candidate in prefetch queue..
@@ -390,11 +392,11 @@ int main(){
             // stride_access(array2 + ((train_step -2) * stride));
             // mfence();
             stride_access(array2 + ((train_step -1) * stride));
-            mfence();
+            // mfence();
 #endif
 
             
-            mfence();
+            // mfence();
               // }
               uint64_t dummy = 0;
               for(int k =0;k<100;k++){//wait for prefetch done.
