@@ -16,8 +16,8 @@ DEFAULT_OUTPUT_DIR = os.path.join(SCRIPT_DIR, "res", "test-load-vs-sw-latency")
 # ARCHES = ["RaptorCove", "Gracemont"]
 # ARCHES = ["RC", "GM","CL"]
 # CORES = [0, 16, 0]
-ARCHES = ["A76","A78", "A55", "A725", "X925","CL","RC","GM"]
-CORES = [2, 4, 1, 4, 6, 0, 0, 16]
+ARCHES = ["A76","A78", "A55", "A725", "X925","CL","RC","GM","Zen4"]
+CORES = [2, 4, 1, 4, 6, 0, 0, 16,0]
 
 
 def parse_args():

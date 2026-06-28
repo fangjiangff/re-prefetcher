@@ -38,9 +38,18 @@
 #define TEST_ON_SW 0
 #endif
 
-#define _maccess(pre, addr) asm volatile(pre "mov (%0), %%al" :: "r" (addr) : "rax")//load
+#ifndef TEST_ON_ST
+#define TEST_ON_ST 0
+#endif
 
-#define _mprefetch(pre, addr)  asm volatile(pre "prefetcht2 (%0)" :: "r" (addr))
+#if TEST_ON_ST == 1
+  #define _maccess(pre, addr) asm volatile(pre "movb $1, (%0)" :: "r"(addr) : "memory")
+#else
+  #define _maccess(pre, addr) asm volatile(pre "mov (%0), %%al" :: "r" (addr) : "rax")//load
+#endif
+
+
+#define _mprefetch(pre, addr)  asm volatile(pre "prefetcht0 (%0)" :: "r" (addr))
 
 void maccess(void* p){
     _maccess("", p);

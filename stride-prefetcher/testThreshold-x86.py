@@ -9,8 +9,8 @@ SRC = "triggerThreshold-x86.cc"
 OUT = "bin/triggerThreshold-x86"
 
 # ARCHES = ["RaptorCove", "Gracemont"]
-ARCHES = ["RC", "GM","CL"]
-CORES = [0, 16, 0]
+ARCHES = ["RC", "GM","CL","Zen4"]
+CORES = [0, 16, 0, 0]
 if len(ARCHES) != len(CORES):
     raise ValueError("ARCHES and CORES must have the same length")
 
@@ -23,8 +23,9 @@ DEFAULT_PROBE_POSITIONS = 200
 DEFAULT_HIT_THRESHOLD_CYCLES = 120
 
 MODES = {
-    "load": {"TEST_ON_SW": 0, "title": "Load instruction"},
-    "sw": {"TEST_ON_SW": 1, "title": "Software prefetch"},
+    "load": {"TEST_ON_ST": 0, "TEST_ON_SW": 0, "title": "Load instruction"},
+    "store": {"TEST_ON_ST": 1, "TEST_ON_SW": 0, "title": "Store instruction"},
+    "sw": {"TEST_ON_ST": 0, "TEST_ON_SW": 1, "title": "Software prefetch"},
 }
 
 ROLE_COLORS = {
@@ -49,7 +50,7 @@ def parse_args():
                         help="Average latency threshold used by Python to classify "
                              "non-accessed positions as prefetched. "
                              f"Default: {DEFAULT_HIT_THRESHOLD_CYCLES}")
-    parser.add_argument("--mode", choices=["both", "load", "sw"], default="both",
+    parser.add_argument("--mode", choices=["both", "load","store", "sw"], default="both",
                         help="Access mode to run. Default: both")
     parser.add_argument("--core", type=int, default=None,
                         help="Override CPU core used by taskset. Default is selected from --arch.")
@@ -79,7 +80,7 @@ def parse_args():
 
 args = parse_args()
 stride_bytes = args.stride * 64
-mode_names = ["load", "sw"] if args.mode == "both" else [args.mode]
+mode_names = ["load", "store", "sw"] if args.mode == "both" else [args.mode]
 accessed_offsets = {step * stride_bytes for step in range(args.train_step)}
 micro_arch = (
     f"{args.arch}-core{args.core}-stride{args.stride}"
@@ -180,6 +181,7 @@ def run_tests():
             "-O0",
             "-static",
             f"-DTEST_ON_SW={config['TEST_ON_SW']}",
+            f"-DTEST_ON_ST={config['TEST_ON_ST']}",
             f"-DSTRIDE_BYTES={stride_bytes}",
             f"-DTRAIN_STEP={args.train_step}",
             f"-DROUNDS={args.rounds}",
