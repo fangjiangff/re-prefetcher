@@ -365,19 +365,21 @@ int main(){
             //  for(int repeat = 0; repeat < 5; repeat ++) {
               for(int step = 0; step < train_step-2; step++){
                   stride_access(array2 + (step * stride));
-                //   mfence();
+                  mfence();
               }
             //  }
-            context_switch_before_trigger();//may be flush prefetcher entry and the prefetch candidate in prefetch queue..
-            user_memory_pressure_before_trigger();
-            busy_wait_before_trigger();
+            // context_switch_before_trigger();//may be flush prefetcher entry and the prefetch candidate in prefetch queue..
+            // user_memory_pressure_before_trigger();
+            // busy_wait_before_trigger();
             //   for(int k=0;k<100;k++){nop();}
             //   mfence();        
   
                 //trigger
 #if !NO_TRIGGER
             stride_access(array2 + ((train_step -2) * stride));
+            mfence();
             stride_access(array2 + ((train_step -1) * stride));
+            mfence();
 #endif
 
             

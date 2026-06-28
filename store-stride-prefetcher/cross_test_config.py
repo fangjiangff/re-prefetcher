@@ -83,18 +83,6 @@ ARCH_CONFIG = {
             "load": 3,
         },
     },
-    "x86": {
-        "core": 0,
-        "threshold_ns": 170,
-        "cross_core": {
-            "train_core": 0,
-            "trigger_core": 1,
-        },
-        "accesses": {
-            "store": 3,
-            "load": 3,
-        },
-    },
 }
 
 
