@@ -104,25 +104,33 @@ uint8_t array3[Items * LINE_SIZE] __attribute__((aligned(4096)));;
 
 static uint8_t* dummy_buffer;
 
-void dummyAccesses(void){
-   size_t lines = DUMMY_BUFFER_SIZE / LINE_SIZE;
+// void dummyAccesses(void){
+//    size_t lines = DUMMY_BUFFER_SIZE / LINE_SIZE;
 
-   for(size_t n = 0; n < lines; n++){
-#if DUMMY_ACCESS_PERMUTED
-        size_t line = (n * 97) % lines;
-#else
-        size_t line = n;
-#endif
-        void *addr = dummy_buffer + line * LINE_SIZE;
+//    for(size_t n = 0; n < lines; n++){
+// #if DUMMY_ACCESS_PERMUTED
+//         size_t line = (n * 97) % lines;
+// #else
+//         size_t line = n;
+// #endif
+//         void *addr = dummy_buffer + line * LINE_SIZE;
 
-#if DUMMY_ACCESS_LOAD
-        mLoad_inline(addr);
-#elif DUMMY_ACCESS_STORE
-        mStore_inline(addr);
-#else
-        mPrefetch_inline(addr);
-#endif
-   }
+// #if DUMMY_ACCESS_LOAD
+//         mLoad_inline(addr);
+// #elif DUMMY_ACCESS_STORE
+//         mStore_inline(addr);
+// #else
+//         mPrefetch_inline(addr);
+// #endif
+//    }
+// }
+
+void dummyAccesses(){
+    uint64_t tmp = 0;
+     for(uint64_t i = 0; i < DUMMY_BUFFER_SIZE; i += 64){
+        tmp += dummy_buffer[i]; 
+     }
+    (void)tmp;
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
@@ -325,7 +333,7 @@ int main(){
   }
 
   for(int i=0; i< Items; i++){
-    mLoad(&array2[i * 64]);
+    mLoad(&array2[i * LINE_SIZE]);
   }
 
 
@@ -352,22 +360,25 @@ int main(){
       fprintf(stderr, "training range exceeds array2 size\n");
       return 1;
     }
-    print_test_header(stride, train_step, rounds);
+    // print_test_header(stride, train_step, rounds);
       // for(int train_step = 1; train_step <= 32 ; train_step++){
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
-            dummyAccesses();//for dummy accesses , reset the prefetcher state
-
-
+            
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
               }
-            //   mfence(); 
-            //  for(int repeat = 0; repeat < 5; repeat ++) {
-              for(int step = 0; step < train_step-2; step++){
+             
+
+            dummyAccesses();//for dummy accesses , reset the prefetcher state
+            mfence(); 
+
+             for(int repeat = 0; repeat < 5; repeat ++) {
+              for(int step = 0; step < train_step-1; step++){
                   stride_access(array2 + (step * stride));
-                  mfence();
+                // array2[step * stride] = 11;
+                mfence();
               }
-            //  }
+             }
             // context_switch_before_trigger();//may be flush prefetcher entry and the prefetch candidate in prefetch queue..
             // user_memory_pressure_before_trigger();
             // busy_wait_before_trigger();
@@ -376,19 +387,19 @@ int main(){
   
                 //trigger
 #if !NO_TRIGGER
-            stride_access(array2 + ((train_step -2) * stride));
-            mfence();
+            // stride_access(array2 + ((train_step -2) * stride));
+            // mfence();
             stride_access(array2 + ((train_step -1) * stride));
             mfence();
 #endif
 
             
-            // mfence();
+            mfence();
               // }
               uint64_t dummy = 0;
               for(int k =0;k<100;k++){//wait for prefetch done.
                 dummy += array1[k*64];
-                // mfence();
+                mfence();
               }
               for(int i=0;i<100;i++) {
                 nop();

@@ -47,7 +47,7 @@ static inline __attribute__((always_inline)) void flush(void *addr) {
 }
 
 #define _mStore(pre, addr)                      \
-    asm volatile(pre "movb $0, (%0)\n\t"        \
+    asm volatile(pre "movb $1, (%0)\n\t"        \
                  :: "r"(addr)                   \
                  : "memory")
 
