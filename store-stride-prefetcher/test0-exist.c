@@ -300,22 +300,25 @@ int main(){
                   flush(&array2[offset]);
               }
             //   mfence(); 
-
-              for(int step = 0; step < train_step-1; step++){
+            //  for(int repeat = 0; repeat < 5; repeat ++) {
+              for(int step = 0; step < train_step-2; step++){
                   stride_access(array2 + (step * stride));
                 //   mfence();
               }
-
+            //  }
+            context_switch_before_trigger();//may be flush prefetcher entry and the prefetch candidate in prefetch queue..
             //   for(int k=0;k<100;k++){nop();}
-            //   mfence();
-              context_switch_before_trigger();
-              
+            //   mfence();        
   
                 //trigger
 #if !NO_TRIGGER
-                stride_access(array2 + ((train_step -1) * stride));
+            stride_access(array2 + ((train_step -2) * stride));
+            stride_access(array2 + ((train_step -1) * stride));
 #endif
 
+            
+            // mfence();
+              
                 // busy_wait_before_trigger();
               // }
               uint64_t dummy = 0;
@@ -326,7 +329,8 @@ int main(){
               for(int i=0;i<100;i++) {
                 nop();
               }
-
+            
+            
             //   mfence();
 
               int probe_pos = atkRound % PROBE_POSITIONS;//test one position each round

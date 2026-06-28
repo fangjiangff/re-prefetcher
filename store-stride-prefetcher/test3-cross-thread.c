@@ -371,7 +371,7 @@ int main(void) {
         uint64_t time2;
 
         flush_shared_page();
-        dummyAccesses();
+        // dummyAccesses();
 
         train_in_thread0(stride_bytes);
 #if CONTEXT_SWITCH_ONLY
