@@ -390,7 +390,7 @@ int main(){
                 // mfence();
               }
              }
-            // context_switch_before_trigger();//may be flush prefetcher entry and the prefetch candidate in prefetch queue..
+            context_switch_before_trigger();//may be flush prefetcher entry and the prefetch candidate in prefetch queue..
             // user_memory_pressure_before_trigger();
             // busy_wait_before_trigger();
             //   for(int k=0;k<100;k++){nop();}
