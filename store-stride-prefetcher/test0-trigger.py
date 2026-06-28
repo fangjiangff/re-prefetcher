@@ -8,6 +8,9 @@ from cross_test_config import (
     apply_single_core_defaults,
     apply_threshold_defaults,
     arch_choices,
+    is_x86_arch,
+    timer_define_for_arch,
+    timer_unit_for_arch,
 )
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-cache")
@@ -39,10 +42,16 @@ def parse_args():
     parser.add_argument("--access", choices=["store", "load", "prefetch"],
                         default="store",
                         help=("Access instruction used for training/trigger. "
-                              "prefetch uses PRFM PLDL1KEEP. Default: store"))
+                              "prefetch uses the architecture-specific "
+                              "prefetch instruction. Default: store"))
     parser.add_argument("--hit-threshold-ns", dest="threshold_ns", type=int, default=None,
                         help="Latency <= this value is treated as prefetched. "
                              "Default is selected from --arch.")
+    parser.add_argument("--timer", choices=["gettime", "rdtsc"],
+                        default="gettime",
+                        help=("x86 timestamp source. gettime uses "
+                              "clock_gettime; rdtsc uses rdtscp. "
+                              "Default: gettime"))
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
                         help="Compiler command. Default: $CC or gcc")
     parser.add_argument("--output", default=None,
@@ -75,9 +84,13 @@ def parse_args():
 
 
 def result_name(args):
+    timer_suffix = ""
+    if is_x86_arch(args.arch) and args.timer != "gettime":
+        timer_suffix = f"-timer{args.timer}"
     return (
         f"{args.arch}-core{args.core}-trigger-sweep"
         f"-{args.access}-maxstride{args.max_stride}-maxstep{args.max_step}"
+        f"{timer_suffix}"
     )
 
 
@@ -114,6 +127,9 @@ def compile_test(args):
         SRC,
         UTIL_SRC,
     ]
+    timer_define = timer_define_for_arch(args.arch, args.timer)
+    if timer_define is not None:
+        compile_cmd.insert(-4, timer_define)
     return subprocess.run(compile_cmd)
 
 
@@ -177,7 +193,7 @@ def read_tsv(path):
     return rows
 
 
-def plot_heatmap(path, rows, title):
+def plot_heatmap(path, rows, title, unit):
     try:
         import matplotlib.pyplot as plt
         import numpy as np
@@ -231,18 +247,18 @@ def plot_heatmap(path, rows, title):
 
     cbar = ax.collections[0].colorbar
     if cbar is not None:
-        cbar.set_label("Average reload latency (ns)", fontsize=14)
+        cbar.set_label(f"Average reload latency ({unit})", fontsize=14)
         cbar.ax.tick_params(labelsize=12)
     fig.tight_layout()
     fig.savefig(path, dpi=300)
     plt.close(fig)
 
 
-def print_summary(rows, threshold_ns):
+def print_summary(rows, threshold_ns, unit):
     prefetched = [row for row in rows if row["avg_ns"] <= threshold_ns]
 
     print(f"{GREEN}# trigger summary")
-    print(f"# prefetch threshold: avg_ns <= {threshold_ns}")
+    print(f"# prefetch threshold: avg_{unit} <= {threshold_ns}")
     if not prefetched:
         print("min_access_times\tN/A")
         print("min_stride_lines\tN/A")
@@ -262,6 +278,7 @@ def print_summary(rows, threshold_ns):
 
 def main():
     args = parse_args()
+    unit = timer_unit_for_arch(args.arch, args.timer)
 
     if args.plot_only:
         rows = read_tsv(args.output)
@@ -289,13 +306,14 @@ def main():
         print(f"Saved TSV to {args.output}")
         print(f"Saved raw output to {args.raw_output}")
 
-    print_summary(rows, args.threshold_ns)
+    print_summary(rows, args.threshold_ns, unit)
 
     if not args.no_plot:
         plot_heatmap(
             args.plot_output,
             rows,
             f"{args.arch} core {args.core} {args.access} stride trigger sweep",
+            unit,
         )
         print(f"Saved heatmap to {args.plot_output}")
 

@@ -71,11 +71,53 @@ ARCH_CONFIG = {
             "load": 3,
         },
     },
+    "Zen4": {
+        "core": 0,
+        "threshold_ns": 170,
+        "cross_core": {
+            "train_core": 1,
+            "trigger_core": 0,
+        },
+        "accesses": {
+            "store": 3,
+            "load": 3,
+        },
+    },
+    "x86": {
+        "core": 0,
+        "threshold_ns": 170,
+        "cross_core": {
+            "train_core": 0,
+            "trigger_core": 1,
+        },
+        "accesses": {
+            "store": 3,
+            "load": 3,
+        },
+    },
 }
 
 
 def arch_choices():
     return ARCH_CONFIG.keys()
+
+
+def is_x86_arch(arch):
+    return arch in {"x86", "Zen4"}
+
+
+def timer_define_for_arch(arch, timer):
+    if not is_x86_arch(arch):
+        return None
+    if timer == "rdtsc":
+        return "-DRDTSC=1"
+    return "-DGETTIME=1"
+
+
+def timer_unit_for_arch(arch, timer):
+    if is_x86_arch(arch) and timer == "rdtsc":
+        return "cycles"
+    return "ns"
 
 
 def apply_single_core_defaults(args):

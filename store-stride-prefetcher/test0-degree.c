@@ -115,7 +115,14 @@ int main(){
     return 1;
   }
 
-  printf("# arm64 %s-stride degree sweep\n",
+  printf("# %s %s-stride degree sweep\n",
+#ifdef __x86_64__
+         "x86_64",
+#elif defined(__aarch64__)
+         "arm64",
+#else
+         "unknown",
+#endif
 #if TRAIN_ACCESS_PREFETCH
          "prefetch"
 #elif TRAIN_ACCESS_LOAD
@@ -126,7 +133,8 @@ int main(){
   );
   printf("# stride_bytes=%d stride_lines=%d max_step=%d probes=%d rounds=%d\n",
          TEST_STRIDE, TEST_STRIDE / LINE_SIZE, MAX_STEP, PROBES, ROUNDS);
-  printf("# train_step probe_pos offset_bytes role avg_ns\n");
+  printf("# timer: %s %s\n", TIMESTAMP_SOURCE_NAME, TIMESTAMP_UNIT_NAME);
+  printf("# train_step probe_pos offset_bytes role avg_%s\n", TIMESTAMP_UNIT_NAME);
 
   int stride = TEST_STRIDE;
       for(int train_step = 1; train_step <= MAX_STEP ; train_step++){

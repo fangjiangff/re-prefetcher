@@ -9,6 +9,9 @@ from cross_test_config import (
     apply_single_core_defaults,
     apply_threshold_defaults,
     arch_choices,
+    is_x86_arch,
+    timer_define_for_arch,
+    timer_unit_for_arch,
 )
 from cross_plot import plot_cross_bar_chart
 from cross_result_eval import (
@@ -60,6 +63,11 @@ def parse_args():
     parser.add_argument("--hit-threshold-ns", type=int,
                         default=None,
                         help="Override the arch-specific cache hit threshold.")
+    parser.add_argument("--timer", choices=["gettime", "rdtsc"],
+                        default="gettime",
+                        help=("x86 timestamp source. gettime uses "
+                              "clock_gettime; rdtsc uses rdtscp. "
+                              "Default: gettime"))
     parser.add_argument("--access", choices=["store", "load"], default="store",
                         help="Stride instruction to test. Default: store")
     parser.add_argument("--child-map-addr", type=parse_int_auto,
@@ -100,6 +108,7 @@ def parse_args():
         parser.error("--hit-threshold-ns must be >= 1")
     if args.child_map_addr < 0:
         parser.error("--child-map-addr must be >= 0")
+    args.timer_unit = timer_unit_for_arch(args.arch, args.timer)
 
     predicted_line = args.accesses * args.stride
     if predicted_line >= 64:
@@ -120,11 +129,15 @@ def micro_arch_name():
     else:
         pc_mode = "inline" if args.inline_store else "noinline"
     child_addr = f"childva{args.child_map_addr:x}"
+    timer_suffix = ""
+    if is_x86_arch(args.arch) and args.timer != "gettime":
+        timer_suffix = f"-timer{args.timer}"
     return (
         f"{args.arch}-core{args.core}-cross-process-strong"
         f"-stride{args.stride}-accesses{args.accesses}"
         f"-trigger{args.trigger_accesses}"
         f"-probe{args.probe_positions}-{args.access}-{pc_mode}-{child_addr}"
+        f"{timer_suffix}"
     )
 
 
@@ -329,6 +342,9 @@ def compile_test(no_trigger=False, same_process=False, process_switch=False):
         SRC,
         UTIL_SRC,
     ]
+    timer_define = timer_define_for_arch(args.arch, args.timer)
+    if timer_define is not None:
+        compile_cmd.insert(-4, timer_define)
     return subprocess.run(compile_cmd)
 
 
@@ -394,7 +410,10 @@ def print_summary(rows, label):
     for pos in targets:
         if pos < len(rows):
             row = rows[pos]
-            print(f"  line {pos:2d}: {row['role']:10s} {row['avg_ns']:4d} ns")
+            print(
+                f"  line {pos:2d}: {row['role']:10s} "
+                f"{row['avg_ns']:4d} {args.timer_unit}"
+            )
 
 
 def print_green(text):
@@ -407,6 +426,7 @@ def effective_threshold_and_reclassify(*row_sets):
         auto_threshold=args.hit_threshold_ns_auto,
         baseline1_rows=row_sets[0] if len(row_sets) > 0 else None,
         baseline2_rows=row_sets[1] if len(row_sets) > 1 else None,
+        unit=args.timer_unit,
     )
     for rows in row_sets:
         reclassify_cross_rows(rows, threshold_ns)
@@ -438,6 +458,7 @@ def plot_bar_chart(rows, no_trigger_avg_ns=None, title=None, path=None,
             f"train_only={train_only_accesses()}, "
             f"trigger_accesses={args.trigger_accesses}, "
             f"{args.access}={access_mode}, "
+            f"timer={args.timer if is_x86_arch(args.arch) else 'arch-default'}, "
             f"child_va=0x{args.child_map_addr:x}"
         ),
         output_path=path,
@@ -504,6 +525,7 @@ if __name__ == "__main__":
             baseline2_rows=baseline2_rows,
             experiment3_rows=experiment3_rows,
             experiment4_rows=experiment4_rows,
+            unit=args.timer_unit,
         )
         sys.exit(0)
 
@@ -516,6 +538,8 @@ if __name__ == "__main__":
         f"trigger_line={trigger_line()}, last_trigger_line={last_trigger_line()}, "
         f"predicted_line={predicted_line()}, "
         f"probe_positions={args.probe_positions}, rounds={args.rounds}, "
+        f"timer={args.timer if is_x86_arch(args.arch) else 'arch-default'}, "
+        f"unit={args.timer_unit}, "
         f"{args.access}={'noinline' if args.access == 'load' else ('inline' if args.inline_store else 'noinline')}, "
         f"child_map_addr=0x{args.child_map_addr:x}"
     )
@@ -525,7 +549,7 @@ if __name__ == "__main__":
         predicted = predicted_line()
         print_green(
             f"Baseline1 parent-trigger: line {predicted} "
-            f"avg_ns={baseline1_rows[predicted]['avg_ns']}"
+            f"avg_{args.timer_unit}={baseline1_rows[predicted]['avg_ns']}"
         )
         print_summary(baseline1_rows, "Baseline1 parent-trigger result:")
 
@@ -535,7 +559,7 @@ if __name__ == "__main__":
         baseline_avg_ns = baseline2_rows[predicted]["avg_ns"]
         print_green(
             f"Baseline2 no-trigger: line {predicted} "
-            f"avg_ns={baseline_avg_ns}"
+            f"avg_{args.timer_unit}={baseline_avg_ns}"
         )
         print_summary(baseline2_rows, "Baseline2 no-trigger result:")
 
@@ -544,7 +568,7 @@ if __name__ == "__main__":
         predicted = predicted_line()
         print_green(
             f"Experiment3 process-switch parent-trigger: line {predicted} "
-            f"avg_ns={experiment3_rows[predicted]['avg_ns']}"
+            f"avg_{args.timer_unit}={experiment3_rows[predicted]['avg_ns']}"
         )
         print_summary(experiment3_rows, "Experiment3 process-switch result:")
 
@@ -553,7 +577,7 @@ if __name__ == "__main__":
         predicted = predicted_line()
         print_green(
             f"Experiment4 child-trigger: line {predicted} "
-            f"avg_ns={experiment4_rows[predicted]['avg_ns']}"
+            f"avg_{args.timer_unit}={experiment4_rows[predicted]['avg_ns']}"
         )
         print_summary(experiment4_rows, "Experiment4 child-trigger result:")
 
@@ -571,6 +595,7 @@ if __name__ == "__main__":
         baseline2_rows=baseline2_rows,
         experiment3_rows=experiment3_rows,
         experiment4_rows=experiment4_rows,
+        unit=args.timer_unit,
     )
 
     if not args.no_plot:

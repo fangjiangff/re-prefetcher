@@ -74,13 +74,7 @@ static void shuffle_ints(int *values, int count) {
 }
 
 void dummyAccesses(void){
-  // dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
-   for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
-        uint64_t i = j;
-        // asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
-        asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
-        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
-     }
+  dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
@@ -142,7 +136,14 @@ int main(){
     return 1;
   }
 
-  printf("# arm64 %s-stride trigger sweep\n",
+  printf("# %s %s-stride trigger sweep\n",
+#ifdef __x86_64__
+         "x86_64",
+#elif defined(__aarch64__)
+         "arm64",
+#else
+         "unknown",
+#endif
 #if TRAIN_ACCESS_PREFETCH
          "prefetch"
 #elif TRAIN_ACCESS_LOAD
@@ -151,7 +152,8 @@ int main(){
          "store"
 #endif
   );
-  printf("# stride_lines train_step avg_ns\n");
+  printf("# timer: %s %s\n", TIMESTAMP_SOURCE_NAME, TIMESTAMP_UNIT_NAME);
+  printf("# stride_lines train_step avg_%s\n", TIMESTAMP_UNIT_NAME);
 
   int stride_order[MAX_STRIDE_LINES];
   int train_step_order[MAX_STEP];

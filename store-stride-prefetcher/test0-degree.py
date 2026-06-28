@@ -8,6 +8,9 @@ from cross_test_config import (
     apply_single_core_defaults,
     apply_threshold_defaults,
     arch_choices,
+    is_x86_arch,
+    timer_define_for_arch,
+    timer_unit_for_arch,
 )
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-cache")
@@ -47,10 +50,16 @@ def parse_args():
     parser.add_argument("--access", choices=["store", "load", "prefetch"],
                         default="store",
                         help=("Access instruction used for training/trigger. "
-                              "prefetch uses PRFM PLDL1KEEP. Default: store"))
+                              "prefetch uses the architecture-specific "
+                              "prefetch instruction. Default: store"))
     parser.add_argument("--hit-threshold-ns", dest="threshold_ns", type=int, default=180,
                         help="Candidate latency <= this value is treated as prefetched. "
                              "Default is selected from --arch.")
+    parser.add_argument("--timer", choices=["gettime", "rdtsc"],
+                        default="gettime",
+                        help=("x86 timestamp source. gettime uses "
+                              "clock_gettime; rdtsc uses rdtscp. "
+                              "Default: gettime"))
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
                         help="Compiler command. Default: $CC or gcc")
     parser.add_argument("--output", default=None,
@@ -85,10 +94,14 @@ def parse_args():
 
 
 def result_name(args):
+    timer_suffix = ""
+    if is_x86_arch(args.arch) and args.timer != "gettime":
+        timer_suffix = f"-timer{args.timer}"
     return (
         f"{args.arch}-core{args.core}-degree-sweep"
         f"-{args.access}-stride{args.stride}"
         f"-maxstep{args.max_step}-probe{args.probe_positions}"
+        f"{timer_suffix}"
     )
 
 
@@ -126,6 +139,9 @@ def compile_test(args):
         SRC,
         UTIL_SRC,
     ]
+    timer_define = timer_define_for_arch(args.arch, args.timer)
+    if timer_define is not None:
+        compile_cmd.insert(-4, timer_define)
     return subprocess.run(compile_cmd)
 
 
@@ -225,7 +241,7 @@ def draw_page_boundaries(ax, rows, probe_labels):
             )
 
 
-def plot_heatmap(path, rows, title):
+def plot_heatmap(path, rows, title, unit):
     try:
         import matplotlib.pyplot as plt
         import numpy as np
@@ -298,14 +314,14 @@ def plot_heatmap(path, rows, title):
 
     cbar = ax.collections[0].colorbar
     if cbar is not None:
-        cbar.set_label("Average reload latency (ns)", fontsize=14)
+        cbar.set_label(f"Average reload latency ({unit})", fontsize=14)
         cbar.ax.tick_params(labelsize=12)
     fig.tight_layout()
     fig.savefig(path, dpi=300)
     plt.close(fig)
 
 
-def print_summary(rows, threshold_ns):
+def print_summary(rows, threshold_ns, unit):
     degree_by_step = {}
     for row in rows:
         if row["role"] != "candidate":
@@ -316,7 +332,7 @@ def print_summary(rows, threshold_ns):
             degree_by_step[row["train_step"]] += 1
 
     print(f"{GREEN}# degree summary")
-    print(f"# prefetch threshold: candidate avg_ns <= {threshold_ns}")
+    print(f"# prefetch threshold: candidate avg_{unit} <= {threshold_ns}")
     positive_degrees = [
         degree for degree in degree_by_step.values()
         if degree > 0
@@ -338,6 +354,7 @@ def print_summary(rows, threshold_ns):
 
 def main():
     args = parse_args()
+    unit = timer_unit_for_arch(args.arch, args.timer)
 
     if args.plot_only:
         rows = read_tsv(args.output)
@@ -365,7 +382,7 @@ def main():
         print(f"Saved TSV to {args.output}")
         print(f"Saved raw output to {args.raw_output}")
 
-    print_summary(rows, args.threshold_ns)
+    print_summary(rows, args.threshold_ns, unit)
 
     if not args.no_plot:
         plot_heatmap(
@@ -375,6 +392,7 @@ def main():
                 f"{args.arch} core {args.core} {args.access} degree sweep "
                 f"(stride={args.stride} lines)"
             ),
+            unit,
         )
         print(f"Saved heatmap to {args.plot_output}")
 

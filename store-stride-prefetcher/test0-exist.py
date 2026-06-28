@@ -60,10 +60,16 @@ def parse_args():
                         default=None,
                         help="Predicted line is treated as prefetched when "
                              "avg_ns <= this value. Default is selected from --arch.")
+    parser.add_argument("--timer", choices=["gettime", "rdtsc"],
+                        default="gettime",
+                        help=("x86 timestamp source. gettime uses "
+                              "clock_gettime; rdtsc uses rdtscp/rdtsc. "
+                              "Default: gettime"))
     parser.add_argument("--access", choices=["store", "load", "prefetch"],
                         default="store",
                         help=("Stride instruction to test. "
-                              "prefetch uses PRFM PLDL1KEEP. Default: store"))
+                              "prefetch uses the architecture-specific "
+                              "prefetch instruction. Default: store"))
     parser.add_argument("--dummy-access", choices=["load", "store", "prefetch"],
                         default="prefetch",
                         help="Instruction used by dummyAccesses. Default: prefetch")
@@ -237,6 +243,24 @@ def dummy_configs():
     ]
 
 
+def is_x86_arch(arch):
+    return arch in {"x86", "Zen4"}
+
+
+def timer_unit_for(arch):
+    if is_x86_arch(arch) and args.timer == "rdtsc":
+        return "cycles"
+    return "ns"
+
+
+def timer_define_for(arch):
+    if not is_x86_arch(arch):
+        return None
+    if args.timer == "rdtsc":
+        return "-DRDTSC=1"
+    return "-DGETTIME=1"
+
+
 def micro_arch_name(arch, core, train_step):
     trigger_suffix = "-no-trigger" if args.no_trigger else ""
     switch_suffix = (
@@ -252,6 +276,9 @@ def micro_arch_name(arch, core, train_step):
         if args.busy_wait else ""
     )
     dummy_suffix = ""
+    timer_suffix = ""
+    if is_x86_arch(arch) and args.timer != "gettime":
+        timer_suffix = f"-timer{args.timer}"
     if (
         args.dummy_sweep
         or args.dummy_access != "prefetch"
@@ -265,7 +292,8 @@ def micro_arch_name(arch, core, train_step):
     return (
         f"{arch}-core{core}-stride{args.stride}"
         f"-train{train_step}-{args.access}"
-        f"{trigger_suffix}{switch_suffix}{pressure_suffix}{busy_wait_suffix}"
+        f"{timer_suffix}{trigger_suffix}{switch_suffix}"
+        f"{pressure_suffix}{busy_wait_suffix}"
         f"{dummy_suffix}"
     )
 
@@ -379,7 +407,7 @@ def read_tsv(path):
     return rows
 
 
-def compile_test(train_step):
+def compile_test(train_step, arch):
     compile_cmd = [
         args.cc,
         "-std=gnu11",
@@ -408,6 +436,9 @@ def compile_test(train_step):
         SRC,
         UTIL_SRC,
     ]
+    timer_define = timer_define_for(arch)
+    if timer_define is not None:
+        compile_cmd.insert(-4, timer_define)
     return subprocess.run(compile_cmd).returncode
 
 
@@ -442,12 +473,14 @@ def run_binary(core):
 
 def run_one(arch, core, train_step):
     threshold_ns = threshold_ns_for(arch)
+    threshold_unit = timer_unit_for(arch)
     print("=" * 60)
     print(
         f"access={args.access}, arch={arch}, core={core}, "
         f"stride={args.stride} lines, train_step={train_step}, "
         f"predicted_position={predicted_position(train_step)}, "
-        f"rounds={args.rounds}, threshold={threshold_ns} ns, "
+        f"rounds={args.rounds}, threshold={threshold_ns} {threshold_unit}, "
+        f"timer={args.timer if is_x86_arch(arch) else 'arch-default'}, "
         f"dummy_access={args.dummy_access}, "
         f"dummy_order={args.dummy_order}, "
         f"dummy_buffer_pages={args.dummy_buffer_pages}, "
@@ -459,7 +492,7 @@ def run_one(arch, core, train_step):
         f"busy_wait_ns={args.busy_wait_ns}"
     )
 
-    if compile_test(train_step) != 0:
+    if compile_test(train_step, arch) != 0:
         print("Compile failed")
         return []
     write_dump(arch, core, train_step)
@@ -507,6 +540,7 @@ def colored_yes_no(value):
 
 def print_predicted_result(arch, core, train_step, rows):
     threshold_ns = threshold_ns_for(arch)
+    threshold_unit = timer_unit_for(arch)
     row = predicted_row(rows, train_step)
     if row is None:
         print(
@@ -519,14 +553,15 @@ def print_predicted_result(arch, core, train_step, rows):
     print(
         f"{arch} core={core} train_step={train_step}: "
         f"predicted_position={row['position']} "
-        f"avg_ns={row['avg_ns']} "
+        f"avg_{threshold_unit}={row['avg_ns']} "
         f"prefetched={colored_yes_no(prefetched)} "
-        f"threshold={threshold_ns} ns"
+        f"threshold={threshold_ns} {threshold_unit}"
     )
 
 
 def plot_bar_chart(rows, arch, core, train_step):
     threshold_ns = threshold_ns_for(arch)
+    threshold_unit = timer_unit_for(arch)
     try:
         import matplotlib.pyplot as plt
         from matplotlib.patches import Patch
@@ -561,7 +596,7 @@ def plot_bar_chart(rows, arch, core, train_step):
         loc="left",
         pad=4,
     )
-    ax.set_ylabel("Average reload ns")
+    ax.set_ylabel(f"Average reload {threshold_unit}")
     ax.set_xlabel("Probe cache-line index")
     ax.set_ylim(0, max(300, max(values) * 1.05 if values else 300))
     ax.set_xlim(-1, max(positions) + 1 if positions else args.probe_positions)
@@ -583,7 +618,7 @@ def plot_bar_chart(rows, arch, core, train_step):
     fig.suptitle(
         f"{arch} core {core}, stride={args.stride}, "
         f"predicted_position={predicted_position(train_step)}, "
-        f"threshold={threshold_ns} ns",
+        f"threshold={threshold_ns} {threshold_unit}",
         x=0.01,
         ha="left",
     )

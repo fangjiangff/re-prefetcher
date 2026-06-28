@@ -20,8 +20,8 @@ def _avg_for_line(rows, line):
     return row.get("avg_ns")
 
 
-def _avg_text(avg):
-    return "missing" if avg is None else f"{avg} ns"
+def _avg_text(avg, unit):
+    return "missing" if avg is None else f"{avg} {unit}"
 
 
 def _mean(values):
@@ -34,6 +34,7 @@ def compute_cross_threshold(
     auto_threshold,
     baseline1_rows,
     baseline2_rows,
+    unit="ns",
 ):
     if not auto_threshold:
         return configured_threshold_ns, "specified"
@@ -59,7 +60,8 @@ def compute_cross_threshold(
         return configured_threshold_ns, "arch-fallback"
 
     return int(round((trained_avg + miss_avg) / 2)), (
-        f"auto trained_avg={trained_avg:.1f} ns miss_avg={miss_avg:.1f} ns"
+        f"auto trained_avg={trained_avg:.1f} {unit} "
+        f"miss_avg={miss_avg:.1f} {unit}"
     )
 
 
@@ -83,6 +85,7 @@ def print_cross_evaluation(
     experiment3_rows,
     experiment4_rows,
     experiment5_rows=None,
+    unit="ns",
 ):
     baseline1_avg = _avg_for_line(baseline1_rows, predicted_line)
     baseline2_avg = _avg_for_line(baseline2_rows, predicted_line)
@@ -111,22 +114,22 @@ def print_cross_evaluation(
 
     print("Cross-test evaluation:")
     if threshold_source:
-        print(f"  Hit threshold: {threshold_ns} ns ({threshold_source})")
+        print(f"  Hit threshold: {threshold_ns} {unit} ({threshold_source})")
     print(
         f"  Baseline1 target line {predicted_line} cache hit "
-        f"(< {threshold_ns} ns): {_yes_no(baseline1_ok)} "
-        f"avg={_avg_text(baseline1_avg)}"
+        f"(< {threshold_ns} {unit}): {_yes_no(baseline1_ok)} "
+        f"avg={_avg_text(baseline1_avg, unit)}"
     )
     print(
         f"  Baseline2 target line {predicted_line} cache miss "
-        f"(> {threshold_ns} ns): {_yes_no(baseline2_ok)} "
-        f"avg={_avg_text(baseline2_avg)}"
+        f"(> {threshold_ns} {unit}): {_yes_no(baseline2_ok)} "
+        f"avg={_avg_text(baseline2_avg, unit)}"
     )
     print(f"  Baselines valid: {_yes_no(baselines_ok)}")
     print(
         f"  Experiment3 target line {predicted_line} prefetch "
-        f"(< {threshold_ns} ns): {_yes_no(experiment3_prefetch)} "
-        f"avg={_avg_text(experiment3_avg)}"
+        f"(< {threshold_ns} {unit}): {_yes_no(experiment3_prefetch)} "
+        f"avg={_avg_text(experiment3_avg, unit)}"
     )
     print(
         "  Experiment3 proves prefetcher state survives context switch "
@@ -134,8 +137,8 @@ def print_cross_evaluation(
     )
     print(
         f"  Experiment4 target line {predicted_line} prefetch "
-        f"(< {threshold_ns} ns): {_yes_no(experiment4_prefetch)} "
-        f"avg={_avg_text(experiment4_avg)}"
+        f"(< {threshold_ns} {unit}): {_yes_no(experiment4_prefetch)} "
+        f"avg={_avg_text(experiment4_avg, unit)}"
     )
     print(
         "  Experiment4 proves prefetcher state is shared across contexts: "
@@ -144,8 +147,8 @@ def print_cross_evaluation(
     if experiment5_rows is not None:
         print(
             f"  Experiment5 target line {predicted_line} no prefetch "
-            f"(> {threshold_ns} ns): {_yes_no(experiment5_no_prefetch)} "
-            f"avg={_avg_text(experiment5_avg)}"
+            f"(> {threshold_ns} {unit}): {_yes_no(experiment5_no_prefetch)} "
+            f"avg={_avg_text(experiment5_avg, unit)}"
         )
         print(
             "  Experiment5 controls for Secure World switch without trigger: "

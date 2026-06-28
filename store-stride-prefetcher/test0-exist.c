@@ -33,6 +33,22 @@
 #define TRAIN_ACCESS_PREFETCH 0
 #endif
 
+#ifndef DUMMY_BUFFER_PAGES
+#define DUMMY_BUFFER_PAGES 10
+#endif
+
+#ifndef DUMMY_ACCESS_LOAD
+#define DUMMY_ACCESS_LOAD 0
+#endif
+
+#ifndef DUMMY_ACCESS_STORE
+#define DUMMY_ACCESS_STORE 0
+#endif
+
+#ifndef DUMMY_ACCESS_PERMUTED
+#define DUMMY_ACCESS_PERMUTED 0
+#endif
+
 #if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
 #error "Only one train access mode can be enabled"
 #endif
@@ -84,19 +100,29 @@ uint8_t array1[100*LINE_SIZE]={0};
 
 uint8_t array3[Items * LINE_SIZE] __attribute__((aligned(4096)));;
 
-#define DUMMY_BUFFER_SIZE (PAGE_SIZE * 10)
+#define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 static uint8_t* dummy_buffer;
 
 void dummyAccesses(void){
-//   dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
-   for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
-        uint64_t i = j;
-        // asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
-        asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
-        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
-        // mLoad_noinline(&dummy_buffer[i]);
-     }
+   size_t lines = DUMMY_BUFFER_SIZE / LINE_SIZE;
+
+   for(size_t n = 0; n < lines; n++){
+#if DUMMY_ACCESS_PERMUTED
+        size_t line = (n * 97) % lines;
+#else
+        size_t line = n;
+#endif
+        void *addr = dummy_buffer + line * LINE_SIZE;
+
+#if DUMMY_ACCESS_LOAD
+        mLoad_inline(addr);
+#elif DUMMY_ACCESS_STORE
+        mStore_inline(addr);
+#else
+        mPrefetch_inline(addr);
+#endif
+   }
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
@@ -117,6 +143,7 @@ static void context_switch_before_trigger(void) {
 #endif
 }
 
+#ifdef __aarch64__
 static inline __attribute__((always_inline)) uint64_t read_cntvct(void) {
     uint64_t value;
 
@@ -130,6 +157,7 @@ static inline __attribute__((always_inline)) uint64_t read_cntfrq(void) {
     asm volatile("mrs %0, cntfrq_el0" : "=r"(value));
     return value;
 }
+#endif
 
 static void user_memory_pressure_before_trigger(void) {
 #if USER_MEMORY_PRESSURE_BEFORE_TRIGGER
@@ -140,10 +168,14 @@ static void user_memory_pressure_before_trigger(void) {
         uint8_t *addr = array3 + ((i * 97) % Items) * LINE_SIZE;
         uint32_t value = (uint32_t)i;
 
+#ifdef __aarch64__
         asm volatile("strb %w0, [%1]\n\t"
                      :
                      : "r"(value), "r"(addr)
                      : "memory");
+#else
+        mStore_inline(addr);
+#endif
         sum += value;
     }
 
@@ -165,6 +197,7 @@ static void user_memory_pressure_before_trigger(void) {
 static void busy_wait_before_trigger(void) {
 #if BUSY_WAIT_BEFORE_TRIGGER
     uint64_t start_ns = timestamp();
+#ifdef __aarch64__
     uint64_t freq = read_cntfrq();
     uint64_t ticks = (freq * (uint64_t)BUSY_WAIT_NS + 999999999ULL) / 1000000000ULL;
     uint64_t end = read_cntvct() + (ticks ? ticks : 1);
@@ -172,6 +205,13 @@ static void busy_wait_before_trigger(void) {
     while (read_cntvct() < end) {
         nop();
     }
+#else
+    uint64_t end_ns = start_ns + (uint64_t)BUSY_WAIT_NS;
+
+    while (timestamp() < end_ns) {
+        nop();
+    }
+#endif
 
     uint64_t elapsed = timestamp() - start_ns;
 
@@ -221,7 +261,14 @@ static void print_user_memory_pressure_time_stats(void) {
 }
 
 static void print_test_header(int stride, int train_step, uint64_t rounds) {
-    printf("# arm64 %s-stride prefetch latency map\n",
+    printf("# %s %s-stride prefetch latency map\n",
+#ifdef __x86_64__
+           "x86_64",
+#elif defined(__aarch64__)
+           "arm64",
+#else
+           "unknown",
+#endif
 #if TRAIN_ACCESS_PREFETCH
            "prefetch"
 #elif TRAIN_ACCESS_LOAD
@@ -232,17 +279,32 @@ static void print_test_header(int stride, int train_step, uint64_t rounds) {
     );
     printf("# access mode: %s (%s), same noinline PC for train and trigger\n",
 #if TRAIN_ACCESS_PREFETCH
-           "prefetch", "PRFM PLDL1KEEP"
-#elif TRAIN_ACCESS_LOAD
-           "load", "ldrb"
+           "prefetch",
+#ifdef __x86_64__
+           "prefetcht0"
 #else
-           "store", "strb"
+           "PRFM PLDL1KEEP"
+#endif
+#elif TRAIN_ACCESS_LOAD
+           "load",
+#ifdef __x86_64__
+           "movb load"
+#else
+           "ldrb"
+#endif
+#else
+           "store",
+#ifdef __x86_64__
+           "movb store"
+#else
+           "strb"
+#endif
 #endif
     );
     printf("# stride_bytes=%d train_step=%d rounds=%llu probe_positions=%d\n",
            stride, train_step, (unsigned long long)rounds, PROBE_POSITIONS);
-    printf("# timer: clock_gettime(CLOCK_MONOTONIC) ns\n");
-    printf("# position\toffset_bytes\tavg_ns\tprobes\n");
+    printf("# timer: %s %s\n", TIMESTAMP_SOURCE_NAME, TIMESTAMP_UNIT_NAME);
+    printf("# position\toffset_bytes\tavg_%s\tprobes\n", TIMESTAMP_UNIT_NAME);
 }
 
 
@@ -307,6 +369,8 @@ int main(){
               }
             //  }
             context_switch_before_trigger();//may be flush prefetcher entry and the prefetch candidate in prefetch queue..
+            user_memory_pressure_before_trigger();
+            busy_wait_before_trigger();
             //   for(int k=0;k<100;k++){nop();}
             //   mfence();        
   
@@ -318,8 +382,6 @@ int main(){
 
             
             // mfence();
-              
-                // busy_wait_before_trigger();
               // }
               uint64_t dummy = 0;
               for(int k =0;k<100;k++){//wait for prefetch done.

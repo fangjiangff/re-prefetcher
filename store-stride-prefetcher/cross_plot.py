@@ -54,7 +54,8 @@ def plot_cross_bar_chart(
                linestyle=":", linewidth=1.0)
 
     ax.set_title(title or default_title, loc="left", pad=4)
-    ax.set_ylabel("Average reload ns")
+    unit = getattr(args, "timer_unit", "ns")
+    ax.set_ylabel(f"Average reload {unit}")
     ax.set_xlabel("Probe cache-line index")
     ax.set_ylim(0, max(300, max(values) * 1.05 if values else 300))
     ax.set_xlim(-1, max(positions) + 1 if positions else args.probe_positions)
@@ -80,11 +81,11 @@ def plot_cross_bar_chart(
     no_trigger_text = ""
     if no_trigger_avg_ns is not None:
         no_trigger_text = (
-            f", no_trigger_line{predicted_line}={no_trigger_avg_ns} ns"
+            f", no_trigger_line{predicted_line}={no_trigger_avg_ns} {unit}"
         )
 
     fig.suptitle(
-        f"{summary_text}, threshold={args.hit_threshold_ns} ns"
+        f"{summary_text}, threshold={args.hit_threshold_ns} {unit}"
         f"{no_trigger_text}",
         x=0.01,
         ha="left",

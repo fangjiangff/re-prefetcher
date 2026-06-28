@@ -314,7 +314,14 @@ static void print_header(int stride_bytes, int first_trigger_line,
                          int last_trigger_line,
                          int predicted_line, pid_t child_pid,
                          uintptr_t child_addr) {
-    printf("# arm64 strong cross-process %s-stride retention test\n",
+    printf("# %s strong cross-process %s-stride retention test\n",
+#ifdef __x86_64__
+           "x86_64",
+#elif defined(__aarch64__)
+           "arm64",
+#else
+           "unknown",
+#endif
 #if TRAIN_ACCESS_LOAD
            "load"
 #else
@@ -375,7 +382,8 @@ static void print_header(int stride_bytes, int first_trigger_line,
            "exec_child_store"
 #endif
     );
-    printf("# position\toffset_bytes\tavg_ns\tprobes\n");
+    printf("# timer: %s %s\n", TIMESTAMP_SOURCE_NAME, TIMESTAMP_UNIT_NAME);
+    printf("# position\toffset_bytes\tavg_%s\tprobes\n", TIMESTAMP_UNIT_NAME);
 }
 
 int main(int argc, char **argv) {
