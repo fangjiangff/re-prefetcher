@@ -1,0 +1,74 @@
+# arm64 strong cross-process store-stride retention test
+# accesses=3 train_only_accesses=2 trigger_accesses=1
+# parent trains 2 stores, parent_after_process_switch triggers 1 access(es)
+# parent_pid=1289961 child_pid=1289962
+# parent_page=0x0000ffffb22de000 child_page=0x0000000700000000 same_va=no
+# stride_lines=5 stride_bytes=320 rounds=4000 probe_positions=64
+# trigger_lines=10..10 predicted_line=15 access=store pc=noinline_same_pc_per_process
+# trigger=process_switch_then_same_process
+# timer: clock_gettime(CLOCK_MONOTONIC) ns
+# position	offset_bytes	avg_ns	probes
+  0	           0	        94	   63
+  1	          64	       229	   62
+  2	         128	       229	   62
+  3	         192	       228	   62
+  4	         256	       230	   62
+  5	         320	        91	   63
+  6	         384	       228	   63
+  7	         448	       232	   63
+  8	         512	       221	   63
+  9	         576	       219	   63
+ 10	         640	        89	   62
+ 11	         704	       215	   62
+ 12	         768	       224	   62
+ 13	         832	       219	   62
+ 14	         896	       217	   63
+ 15	         960	       150	   63
+ 16	        1024	       230	   63
+ 17	        1088	       230	   63
+ 18	        1152	       234	   63
+ 19	        1216	       222	   62
+ 20	        1280	       233	   62
+ 21	        1344	       228	   62
+ 22	        1408	       229	   62
+ 23	        1472	       234	   63
+ 24	        1536	       221	   63
+ 25	        1600	       223	   63
+ 26	        1664	       224	   63
+ 27	        1728	       220	   63
+ 28	        1792	       213	   62
+ 29	        1856	       222	   62
+ 30	        1920	       224	   62
+ 31	        1984	       213	   62
+ 32	        2048	       229	   62
+ 33	        2112	       231	   63
+ 34	        2176	       224	   63
+ 35	        2240	       230	   63
+ 36	        2304	       239	   63
+ 37	        2368	       232	   62
+ 38	        2432	       228	   62
+ 39	        2496	       236	   62
+ 40	        2560	       219	   62
+ 41	        2624	       215	   62
+ 42	        2688	       219	   63
+ 43	        2752	       224	   63
+ 44	        2816	       222	   63
+ 45	        2880	       220	   63
+ 46	        2944	       225	   62
+ 47	        3008	       215	   62
+ 48	        3072	       224	   62
+ 49	        3136	       225	   62
+ 50	        3200	       229	   62
+ 51	        3264	       225	   63
+ 52	        3328	       227	   63
+ 53	        3392	       238	   63
+ 54	        3456	       235	   63
+ 55	        3520	       230	   62
+ 56	        3584	       228	   62
+ 57	        3648	       218	   62
+ 58	        3712	       212	   62
+ 59	        3776	       223	   62
+ 60	        3840	       217	   63
+ 61	        3904	       227	   63
+ 62	        3968	       228	   63
+ 63	        4032	       220	   63

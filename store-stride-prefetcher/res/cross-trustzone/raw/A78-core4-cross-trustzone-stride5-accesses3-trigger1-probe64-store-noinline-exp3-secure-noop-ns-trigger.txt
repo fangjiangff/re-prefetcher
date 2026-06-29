@@ -1,0 +1,73 @@
+# tee_impl_id=1 tee_impl_caps=0x1 tee_gen_caps=0xd
+# arm64 Normal/Secure TrustZone stride retention test
+# training_mode=normal_world_train_secure_world_noop_normal_world_trigger accesses=3 train_only_accesses=2 trigger_accesses=1 access=store
+# tee_device=/dev/tee0 shared_page=0x0000ffffb255b000
+# stride_lines=5 stride_bytes=320 rounds=4000 probe_positions=64
+# trigger_lines=10..10 predicted_line=15 train_pc=normal_world_store_noinline_same_pc
+# trigger=normal_world_store_after_secure_noop
+# no_trigger_command=not_applicable
+# position	offset_bytes	avg_ns	probes
+  0	           0	       106	   63
+  1	          64	       244	   63
+  2	         128	       244	   63
+  3	         192	       240	   63
+  4	         256	       245	   63
+  5	         320	       100	   63
+  6	         384	       251	   63
+  7	         448	       245	   63
+  8	         512	       230	   63
+  9	         576	       234	   63
+ 10	         640	       100	   63
+ 11	         704	       236	   63
+ 12	         768	       236	   63
+ 13	         832	       235	   63
+ 14	         896	       231	   63
+ 15	         960	       235	   63
+ 16	        1024	       243	   63
+ 17	        1088	       244	   63
+ 18	        1152	       241	   63
+ 19	        1216	       243	   63
+ 20	        1280	       247	   63
+ 21	        1344	       250	   63
+ 22	        1408	       251	   63
+ 23	        1472	       250	   63
+ 24	        1536	       243	   63
+ 25	        1600	       236	   63
+ 26	        1664	       238	   63
+ 27	        1728	       238	   63
+ 28	        1792	       234	   63
+ 29	        1856	       239	   63
+ 30	        1920	       245	   63
+ 31	        1984	       230	   63
+ 32	        2048	       243	   62
+ 33	        2112	       254	   62
+ 34	        2176	       240	   62
+ 35	        2240	       241	   62
+ 36	        2304	       255	   62
+ 37	        2368	       255	   62
+ 38	        2432	       246	   62
+ 39	        2496	       249	   62
+ 40	        2560	       245	   62
+ 41	        2624	       234	   62
+ 42	        2688	       241	   62
+ 43	        2752	       234	   62
+ 44	        2816	       241	   62
+ 45	        2880	       240	   62
+ 46	        2944	       238	   62
+ 47	        3008	       235	   62
+ 48	        3072	       247	   62
+ 49	        3136	       248	   62
+ 50	        3200	       238	   62
+ 51	        3264	       244	   62
+ 52	        3328	       255	   62
+ 53	        3392	       245	   62
+ 54	        3456	       246	   62
+ 55	        3520	       250	   62
+ 56	        3584	       238	   62
+ 57	        3648	       230	   62
+ 58	        3712	       239	   62
+ 59	        3776	       233	   62
+ 60	        3840	       239	   62
+ 61	        3904	       239	   62
+ 62	        3968	       239	   62
+ 63	        4032	       243	   62

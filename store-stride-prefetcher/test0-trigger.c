@@ -74,12 +74,12 @@ static void shuffle_ints(int *values, int count) {
 }
 
 void dummyAccesses(void){
-//   dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
-       for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
-        // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
-        asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
-        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
-     }
+  dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+    //    for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+    //     // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+    //     asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+    //     // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
+    //  }
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
