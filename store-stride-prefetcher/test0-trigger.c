@@ -179,10 +179,10 @@ int main(){
       int stride = stride_lines * LINE_SIZE;
       for(int train_step_idx = 0; train_step_idx < MAX_STEP; train_step_idx++){
         //   int train_step = train_step_order[train_step_idx];
-          int train_step = train_step_idx;
+          int train_step = train_step_idx + 1;
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
 
-            dummyAccesses();//for dummy accesses , reset the prefetcher state
+            // dummyAccesses();//for dummy accesses , reset the prefetcher state
             
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);

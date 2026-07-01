@@ -5,7 +5,7 @@
 #include <sched.h>
 #include <sys/mman.h>
 #include "until.h"
-// #include "victim.h" 
+// #include "victim.h"
 
 #define Items 10240
 
@@ -78,7 +78,27 @@
 #endif
 
 #ifndef BUSY_WAIT_NS
-#define BUSY_WAIT_NS 10960
+#define BUSY_WAIT_NS 2000
+#endif
+
+#ifndef PREFETCH_WAIT_ITERS
+#define PREFETCH_WAIT_ITERS 100
+#endif
+
+#define MIX_LOAD_NONE 0
+#define MIX_LOAD_ARRAY3 1
+#define MIX_LOAD_ARRAY2 2
+
+#ifndef MIX_LOAD_TARGET
+#define MIX_LOAD_TARGET MIX_LOAD_NONE
+#endif
+
+#ifndef MIX_LOAD_NUM
+#define MIX_LOAD_NUM 0
+#endif
+
+#if MIX_LOAD_TARGET < MIX_LOAD_NONE || MIX_LOAD_TARGET > MIX_LOAD_ARRAY2
+#error "Unknown MIX_LOAD_TARGET"
 #endif
 
 static volatile long user_memory_pressure_sink;
@@ -86,10 +106,6 @@ static uint64_t user_memory_pressure_time_sum_ns;
 static uint64_t user_memory_pressure_time_min_ns = UINT64_MAX;
 static uint64_t user_memory_pressure_time_max_ns;
 static uint64_t user_memory_pressure_time_count;
-static uint64_t busy_wait_time_sum_ns;
-static uint64_t busy_wait_time_min_ns = UINT64_MAX;
-static uint64_t busy_wait_time_max_ns;
-static uint64_t busy_wait_time_count;
 
 uint8_t array2[Items * LINE_SIZE] __attribute__((aligned(4096)));;
 
@@ -137,7 +153,7 @@ void dummyAccesses(void){
 // void dummyAccesses(){
 //     uint64_t tmp = 0;
 //      for(uint64_t i = 0; i < DUMMY_BUFFER_SIZE; i += 64){
-//         tmp += dummy_buffer[i]; 
+//         tmp += dummy_buffer[i];
 //      }
 //     (void)tmp;
 // }
@@ -213,50 +229,36 @@ static void user_memory_pressure_before_trigger(void) {
 
 static void busy_wait_before_trigger(void) {
 #if BUSY_WAIT_BEFORE_TRIGGER
-    uint64_t start_ns = timestamp();
-#ifdef __aarch64__
-    uint64_t freq = read_cntfrq();
-    uint64_t ticks = (freq * (uint64_t)BUSY_WAIT_NS + 999999999ULL) / 1000000000ULL;
-    uint64_t end = read_cntvct() + (ticks ? ticks : 1);
-
-    while (read_cntvct() < end) {
-        nop();
-    }
-#else
-    uint64_t end_ns = start_ns + (uint64_t)BUSY_WAIT_NS;
-
-    while (timestamp() < end_ns) {
-        nop();
-    }
+#ifndef __aarch64__
+#error "BUSY_WAIT_BEFORE_TRIGGER currently supports aarch64 only"
 #endif
-
-    uint64_t elapsed = timestamp() - start_ns;
-
-    busy_wait_time_sum_ns += elapsed;
-    if (elapsed < busy_wait_time_min_ns) {
-        busy_wait_time_min_ns = elapsed;
-    }
-    if (elapsed > busy_wait_time_max_ns) {
-        busy_wait_time_max_ns = elapsed;
-    }
-    busy_wait_time_count++;
+    asm volatile(
+        "mrs x9, cntfrq_el0\n\t"
+        "mul x9, x9, %[target_ns]\n\t"
+        "add x9, x9, %[ceil_ns]\n\t"
+        "udiv x9, x9, %[ns_per_sec]\n\t"
+        "cmp x9, #0\n\t"
+        "cinc x9, x9, eq\n\t"
+        "mrs x10, cntvct_el0\n\t"
+        "add x9, x9, x10\n"
+        "1:\n\t"
+        "mrs x10, cntvct_el0\n\t"
+        "cmp x10, x9\n\t"
+        "b.hs 2f\n\t"
+        "nop\n\t"
+        "b 1b\n"
+        "2:\n\t"
+        :
+        : [target_ns] "r"((uint64_t)BUSY_WAIT_NS),
+          [ceil_ns] "r"(999999999ULL),
+          [ns_per_sec] "r"(1000000000ULL)
+        : "x9", "x10", "cc");
 #endif
 }
 
 static void print_busy_wait_time_stats(void) {
 #if BUSY_WAIT_BEFORE_TRIGGER
-    uint64_t avg = 0;
-
-    if (busy_wait_time_count > 0) {
-        avg = busy_wait_time_sum_ns / busy_wait_time_count;
-    }
-
-    printf("# busy_wait_time_ns count=%llu avg=%llu min=%llu max=%llu target=%d\n",
-           (unsigned long long)busy_wait_time_count,
-           (unsigned long long)avg,
-           (unsigned long long)busy_wait_time_min_ns,
-           (unsigned long long)busy_wait_time_max_ns,
-           BUSY_WAIT_NS);
+    printf("# busy_wait target_ns=%d source=cntvct_el0\n", BUSY_WAIT_NS);
 #endif
 }
 
@@ -274,6 +276,29 @@ static void print_user_memory_pressure_time_stats(void) {
            (unsigned long long)user_memory_pressure_time_min_ns,
            (unsigned long long)user_memory_pressure_time_max_ns,
            USER_MEMORY_PRESSURE_ITERS);
+#endif
+}
+
+static void mix_load_before_trigger(void) {
+#if MIX_LOAD_NUM > 0 && MIX_LOAD_TARGET != MIX_LOAD_NONE
+    for (int r = 0; r < MIX_LOAD_NUM; r++) {
+        int mix_r = (int)(random() % 64);
+#if MIX_LOAD_TARGET == MIX_LOAD_ARRAY3
+        mLoad_noinline(array3 + (mix_r * LINE_SIZE));
+#elif MIX_LOAD_TARGET == MIX_LOAD_ARRAY2
+        mLoad_noinline(array2 + (mix_r * LINE_SIZE));
+#endif
+    }
+#endif
+}
+
+static void print_mix_load_config(void) {
+#if MIX_LOAD_TARGET == MIX_LOAD_ARRAY3
+    printf("# mix_load target=array3 count=%d range_lines=64\n", MIX_LOAD_NUM);
+#elif MIX_LOAD_TARGET == MIX_LOAD_ARRAY2
+    printf("# mix_load target=array2 count=%d range_lines=64\n", MIX_LOAD_NUM);
+#else
+    printf("# mix_load target=none count=0 range_lines=0\n");
 #endif
 }
 
@@ -372,57 +397,64 @@ int main(){
     // print_test_header(stride, train_step, rounds);
       // for(int train_step = 1; train_step <= 32 ; train_step++){
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
-            
+
             dummyAccesses();//for dummy accesses , reset the prefetcher state
-            
+
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
               }
-             
 
+            // mfence();
+
+            // train access
+            for(int step = 0; step < train_step-2; step++){
+                stride_access(array2 + (step * stride));
+            }
+
+
+
+            // int dummy2 = array3[24*LINE_SIZE];
+            // mLoad_noinline(array2 + 61 * LINE_SIZE);
+            // mLoad_noinline(array2 + 37 * LINE_SIZE);
+            // context_switch_before_trigger();
             
-            // mfence(); 
-
-            //  for(int repeat = 0; repeat < 5; repeat ++) {
-              for(int step = 0; step < train_step-1; step++){
-                  stride_access(array2 + (step * stride));
-                // array2[step * stride] = 11;
-                // mfence();
-              }
-            //  }
-            // context_switch_before_trigger();//may be flush prefetcher entry and the prefetch candidate in prefetch queue..
-            // user_memory_pressure_before_trigger();
-            // busy_wait_before_trigger();
-            //   for(int k=0;k<100;k++){nop();}
-            //   mfence();        
-  
-                //trigger
+            //trigger access
 #if !NO_TRIGGER
-            // stride_access(array2 + ((train_step -2) * stride));
-            // mfence();
+            stride_access(array2 + ((train_step -2) * stride));
             stride_access(array2 + ((train_step -1) * stride));
-            // mfence();
+            // mLoad_noinline(array2 + ((train_step -1) * stride));
 #endif
+            // mStore_noinline(array2 + 37 * LINE_SIZE);
 
-            
+// #if BUSY_WAIT_BEFORE_TRIGGER
+//             busy_wait_before_trigger();
+// #endif
             // mfence();
               // }
-              uint64_t dummy = 0;
-              for(int k =0;k<100;k++){//wait for prefetch done.
-                dummy += array1[k*64];
-                mfence();
-              }
-              for(int i=0;i<100;i++) {
-                nop();
-              }
-            
-            
-            //   mfence();
+
+// #ifdef __aarch64__
+//               asm volatile(
+//                 "mov x11, %[iters]\n\t"
+//                 "mov x12, #0\n"
+//                 "1:\n\t"
+//                 "add x12, x12, #1\n\t"
+//                 "eor x12, x12, x12, ror #7\n\t"
+//                 "subs x11, x11, #1\n\t"
+//                 "b.ne 1b\n\t"
+//                 :
+//                 : [iters] "I"(PREFETCH_WAIT_ITERS)
+//                 : "x11", "x12", "cc");
+// #else
+//               for(int i=0;i<PREFETCH_WAIT_ITERS;i++) {
+//                 nop();
+//               }
+// #endif
+             
 
               int probe_pos = atkRound % PROBE_POSITIONS;//test one position each round
-              
+
               probe_addr = array2 + (probe_pos * LINE_SIZE);
-              
+
             //   mfence();
               time1 = timestamp();
               junk = *probe_addr;
@@ -430,7 +462,7 @@ int main(){
 
               latency_sum[probe_pos] += time2;
               probe_count[probe_pos]++;
-          } 
+          }
           for(int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
               long long int avg_ns = 0;
               if(probe_count[probe_pos] > 0) {
@@ -444,6 +476,7 @@ int main(){
           }
           print_user_memory_pressure_time_stats();
           print_busy_wait_time_stats();
+          print_mix_load_config();
       // }
       printf("\n");
   // }

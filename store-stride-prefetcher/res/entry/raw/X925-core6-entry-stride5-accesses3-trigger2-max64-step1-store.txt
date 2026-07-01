@@ -1,0 +1,76 @@
+# store-stride entry-capacity test
+# access mode: store (strb), same fixed PC for victim train and trigger
+# stride=320 rounds=1000 page_size=4096 access_pc=0x0000000500000120 victim_buffer=0x0000000600000000
+# STRIDE_LINES=5 TRAIN_ACCESSES=1 TRIGGER_ACCESSES=2 COMPETITOR_ACCESSES=1 PROBE_LINES=64 max_competitors=64 page_step_pages=1
+# victim accesses=3 train_only_accesses=1 trigger_accesses=2 stride_lines=5
+# victim trigger lines: 5..10
+# victim probe/predicted line: 15
+# competitor accesses per page: 1 stores, stride_lines=5
+# lower latency means that victim line was more likely prefetched
+# no_trigger_n0_latency_ns=138
+n	probe_line	offset_bytes	role	avg_ns	probes
+0	15	960	predicted	138	1000
+1	15	960	predicted	163	1000
+2	15	960	predicted	161	1000
+3	15	960	predicted	164	1000
+4	15	960	predicted	160	1000
+5	15	960	predicted	164	1000
+6	15	960	predicted	160	1000
+7	15	960	predicted	158	1000
+8	15	960	predicted	163	1000
+9	15	960	predicted	161	1000
+10	15	960	predicted	154	1000
+11	15	960	predicted	141	1000
+12	15	960	predicted	136	1000
+13	15	960	predicted	138	1000
+14	15	960	predicted	138	1000
+15	15	960	predicted	137	1000
+16	15	960	predicted	138	1000
+17	15	960	predicted	138	1000
+18	15	960	predicted	137	1000
+19	15	960	predicted	134	1000
+20	15	960	predicted	131	1000
+21	15	960	predicted	129	1000
+22	15	960	predicted	130	1000
+23	15	960	predicted	131	1000
+24	15	960	predicted	132	1000
+25	15	960	predicted	131	1000
+26	15	960	predicted	130	1000
+27	15	960	predicted	131	1000
+28	15	960	predicted	132	1000
+29	15	960	predicted	131	1000
+30	15	960	predicted	134	1000
+31	15	960	predicted	132	1000
+32	15	960	predicted	77	1000
+33	15	960	predicted	51	1000
+34	15	960	predicted	51	1000
+35	15	960	predicted	50	1000
+36	15	960	predicted	51	1000
+37	15	960	predicted	50	1000
+38	15	960	predicted	50	1000
+39	15	960	predicted	50	1000
+40	15	960	predicted	50	1000
+41	15	960	predicted	50	1000
+42	15	960	predicted	50	1000
+43	15	960	predicted	51	1000
+44	15	960	predicted	93	1000
+45	15	960	predicted	130	1000
+46	15	960	predicted	131	1000
+47	15	960	predicted	131	1000
+48	15	960	predicted	133	1000
+49	15	960	predicted	131	1000
+50	15	960	predicted	132	1000
+51	15	960	predicted	132	1000
+52	15	960	predicted	134	1000
+53	15	960	predicted	132	1000
+54	15	960	predicted	133	1000
+55	15	960	predicted	133	1000
+56	15	960	predicted	131	1000
+57	15	960	predicted	134	1000
+58	15	960	predicted	132	1000
+59	15	960	predicted	131	1000
+60	15	960	predicted	132	1000
+61	15	960	predicted	132	1000
+62	15	960	predicted	132	1000
+63	15	960	predicted	132	1000
+64	15	960	predicted	133	1000

@@ -100,6 +100,15 @@ def parse_args():
                         help="Busy-wait in userspace between training and trigger.")
     parser.add_argument("--busy-wait-ns", type=int, default=10960,
                         help="Nanoseconds for --busy-wait. Default: 10960")
+    parser.add_argument("--mix-load-mode", choices=["none", "array3", "array2"],
+                        default="none",
+                        help=("Load accesses inserted between training and trigger. "
+                              "none is baseline, array3 is timing/load control, "
+                              "array2 tests same-array interference. Default: none"))
+    parser.add_argument("--mix-load-num", type=int, default=64,
+                        help="Number of inserted load accesses. Default: 64")
+    parser.add_argument("--mix-load-sweep", action="store_true",
+                        help="Run the three mix-load experiments: none, array3, array2.")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
                         help="Compiler command. Default: $CC or gcc")
     parser.add_argument("--objdump", default=os.environ.get("OBJDUMP", "objdump"),
@@ -144,6 +153,10 @@ def parse_args():
         parser.error("--user-memory-pressure-iters must be >= 1")
     if args.busy_wait_ns < 1:
         parser.error("--busy-wait-ns must be >= 1")
+    if args.mix_load_num < 0:
+        parser.error("--mix-load-num must be >= 0")
+    if args.mix_load_mode != "none" and args.mix_load_num < 1:
+        parser.error("--mix-load-num must be >= 1 when --mix-load-mode is not none")
     delay_modes = sum([args.context_switch, args.user_memory_pressure, args.busy_wait])
     if delay_modes > 1:
         parser.error(
@@ -243,6 +256,16 @@ def dummy_configs():
     ]
 
 
+def mix_load_configs():
+    if args.mix_load_sweep:
+        return ["none", "array3", "array2"]
+    return [args.mix_load_mode]
+
+
+def mix_load_target_value():
+    return {"none": 0, "array3": 1, "array2": 2}[args.mix_load_mode]
+
+
 def is_x86_arch(arch):
     return arch in {"x86", "Zen4"}
 
@@ -276,6 +299,7 @@ def micro_arch_name(arch, core, train_step):
         if args.busy_wait else ""
     )
     dummy_suffix = ""
+    mix_load_suffix = ""
     timer_suffix = ""
     if is_x86_arch(arch) and args.timer != "gettime":
         timer_suffix = f"-timer{args.timer}"
@@ -289,12 +313,17 @@ def micro_arch_name(arch, core, train_step):
             f"-dummy-{args.dummy_access}-{args.dummy_order}"
             f"-pages{args.dummy_buffer_pages}"
         )
+    if args.mix_load_sweep or args.mix_load_mode != "none":
+        mix_load_suffix = (
+            f"-mixload-{args.mix_load_mode}"
+            f"-num{args.mix_load_num if args.mix_load_mode != 'none' else 0}"
+        )
     return (
         f"{arch}-core{core}-stride{args.stride}"
         f"-train{train_step}-{args.access}"
         f"{timer_suffix}{trigger_suffix}{switch_suffix}"
         f"{pressure_suffix}{busy_wait_suffix}"
-        f"{dummy_suffix}"
+        f"{dummy_suffix}{mix_load_suffix}"
     )
 
 
@@ -431,6 +460,8 @@ def compile_test(train_step, arch):
         f"-DUSER_MEMORY_PRESSURE_ITERS={args.user_memory_pressure_iters}",
         f"-DBUSY_WAIT_BEFORE_TRIGGER={1 if args.busy_wait else 0}",
         f"-DBUSY_WAIT_NS={args.busy_wait_ns}",
+        f"-DMIX_LOAD_TARGET={mix_load_target_value()}",
+        f"-DMIX_LOAD_NUM={args.mix_load_num if args.mix_load_mode != 'none' else 0}",
         "-o",
         OUT,
         SRC,
@@ -489,7 +520,9 @@ def run_one(arch, core, train_step):
         f"user_memory_pressure={args.user_memory_pressure}, "
         f"user_memory_pressure_iters={args.user_memory_pressure_iters}, "
         f"busy_wait={args.busy_wait}, "
-        f"busy_wait_ns={args.busy_wait_ns}"
+        f"busy_wait_ns={args.busy_wait_ns}, "
+        f"mix_load_mode={args.mix_load_mode}, "
+        f"mix_load_num={args.mix_load_num if args.mix_load_mode != 'none' else 0}"
     )
 
     if compile_test(train_step, arch) != 0:
@@ -513,6 +546,7 @@ def run_one(arch, core, train_step):
         if (
             line.startswith("# user_memory_pressure_time_ns")
             or line.startswith("# busy_wait_time_ns")
+            or line.startswith("# mix_load")
         ):
             print(line)
     rows = parse_output(run.stdout, train_step, threshold_ns)
@@ -636,19 +670,21 @@ def main():
             args.dummy_access = dummy_access
             args.dummy_order = dummy_order
             args.dummy_buffer_pages = dummy_pages
-            for train_step in train_steps():
-                if args.plot_only:
-                    path = tsv_path_for(arch, core, train_step)
-                    if not os.path.exists(path):
-                        print(f"Error: TSV result '{path}' not found.")
-                        continue
-                    rows = read_tsv(path)
-                else:
-                    rows = run_one(arch, core, train_step)
-                if rows:
-                    print_predicted_result(arch, core, train_step, rows)
-                    if not args.no_plot:
-                        plot_bar_chart(rows, arch, core, train_step)
+            for mix_load_mode in mix_load_configs():
+                args.mix_load_mode = mix_load_mode
+                for train_step in train_steps():
+                    if args.plot_only:
+                        path = tsv_path_for(arch, core, train_step)
+                        if not os.path.exists(path):
+                            print(f"Error: TSV result '{path}' not found.")
+                            continue
+                        rows = read_tsv(path)
+                    else:
+                        rows = run_one(arch, core, train_step)
+                    if rows:
+                        print_predicted_result(arch, core, train_step, rows)
+                        if not args.no_plot:
+                            plot_bar_chart(rows, arch, core, train_step)
 
 
 if __name__ == "__main__":

@@ -272,7 +272,7 @@ static void dummy_accesses(void) {
     // }
    for(uint32_t j = 0; j < dummy_buffer_size; j+=64){
         // asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
-        asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+        asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
         // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
      }
 }
@@ -346,6 +346,8 @@ static void train_competitors(access_gadget_f access_gadget,
         uint8_t *page = competitor_page(i, page_step_pages);
 
         for (int step = 0; step < COMPETITOR_ACCESSES; step++) {
+            // mLoad_noinline(page + 3 * LINE_SIZE +
+            //                   ((uint64_t)step * (uint64_t)stride));
             competitor_access(page + 3 * LINE_SIZE +
                               ((uint64_t)step * (uint64_t)stride));
             // access_gadget(page + 3 * LINE_SIZE +
@@ -393,7 +395,7 @@ static uint64_t run_one_round(access_gadget_f access_gadget,
     /*
      * 4. 等待可能的预取完成
      */
-    delay_after_trigger();
+    // delay_after_trigger();
 
     /*
      * 5. probe one victim candidate line.
