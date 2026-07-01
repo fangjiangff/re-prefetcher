@@ -411,13 +411,12 @@ int main(){
                 stride_access(array2 + (step * stride));
             }
 
-
-
             // int dummy2 = array3[24*LINE_SIZE];
             // mLoad_noinline(array2 + 61 * LINE_SIZE);
             // mLoad_noinline(array2 + 37 * LINE_SIZE);
+            // mLoad_noinline(array2 + 111 * LINE_SIZE);
             // context_switch_before_trigger();
-            
+                  
             //trigger access
 #if !NO_TRIGGER
             stride_access(array2 + ((train_step -2) * stride));
