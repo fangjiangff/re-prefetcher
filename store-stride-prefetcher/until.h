@@ -3,7 +3,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/mman.h>
 #include <time.h>
+#include <unistd.h>
 
 #ifndef LINE_SIZE
 #define LINE_SIZE 64
@@ -171,6 +175,62 @@ static inline __attribute__((always_inline)) void dummyAccess(void *buffer,
         // asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(dummy_buffer + line * LINE_SIZE));
     }
     // mfence();
+}
+
+typedef struct {
+    uint8_t *base_addr;
+    size_t size;
+} Mapping;
+
+#ifndef RANDOM_ACTIVITY_ITERS
+#define RANDOM_ACTIVITY_ITERS 100000
+#endif
+
+static inline Mapping allocate_mapping(size_t mem_size) {
+    uint8_t *base_addr = (uint8_t *)mmap(NULL, mem_size, PROT_READ | PROT_WRITE,
+                                         MAP_POPULATE | MAP_PRIVATE | MAP_ANONYMOUS,
+                                         -1, 0);
+    if (base_addr == MAP_FAILED) {
+        perror("mmap");
+        exit(1);
+    }
+
+    Mapping mapping = {base_addr, mem_size};
+    return mapping;
+}
+
+static inline void unmap_mapping(Mapping mapping) {
+    munmap(mapping.base_addr, mapping.size);
+}
+
+static inline __attribute__((always_inline)) size_t permute(size_t upper_bound,
+                                                            size_t original_idx) {
+    return ((original_idx * 167u) + 13u) & (upper_bound - 1);
+}
+
+static inline void flush_mapping(Mapping mapping) {
+    for (uint8_t *ptr = mapping.base_addr;
+         ptr < mapping.base_addr + mapping.size;
+         ptr += LINE_SIZE) {
+        flush(ptr);
+    }
+    mfence();
+}
+
+static inline void random_activity(Mapping mapping) {
+    size_t cls_per_page = PAGE_SIZE / LINE_SIZE;
+
+    for (size_t i = 0; i < RANDOM_ACTIVITY_ITERS; i++) {
+        flush_mapping(mapping);
+        for (size_t page = 0; page < mapping.size / PAGE_SIZE; page++) {
+            for (size_t cl = 0; cl < cls_per_page; cl += 2) {
+                uint8_t *addr = mapping.base_addr + page * PAGE_SIZE +
+                                permute(cls_per_page, cl) * LINE_SIZE;
+                maccess(addr);
+            }
+            mfence();
+        }
+    }
 }
 
 #endif

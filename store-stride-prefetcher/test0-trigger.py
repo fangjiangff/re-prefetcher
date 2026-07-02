@@ -33,7 +33,7 @@ def parse_args():
                         help="Architecture label used to select default core.")
     parser.add_argument("--core", type=int, default=None,
                         help="Override CPU core used by taskset. Default is selected from --arch.")
-    parser.add_argument("--rounds", type=int, default=100,
+    parser.add_argument("--rounds", type=int, default=4000,
                         help="Rounds per stride/access-count point. Default: 100")
     parser.add_argument("--max-stride", type=int, default=4096,
                         help="Maximum stride in bytes. Default: 4096")

@@ -24,6 +24,10 @@
 #define DEFAULT_MAX_DIFF_BIT 47
 #define DEFAULT_ROUNDS 1000
 
+#ifndef PROBE_POSITIONS
+#define PROBE_POSITIONS 100
+#endif
+
 #ifndef ARCH_NAME
 #define ARCH_NAME "unknown"
 #endif
@@ -231,14 +235,13 @@ static uint64_t probe_latency(uint8_t *addr) {
 }
 
 /*
- * do_trigger = 1:
+ * do_train = 1:
  *   前 STORE_TRIGGER_ACCESS-1 次 access 用 train_store
- *   第 STORE_TRIGGER_ACCESS 次 access 用 trigger_store
- *   probe 第 STORE_TRIGGER_ACCESS+1 个位置
  *
- * do_trigger = 0:
- *   只做 training accesses，不做 trigger
- *   仍然 probe predicted 位置
+ * do_trigger = 1:
+ *   第 STORE_TRIGGER_ACCESS 次 access 用 trigger_store
+ *
+ * probe 第 STORE_TRIGGER_ACCESS+1 个位置。
  *
  * no_trigger baseline 很重要：
  * 如果 no_trigger 也低延迟，说明 training accesses 已经能预取到 predicted 位置，
@@ -246,8 +249,10 @@ static uint64_t probe_latency(uint8_t *addr) {
  */
 static uint64_t run_one_round(store_gadget_f train_store,
                               store_gadget_f trigger_store,
+                              int do_train,
                               int do_trigger,
-                              int stride) {
+                              int stride,
+                              int probe_pos) {
     dummy_accesses();
     flush_array2();
 
@@ -255,12 +260,14 @@ static uint64_t run_one_round(store_gadget_f train_store,
      * 第 1..STORE_TRIGGER_ACCESS-1 次 access: training
      * 0-based index: 0..STORE_TRIGGER_ACCESS-2
      */
-    for (int step = 0; step < STORE_TRIGGER_ACCESS - 1; step++) {
-        train_store(array2 + ((uint64_t)step * (uint64_t)stride));
+    if (do_train) {
+        for (int step = 0; step < STORE_TRIGGER_ACCESS - 1; step++) {
+            train_store(array2 + ((uint64_t)step * (uint64_t)stride));
 
 #if FENCE_AFTER_EACH_STORE
-        mfence();
+            mfence();
 #endif
+        }
     }
 
     /*
@@ -281,14 +288,63 @@ static uint64_t run_one_round(store_gadget_f train_store,
 
     delay_after_trigger();
 
-    /*
-     * 第 STORE_TRIGGER_ACCESS+1 个位置: probe
-     * 0-based index: STORE_TRIGGER_ACCESS
-     */
-    uint8_t *probe_addr =
-        array2 + ((uint64_t)STORE_TRIGGER_ACCESS * (uint64_t)stride);
+    uint8_t *probe_addr = array2 + ((uint64_t)probe_pos * LINE_SIZE);
 
     return probe_latency(probe_addr);
+}
+
+static void print_case_results(const char *case_name,
+                               store_gadget_f train_store,
+                               store_gadget_f trigger_store,
+                               int do_train,
+                               int do_trigger,
+                               int stride,
+                               int rounds) {
+    uint64_t latency_sum[PROBE_POSITIONS] = {0};
+    int probe_count[PROBE_POSITIONS] = {0};
+
+    for (int atk_round = 0; atk_round < rounds; atk_round++) {
+        int probe_pos = atk_round % PROBE_POSITIONS;
+        latency_sum[probe_pos] += run_one_round(train_store,
+                                                trigger_store,
+                                                do_train,
+                                                do_trigger,
+                                                stride,
+                                                probe_pos);
+        probe_count[probe_pos]++;
+    }
+
+    for (int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
+        unsigned long avg_ns = 0;
+        if (probe_count[probe_pos] > 0) {
+            avg_ns = (unsigned long)(latency_sum[probe_pos] /
+                                     (uint64_t)probe_count[probe_pos]);
+        }
+        printf("# probe_detail\t%s\t%d\t%d\t%lu\t%d\n",
+               case_name,
+               probe_pos,
+               probe_pos * LINE_SIZE,
+               avg_ns,
+               probe_count[probe_pos]);
+    }
+
+    int predicted_probe_pos = (STORE_TRIGGER_ACCESS * stride) / LINE_SIZE;
+    unsigned long predicted_avg_ns = 0;
+    if (probe_count[predicted_probe_pos] > 0) {
+        predicted_avg_ns = (unsigned long)(latency_sum[predicted_probe_pos] /
+                                           (uint64_t)probe_count[predicted_probe_pos]);
+    }
+    printf("%s\t%lu\n", case_name, predicted_avg_ns);
+}
+
+static void print_unmapped_case_results(const char *case_name) {
+    for (int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
+        printf("# probe_detail\t%s\t%d\t%d\t-1\t0\n",
+               case_name,
+               probe_pos,
+               probe_pos * LINE_SIZE);
+    }
+    printf("%s\t-1\n", case_name);
 }
 
 static void print_usage(const char *prog) {
@@ -346,11 +402,23 @@ int main(int argc, char **argv) {
 
     uint64_t probe_offset =
         (uint64_t)STORE_TRIGGER_ACCESS * (uint64_t)stride;
+    uint64_t max_probe_offset = (uint64_t)(PROBE_POSITIONS - 1) * LINE_SIZE;
+    int predicted_probe_pos = (int)(probe_offset / LINE_SIZE);
 
-    if (probe_offset + LINE_SIZE > sizeof(array2)) {
+    if (predicted_probe_pos < 0 || predicted_probe_pos >= PROBE_POSITIONS) {
         fprintf(stderr,
-                "array2 is too small: probe_offset=%lu array2_size=%lu\n",
-                (unsigned long)probe_offset,
+                "predicted probe position %d must be inside PROBE_POSITIONS=%d\n",
+                predicted_probe_pos,
+                PROBE_POSITIONS);
+        return 1;
+    }
+
+    if (trigger_offset + LINE_SIZE > sizeof(array2) ||
+        max_probe_offset + LINE_SIZE > sizeof(array2)) {
+        fprintf(stderr,
+                "array2 is too small: trigger_offset=%lu max_probe_offset=%lu array2_size=%lu\n",
+                (unsigned long)trigger_offset,
+                (unsigned long)max_probe_offset,
                 (unsigned long)sizeof(array2));
         return 1;
     }
@@ -391,154 +459,71 @@ int main(int argc, char **argv) {
            (unsigned long)page_size,
            (unsigned long)base_pc);
 
-    printf("# accesses=%d train_only_accesses=%d trigger_accesses=1 probe_position=%d\n",
+    printf("# accesses=%d train_only_accesses=%d trigger_accesses=1 probe_positions=%d\n",
            STORE_TRIGGER_ACCESS,
            STORE_TRIGGER_ACCESS - 1,
-           STORE_TRIGGER_ACCESS + 1);
-    printf("# trigger_offset=%lu probe_offset=%lu\n",
+           PROBE_POSITIONS);
+    printf("# trigger_offset=%lu probe_offset=%lu max_probe_offset=%lu\n",
            (unsigned long)trigger_offset,
+           (unsigned long)probe_offset,
+           (unsigned long)max_probe_offset);
+    printf("# final output uses probe_position=%d offset_bytes=%lu\n",
+           predicted_probe_pos,
            (unsigned long)probe_offset);
+    printf("# all probed positions are recorded as # probe_detail lines in the raw txt\n");
 
     printf("# lower latency means the predicted probe position was more likely prefetched\n");
     printf("# FENCE_AFTER_EACH_STORE=%d\n", FENCE_AFTER_EACH_STORE);
     printf("case\tlatency_ns\n");
 
-    /*
-     * Baseline 1:
-     * 只做 training accesses，不做 trigger。
-     * 理想情况下，这个应该是高延迟。
-     */
+    print_case_results("no_trigger", train_store, train_store, 1, 0, stride, rounds);
+    print_case_results("trigger_only", train_store, train_store, 0, 1, stride, rounds);
+    print_case_results("same_pc", train_store, train_store, 1, 1, stride, rounds);
+    print_case_results("load_trigger", train_store, mLoad_noinline, 1, 1, stride, rounds);
+
     {
-        uint64_t latency = 0;
+        uintptr_t far_pc = DEFAULT_FAR_SAME_LOW_TRIGGER_PC;
+        store_gadget_f far_trigger_store = map_store_gadget(far_pc);
+        char case_name[64];
 
-        for (int atk_round = 0; atk_round < rounds; atk_round++) {
-            latency += run_one_round(train_store,
-                                     train_store,
-                                     0,
-                                     stride);
+        snprintf(case_name, sizeof(case_name), "far_same_low_pc_0x%016lx",
+                 (unsigned long)far_pc);
+        if (!far_trigger_store) {
+            print_unmapped_case_results(case_name);
+        } else {
+            print_case_results(case_name, train_store, far_trigger_store, 1, 1,
+                               stride, rounds);
         }
-
-        printf("no_trigger\t%lu\n",
-               (unsigned long)(latency / (uint64_t)rounds));
     }
 
-    /*
-     * Baseline 2:
-     * training accesses 和 trigger 使用同一个 PC。
-     * 理想情况下，这个应该是低延迟。
-     */
     {
-        uint64_t latency = 0;
+        uintptr_t far_pc = DEFAULT_FAR_DIFF_LOW_TRIGGER_PC;
+        store_gadget_f far_trigger_store = map_store_gadget(far_pc);
+        char case_name[64];
 
-        for (int atk_round = 0; atk_round < rounds; atk_round++) {
-            latency += run_one_round(train_store,
-                                     train_store,
-                                     1,
-                                     stride);
+        snprintf(case_name, sizeof(case_name), "far_diff_low_pc_0x%016lx",
+                 (unsigned long)far_pc);
+        if (!far_trigger_store) {
+            print_unmapped_case_results(case_name);
+        } else {
+            print_case_results(case_name, train_store, far_trigger_store, 1, 1,
+                               stride, rounds);
         }
-
-        printf("same_pc\t%lu\n",
-               (unsigned long)(latency / (uint64_t)rounds));
     }
-    /*
- * Baseline 3:
- * trigger access 使用一个完全不同的 PC，
- * 但保留和 base_pc 相同的低位。
- *
- * base_pc             = 0x500000120
- * far_same_low_pc     = 0x700000120
- *
- * 如果这个也接近 same_pc，说明高 PC 位很可能不影响 stream continuation。
- */
-{
-    uintptr_t far_pc = DEFAULT_FAR_SAME_LOW_TRIGGER_PC;
-    store_gadget_f far_trigger_store = map_store_gadget(far_pc);
 
-    if (!far_trigger_store) {
-        printf("far_same_low_pc\t-1\n");
-    } else {
-        uint64_t latency = 0;
-
-        for (int atk_round = 0; atk_round < rounds; atk_round++) {
-            latency += run_one_round(train_store,
-                                     far_trigger_store,
-                                     1,
-                                     stride);
-        }
-
-        printf("far_same_low_pc_0x%016lx\t%lu\n",
-               (unsigned long)far_pc,
-               (unsigned long)(latency / (uint64_t)rounds));
-    }
-}
-
-/*
- * Baseline 4:
- * trigger access 使用另一个完全不同的 PC，
- * 高位和低位都和 base_pc 不同。
- *
- * 如果这个也接近 same_pc，而不是 no_trigger，
- * 那就更强地说明 trigger continuation 不依赖完整 PC。
- */
-{
-    uintptr_t far_pc = DEFAULT_FAR_DIFF_LOW_TRIGGER_PC;
-    store_gadget_f far_trigger_store = map_store_gadget(far_pc);
-
-    if (!far_trigger_store) {
-        printf("far_diff_low_pc\t-1\n");
-    } else {
-        uint64_t latency = 0;
-
-        for (int atk_round = 0; atk_round < rounds; atk_round++) {
-            latency += run_one_round(train_store,
-                                     far_trigger_store,
-                                     1,
-                                     stride);
-        }
-
-        printf("far_diff_low_pc_0x%016lx\t%lu\n",
-               (unsigned long)far_pc,
-               (unsigned long)(latency / (uint64_t)rounds));
-    }
-}
-
-    /*
-     * PC bit collision test:
-     *
-     * train PC:
-     *   base_pc
-     *
-     * trigger PC:
-     *   base_pc ^ (1 << diff_bit)
-     *
-     * 如果某个 diff_bit 的 latency 接近 same_pc，
-     * 说明翻转这个 bit 后，trigger access 仍然能触发 training accesses 训练出的 stream。
-     *
-     * 如果 latency 接近 no_trigger，
-     * 说明这个 bit 的变化破坏了 store-stride prefetcher 的 PC 匹配。
-     */
     for (int diff_bit = min_diff_bit; diff_bit <= max_diff_bit; diff_bit++) {
         uintptr_t trigger_pc = base_pc ^ (1ull << diff_bit);
-
         store_gadget_f trigger_store = map_store_gadget(trigger_pc);
+        char case_name[32];
 
+        snprintf(case_name, sizeof(case_name), "bit_%d", diff_bit);
         if (!trigger_store) {
-            printf("bit_%d\t-1\n", diff_bit);
+            print_unmapped_case_results(case_name);
             continue;
         }
 
-        uint64_t latency = 0;
-
-        for (int atk_round = 0; atk_round < rounds; atk_round++) {
-            latency += run_one_round(train_store,
-                                     trigger_store,
-                                     1,
-                                     stride);
-        }
-
-        printf("bit_%d\t%lu\n",
-               diff_bit,
-               (unsigned long)(latency / (uint64_t)rounds));
+        print_case_results(case_name, train_store, trigger_store, 1, 1,
+                           stride, rounds);
     }
 
     return 0;

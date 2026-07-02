@@ -8,9 +8,9 @@ from cross_test_config import ARCH_CONFIG, arch_choices
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(BASE_DIR, "test0-exist.c")
+SRC = os.path.join(BASE_DIR, "test0-exist2.c")
 UTIL_SRC = os.path.join(BASE_DIR, "until.c")
-OUT = os.path.join(BASE_DIR, "bin", "test0-exist")
+OUT = os.path.join(BASE_DIR, "bin", "test0-exist2")
 
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_TRAIN_STEP = 3
@@ -18,6 +18,8 @@ DEFAULT_TRAIN_STEP_MIN = 1
 DEFAULT_TRAIN_STEP_MAX = 10
 DEFAULT_ROUNDS = 40000
 DEFAULT_PROBE_POSITIONS = 100
+DEFAULT_ARRAY2_PAGES = 160
+DEFAULT_RANDOM_ACTIVITY_ITERS = 1
 GREEN = "\033[32m"
 RED = "\033[31m"
 RESET = "\033[0m"
@@ -56,6 +58,8 @@ def parse_args():
     parser.add_argument("--probe-positions", type=int,
                         default=DEFAULT_PROBE_POSITIONS,
                         help=f"Positions to probe. Default: {DEFAULT_PROBE_POSITIONS}")
+    parser.add_argument("--array2-pages", type=int, default=DEFAULT_ARRAY2_PAGES,
+                        help=f"array2 mapping size in pages. Default: {DEFAULT_ARRAY2_PAGES}")
     parser.add_argument("--hit-threshold-ns", type=int,
                         default=None,
                         help="Predicted line is treated as prefetched when "
@@ -92,6 +96,10 @@ def parse_args():
                         help="Call sched_yield between training and trigger.")
     parser.add_argument("--context-switch-yields", type=int, default=1,
                         help="Number of sched_yield calls between training and trigger.")
+    parser.add_argument("--random-activity-iters", type=int,
+                        default=DEFAULT_RANDOM_ACTIVITY_ITERS,
+                        help=("Iterations for FetchBench-style random_activity. "
+                              f"Default: {DEFAULT_RANDOM_ACTIVITY_ITERS}"))
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
                         help="Compiler command. Default: $CC or gcc")
     parser.add_argument("--objdump", default=os.environ.get("OBJDUMP", "objdump"),
@@ -126,12 +134,16 @@ def parse_args():
         parser.error("--rounds must be >= 1")
     if args.probe_positions < 1:
         parser.error("--probe-positions must be >= 1")
+    if args.array2_pages < 1:
+        parser.error("--array2-pages must be >= 1")
     if args.dummy_buffer_pages < 1:
         parser.error("--dummy-buffer-pages must be >= 1")
     if args.hit_threshold_ns is not None and args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
     if args.context_switch_yields < 1:
         parser.error("--context-switch-yields must be >= 1")
+    if args.random_activity_iters < 1:
+        parser.error("--random-activity-iters must be >= 1")
     max_train_step = args.train_step_max if args.batch else args.train_step
     if max_train_step * args.stride >= args.probe_positions:
         parser.error("predicted position train_step * stride must be inside probe positions")
@@ -251,6 +263,7 @@ def micro_arch_name(arch, core, train_step):
         if args.context_switch else ""
     )
     dummy_suffix = ""
+    mapping_suffix = ""
     timer_suffix = ""
     if is_x86_arch(arch) and args.timer != "gettime":
         timer_suffix = f"-timer{args.timer}"
@@ -264,11 +277,15 @@ def micro_arch_name(arch, core, train_step):
             f"-dummy-{args.dummy_access}-{args.dummy_order}"
             f"-pages{args.dummy_buffer_pages}"
         )
+    if args.array2_pages != DEFAULT_ARRAY2_PAGES:
+        mapping_suffix += f"-pages{args.array2_pages}"
+    if args.random_activity_iters != DEFAULT_RANDOM_ACTIVITY_ITERS:
+        mapping_suffix += f"-randact{args.random_activity_iters}"
     return (
         f"{arch}-core{core}-stride{args.stride}"
-        f"-train{train_step}-{args.access}"
+        f"-train{train_step}-{args.access}-mapping"
         f"{timer_suffix}{trigger_suffix}{switch_suffix}"
-        f"{dummy_suffix}"
+        f"{dummy_suffix}{mapping_suffix}"
     )
 
 
@@ -391,6 +408,7 @@ def compile_test(train_step, arch):
         f"-DTRAIN_STEP={train_step}",
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
+        f"-DARRAY2_PAGES={args.array2_pages}",
         f"-DCPU_ID=0",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
@@ -401,6 +419,7 @@ def compile_test(train_step, arch):
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
         f"-DCONTEXT_SWITCH_BEFORE_TRIGGER={1 if args.context_switch else 0}",
         f"-DCONTEXT_SWITCH_YIELDS={args.context_switch_yields}",
+        f"-DRANDOM_ACTIVITY_ITERS={args.random_activity_iters}",
         "-o",
         OUT,
         SRC,
@@ -450,12 +469,14 @@ def run_one(arch, core, train_step):
         f"stride={args.stride} lines, train_step={train_step}, "
         f"predicted_position={predicted_position(train_step)}, "
         f"rounds={args.rounds}, threshold={threshold_ns} {threshold_unit}, "
+        f"array2_pages={args.array2_pages}, "
         f"timer={args.timer if is_x86_arch(arch) else 'arch-default'}, "
         f"dummy_access={args.dummy_access}, "
         f"dummy_order={args.dummy_order}, "
         f"dummy_buffer_pages={args.dummy_buffer_pages}, "
         f"context_switch={args.context_switch}, "
-        f"context_switch_yields={args.context_switch_yields}"
+        f"context_switch_yields={args.context_switch_yields}, "
+        f"random_activity_iters={args.random_activity_iters}"
     )
 
     if compile_test(train_step, arch) != 0:

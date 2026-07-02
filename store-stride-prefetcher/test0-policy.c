@@ -23,6 +23,12 @@
 #define ACCESS_SEQUENCE_LEN 3
 #endif
 
+#ifdef ACCESS_TYPE_SEQUENCE
+#define HAS_ACCESS_TYPE_SEQUENCE 1
+#else
+#define HAS_ACCESS_TYPE_SEQUENCE 0
+#endif
+
 #ifndef TRAIN_ACCESS_LOAD
 #define TRAIN_ACCESS_LOAD 0
 #endif
@@ -42,6 +48,9 @@
 #define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 static const int access_sequence[ACCESS_SEQUENCE_LEN] = { ACCESS_SEQUENCE };
+#if HAS_ACCESS_TYPE_SEQUENCE
+static const char access_type_sequence[ACCESS_SEQUENCE_LEN] = { ACCESS_TYPE_SEQUENCE };
+#endif
 static uint8_t *dummy_buffer;
 
 uint8_t array2[Items * LINE_SIZE] __attribute__((aligned(4096)));
@@ -56,13 +65,22 @@ static void dummyAccesses(void) {
     }
 }
 
-static inline __attribute__((always_inline)) void policy_access(void *addr) {
+static inline __attribute__((always_inline)) void policy_access(void *addr, char type) {
+#if HAS_ACCESS_TYPE_SEQUENCE
+    if (type == 'l') {
+        mLoad_noinline(addr);
+    } else {
+        mStore_noinline(addr);
+    }
+#else
+    (void)type;
 #if TRAIN_ACCESS_PREFETCH
     mPrefetch_noinline(addr);
 #elif TRAIN_ACCESS_LOAD
     mLoad_noinline(addr);
 #else
     mStore_noinline(addr);
+#endif
 #endif
 }
 
@@ -90,6 +108,13 @@ static void print_header(uint64_t rounds) {
            "unknown"
 #endif
     );
+#if HAS_ACCESS_TYPE_SEQUENCE
+    printf("# access types:");
+    for (int i = 0; i < ACCESS_SEQUENCE_LEN; i++) {
+        printf(" %c", access_type_sequence[i]);
+    }
+    printf("\n");
+#else
     printf("# access mode: %s\n",
 #if TRAIN_ACCESS_PREFETCH
            "prefetch"
@@ -99,6 +124,7 @@ static void print_header(uint64_t rounds) {
            "store"
 #endif
     );
+#endif
     printf("# sequence_lines:");
     for (int i = 0; i < ACCESS_SEQUENCE_LEN; i++) {
         printf(" %d", access_sequence[i]);
@@ -130,6 +156,13 @@ int main(void) {
                     access_sequence[i]);
             return 1;
         }
+#if HAS_ACCESS_TYPE_SEQUENCE
+        if (access_type_sequence[i] != 's' && access_type_sequence[i] != 'l') {
+            fprintf(stderr, "access type must be 's' or 'l': %c\n",
+                    access_type_sequence[i]);
+            return 1;
+        }
+#endif
     }
     if (PROBE_POSITIONS > Items) {
         fprintf(stderr, "PROBE_POSITIONS exceeds array2 line count\n");
@@ -167,7 +200,12 @@ int main(void) {
         // mfence();
 
         for (int i = 0; i < ACCESS_SEQUENCE_LEN; i++) {
-            policy_access(array2 + access_sequence[i] * LINE_SIZE);
+#if HAS_ACCESS_TYPE_SEQUENCE
+            policy_access(array2 + access_sequence[i] * LINE_SIZE,
+                          access_type_sequence[i]);
+#else
+            policy_access(array2 + access_sequence[i] * LINE_SIZE, 0);
+#endif
         }
 
         delay_after_accesses();

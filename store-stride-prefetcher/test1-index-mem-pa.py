@@ -8,7 +8,6 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-cache")
 import matplotlib.pyplot as plt
 
 from cross_test_config import (
-    apply_access_defaults,
     apply_single_core_defaults,
     apply_threshold_defaults,
     arch_choices,
@@ -16,16 +15,17 @@ from cross_test_config import (
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(BASE_DIR, "test1-pc-collision.c")
+SRC = os.path.join(BASE_DIR, "test1-index-mem-pa.c")
 UTIL_SRC = os.path.join(BASE_DIR, "until.c")
-OUT = os.path.join(BASE_DIR, "bin", "test1-pc-collision")
-DEFAULT_BASE_PC = "0x500000120"
+OUT = os.path.join(BASE_DIR, "bin", "test1-index-mem-pa")
+
+DEFAULT_BUDDY_MB = 64
 DEFAULT_STRIDE_LINES = 5
-DEFAULT_MIN_DIFF_BIT = 3
+DEFAULT_MIN_DIFF_BIT = 12
 DEFAULT_MAX_DIFF_BIT = 47
-DEFAULT_ROUNDS = 1000
-DEFAULT_PROBE_POSITIONS = 100
-RESULT_DIR = os.path.join(BASE_DIR, "res", "pc-collision")
+DEFAULT_ROUNDS = 40000
+DEFAULT_PROBE_POSITIONS = 64
+RESULT_DIR = os.path.join(BASE_DIR, "res", "index-mem-pa")
 PLOT_DIR = os.path.join(BASE_DIR, "res", "barplots")
 
 
@@ -37,11 +37,12 @@ def compile_test(args):
         "-O0",
         "-static",
         f"-DARCH_NAME=\"{args.arch}\"",
+        f"-DBUDDY_PAGES={(args.buddy_mb * 1024 * 1024) // 4096}",
         f"-DSTRIDE_LINES={args.stride}",
-        f"-DSTORE_TRIGGER_ACCESS={args.accesses}",
+        f"-DMIN_DIFF_BIT={args.min_diff_bit}",
+        f"-DMAX_DIFF_BIT={args.max_diff_bit}",
+        f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
-        f"-DSTRIDE_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
-        f"-DSTRIDE_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         "-o",
         OUT,
         SRC,
@@ -51,26 +52,16 @@ def compile_test(args):
 
 
 def run_test(args):
-    run_cmd = [
-        "taskset",
-        "-c",
-        str(args.core),
-        OUT,
-        args.base_pc,
-        str(args.min_diff_bit),
-        str(args.max_diff_bit),
-        str(args.rounds),
-    ]
+    run_cmd = ["taskset", "-c", str(args.core), OUT]
     return subprocess.run(run_cmd, capture_output=True, text=True)
 
 
 def micro_arch_name(args):
     return (
-        f"{args.arch}-core{args.core}-pc-collision"
-        f"-stride{args.stride}-accesses{args.accesses}"
-        f"-{args.access}"
-        f"-probe{args.probe_positions}"
+        f"{args.arch}-core{args.core}-index-mem-pa"
+        f"-stride{args.stride}-probe{args.probe_positions}"
         f"-bits{args.min_diff_bit}-{args.max_diff_bit}"
+        f"-buddy{args.buddy_mb}MB"
     )
 
 
@@ -107,10 +98,7 @@ def parse_result(output):
             continue
 
         parts = stripped.split()
-        if not parts:
-            continue
-
-        if parts[0] == "case":
+        if not parts or parts[0] == "case":
             continue
 
         if len(parts) != 2:
@@ -129,9 +117,10 @@ def parse_result(output):
 
 def classify_rows(rows, threshold_ns):
     for row in rows:
+        latency = row["latency_ns"]
         row["prefetched"] = (
-            "no" if row["latency_ns"] < 0
-            else "yes" if row["latency_ns"] <= threshold_ns
+            "no" if latency < 0
+            else "yes" if latency <= threshold_ns
             else "no"
         )
         row["threshold_ns"] = threshold_ns
@@ -167,12 +156,11 @@ def plot_result(path, rows, title, threshold_ns, vmin=None, vmax=None):
 
     width = max(10.5, 0.28 * len(rows) + 3.0)
     fig, ax = plt.subplots(figsize=(width, 4.8))
-
     ax.bar(range(len(rows)), values, color=colors, edgecolor="black",
            linewidth=0.25)
     ax.axhline(threshold_ns, color="black", linestyle="--", linewidth=1.0)
     ax.set_title(title, loc="left", pad=8)
-    ax.set_xlabel("trigger PC case")
+    ax.set_xlabel("flipped PA bit / baseline")
     ax.set_ylabel("latency (ns)")
     ax.set_xticks(range(len(rows)))
     ax.set_xticklabels(labels, rotation=60, ha="right", fontsize=8)
@@ -184,23 +172,18 @@ def plot_result(path, rows, title, threshold_ns, vmin=None, vmax=None):
     plt.close(fig)
 
 
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Compile and run test1-pc-collision.c."
+        description="Test whether PA bits contribute to store-stride prefetcher indexing."
     )
     parser.add_argument("--arch", required=True, choices=arch_choices())
     parser.add_argument("--core", type=int, default=None,
                         help="Override CPU core. Default comes from --arch.")
+    parser.add_argument("--buddy-mb", type=int, default=DEFAULT_BUDDY_MB,
+                        help=f"Anonymous page pool size in MiB. Default: {DEFAULT_BUDDY_MB}")
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE_LINES,
                         help="Stride in cache lines. Default: 5.")
-    parser.add_argument("--access", choices=["store", "load", "prefetch"],
-                        default="store",
-                        help=("Stride access instruction. load uses ldr x1, [x0]; "
-                              "prefetch uses PRFM PLDL1KEEP."))
-    parser.add_argument("--accesses", type=int, default=None,
-                        help=("Total train+trigger accesses. Default comes from arch/access; "
-                              "prefetch also uses the arch store default unless overridden."))
-    parser.add_argument("--base-pc", default=DEFAULT_BASE_PC)
     parser.add_argument("--min-diff-bit", type=int, default=DEFAULT_MIN_DIFF_BIT)
     parser.add_argument("--max-diff-bit", type=int, default=DEFAULT_MAX_DIFF_BIT)
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
@@ -214,44 +197,40 @@ def main():
     parser.add_argument("--raw-output", default=None)
     parser.add_argument("--plot-output", default=None)
     parser.add_argument("--plot-vmin", type=float, default=None)
-    parser.add_argument("--plot-vmax", type=float, default=400)
+    parser.add_argument("--plot-vmax", type=float, default=200)
     parser.add_argument("--no-plot", action="store_true")
     parser.add_argument("--no-compile", action="store_true")
     args = parser.parse_args()
 
     apply_single_core_defaults(args)
-    if args.access == "prefetch" and args.accesses is None:
-        args.access = "store"
-        apply_access_defaults(args)
-        args.access = "prefetch"
-    else:
-        apply_access_defaults(args)
     apply_threshold_defaults(args)
 
     if args.core < 0:
         parser.error("--core must be >= 0")
+    if args.buddy_mb < 1:
+        parser.error("--buddy-mb must be >= 1")
     if args.stride < 1:
         parser.error("--stride must be >= 1")
-    if args.accesses < 2:
-        parser.error("--accesses must be >= 2")
-    if args.min_diff_bit < 3:
-        parser.error("--min-diff-bit must be >= 3")
+    if args.min_diff_bit < 12:
+        parser.error("--min-diff-bit must be >= 12")
     if args.max_diff_bit < args.min_diff_bit or args.max_diff_bit >= 48:
         parser.error("--max-diff-bit must be in [min_diff_bit, 47]")
     if args.rounds < 1:
         parser.error("--rounds must be >= 1")
     if args.probe_positions < 1:
         parser.error("--probe-positions must be >= 1")
+    if 2 * args.stride >= args.probe_positions:
+        parser.error("predicted position 2 * stride must be inside probe positions")
+    if (2 * args.stride + 1) * 64 > 4096:
+        parser.error("predicted position must fit inside one 4 KiB alias page")
     if args.threshold_ns < 1:
         parser.error("--threshold-ns must be >= 1")
 
     print(
-        f"arch={args.arch}, core={args.core}, stride={args.stride}, "
-        f"access={args.access}, "
-        f"accesses={args.accesses}, train_only_accesses={args.accesses - 1}, "
-        f"trigger_accesses=1, "
-        f"rounds={args.rounds}, probe_positions={args.probe_positions}, "
-        f"threshold={args.threshold_ns} ns"
+        f"arch={args.arch}, core={args.core}, buddy_mb={args.buddy_mb}, "
+        f"stride={args.stride}, trainer_pos=0, trigger_pos={args.stride}, "
+        f"predicted_pos={2 * args.stride}, rounds={args.rounds}, "
+        f"probe_positions={args.probe_positions}, threshold={args.threshold_ns} ns"
     )
 
     if not args.no_compile:
@@ -291,8 +270,8 @@ def main():
 
     if not args.no_plot:
         plot_title = (
-            f"{args.arch} core {args.core}: {args.access} PC collision latency "
-            f"(accesses={args.accesses}, base_pc={args.base_pc})"
+            f"{args.arch} core {args.core}: PA index contribution "
+            f"(stride={args.stride}, buddy={args.buddy_mb}MB)"
         )
         plot_result(
             plot_path(args),

@@ -46,6 +46,40 @@ def sequence_name(sequence):
     return "-".join(str(line) for line in sequence)
 
 
+def parse_type_sequence(value):
+    compact = "".join(ch for ch in value.lower() if ch not in {",", " ", "\t"})
+    if not compact:
+        raise argparse.ArgumentTypeError("type sequence must not be empty")
+    unknown = sorted(set(compact) - {"s", "l"})
+    if unknown:
+        raise argparse.ArgumentTypeError(
+            "type sequence may only contain 's' for store and 'l' for load"
+        )
+    return list(compact)
+
+
+def type_sequence_name(type_sequence):
+    return "".join(type_sequence)
+
+
+def access_label():
+    if args.type is not None:
+        return f"type{type_sequence_name(args.type)}"
+    return args.access
+
+
+def access_display_label():
+    if args.type is not None:
+        return f"type [{','.join(args.type)}]"
+    return args.access
+
+
+def access_type_at(index):
+    if args.type is not None:
+        return args.type[index]
+    return args.access[0]
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Run a policy access sequence and report likely prefetched cache lines."
@@ -71,7 +105,10 @@ def parse_args():
     parser.add_argument("--timer", choices=["gettime", "rdtsc"], default="gettime",
                         help="x86 timestamp source. Default: gettime")
     parser.add_argument("--access", choices=["store", "load", "prefetch"], default="store",
-                        help="Instruction used for the policy sequence. Default: store")
+                        help="Instruction used for the whole policy sequence when --type is omitted. Default: store")
+    parser.add_argument("--type", type=parse_type_sequence, default=None,
+                        help=("Per-access operation sequence. Use s for store and l for load; "
+                              "accepts forms like sls or s,l,s. Overrides --access."))
     parser.add_argument("--dummy-buffer-pages", type=int, default=10,
                         help="Number of pages in dummy_buffer. Default: 10")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
@@ -102,6 +139,10 @@ def parse_args():
         parser.error("--probe-positions must be >= 1")
     if max(args.sequence) >= args.probe_positions:
         parser.error("--probe-positions must be greater than every sequence line")
+    if args.type is not None and len(args.type) != len(args.sequence):
+        parser.error("--type length must match --sequence length")
+    if args.type is not None and args.access != "store":
+        parser.error("--type overrides --access; leave --access as store when using --type")
     if args.dummy_buffer_pages < 1:
         parser.error("--dummy-buffer-pages must be >= 1")
     if args.hit_threshold_ns is not None and args.hit_threshold_ns < 1:
@@ -174,9 +215,10 @@ def result_name(arch, core):
     if is_x86_arch(arch) and args.timer != "gettime":
         timer_suffix = f"-timer{args.timer}"
     dummy_suffix = "" if args.dummy_buffer_pages == 10 else f"-dummypages{args.dummy_buffer_pages}"
+    type_suffix = f"-{access_label()}"
     return (
         f"{arch}-core{core}-policy-seq{sequence_name(args.sequence)}"
-        f"-{args.access}{timer_suffix}{dummy_suffix}"
+        f"{type_suffix}{timer_suffix}{dummy_suffix}"
     )
 
 
@@ -269,6 +311,9 @@ def read_tsv(path):
 
 def compile_test(arch):
     sequence_macro = ",".join(str(line) for line in args.sequence)
+    type_macro = None
+    if args.type is not None:
+        type_macro = ",".join(f"'{item}'" for item in args.type)
     compile_cmd = [
         args.cc,
         "-std=gnu11",
@@ -286,6 +331,8 @@ def compile_test(arch):
         SRC,
         UTIL_SRC,
     ]
+    if type_macro is not None:
+        compile_cmd.insert(-4, f"-DACCESS_TYPE_SEQUENCE={type_macro}")
     timer_define = timer_define_for(arch)
     if timer_define is not None:
         compile_cmd.insert(-4, timer_define)
@@ -367,15 +414,18 @@ def format_explanation(base, stride, multiplier):
     return f"{base}+{multiplier}*{stride}"
 
 
+def prefetch_expression(position, sequence, strides):
+    explanations = prefetch_explanations(position, sequence, strides)
+    if not explanations:
+        return "unexplained"
+    return " | ".join(
+        format_explanation(base, stride, multiplier)
+        for base, stride, multiplier in explanations
+    )
+
+
 def format_prefetch_row(row, sequence, strides):
-    explanations = prefetch_explanations(row["position"], sequence, strides)
-    if explanations:
-        expression = " | ".join(
-            format_explanation(base, stride, multiplier)
-            for base, stride, multiplier in explanations
-        )
-    else:
-        expression = "unexplained"
+    expression = prefetch_expression(row["position"], sequence, strides)
     return f"{row['position']}({expression})"
 
 
@@ -386,7 +436,7 @@ def print_summary(arch, core, rows):
     strides = possible_strides_for(args.sequence)
 
     print(
-        f"{arch} core={core} sequence={args.sequence} "
+        f"{arch} core={core} access={access_display_label()} sequence={args.sequence} "
         f"threshold={threshold} {unit} possible_prefetch:"
     )
     print(f"possible_strides: {strides}")
@@ -403,7 +453,7 @@ def run_one(arch, core):
     threshold = threshold_for(arch)
     print("=" * 60)
     print(
-        f"access={args.access}, arch={arch}, core={core}, "
+        f"access={access_display_label()}, arch={arch}, core={core}, "
         f"sequence={args.sequence}, rounds={args.rounds}, "
         f"probe_positions={args.probe_positions}, "
         f"threshold={threshold} {unit}, "
@@ -448,29 +498,72 @@ def plot_bar_chart(rows, arch, core):
     fig, ax = plt.subplots(1, 1, figsize=(width, 4))
     ax.bar(positions, values, color=colors, width=0.85,
            edgecolor="black", linewidth=0.25)
+    y_limit = max(300, max(values) * 1.18 if values else 300)
+    strides = possible_strides_for(args.sequence)
     ax.axhline(threshold, color="black", linestyle="--", linewidth=0.9)
+    access_labels = {}
+    for index, line in enumerate(args.sequence):
+        access_labels.setdefault(line, []).append(
+            f"{index + 1}:{access_type_at(index)}"
+        )
     for line in args.sequence:
         ax.axvline(line, color="#D55E00", linestyle=":", linewidth=0.8)
-    ax.set_title(f"{args.access} policy sequence {args.sequence}", loc="left", pad=4)
-    ax.set_ylabel(f"Average reload {unit}")
-    ax.set_xlabel("Probe cache-line index")
-    ax.set_ylim(0, max(300, max(values) * 1.05 if values else 300))
+    for line, labels in access_labels.items():
+        ax.text(
+            line,
+            y_limit * 0.97,
+            ",".join(labels),
+            ha="center",
+            va="top",
+            rotation=90,
+            fontsize=20,
+            color="#7A2E00",
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1.5},
+        )
+    for row in sorted_rows:
+        if row["role"] != "possible_prefetch":
+            continue
+        ax.text(
+            row["position"],
+            min(row["avg"] + y_limit * 0.035, y_limit * 0.78),
+            prefetch_expression(row["position"], args.sequence, strides),
+            ha="center",
+            va="bottom",
+            rotation=90,
+            fontsize=16,
+            color="#00517A",
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 1.0},
+        )
+    ax.set_title(
+        f"{access_display_label()} sequence {args.sequence}",
+        loc="center",
+        pad=10,
+        fontsize=22,
+        fontweight="bold",
+    )
+    ax.set_ylabel(f"Average latency", fontsize=18)
+    ax.set_xlabel("Probe cache-line index", fontsize=18)
+    ax.set_ylim(0, y_limit)
     ax.set_xlim(-1, max(positions) + 1 if positions else args.probe_positions)
     ax.grid(axis="y", alpha=0.25)
-    tick_step = max(1, args.probe_positions // 16)
-    ax.set_xticks(range(0, args.probe_positions, tick_step))
+    ax.set_xticks([0, 5, 10])
+    ax.tick_params(axis="both", labelsize=14)
     legend_items = [
         Patch(facecolor=ROLE_COLORS["accessed"], edgecolor="black", label="accessed"),
         Patch(facecolor=ROLE_COLORS["possible_prefetch"], edgecolor="black", label="possible_prefetch"),
         Patch(facecolor=ROLE_COLORS["cache_miss"], edgecolor="black", label="cache_miss"),
     ]
-    ax.legend(handles=legend_items, loc="upper right", frameon=False, ncol=3)
-    fig.suptitle(
-        f"{arch} core {core}, threshold={threshold} {unit}",
-        x=0.01,
-        ha="left",
+    ax.legend(
+        handles=legend_items,
+        loc="upper right",
+        frameon=False,
+        ncol=3,
+        fontsize=14,
+        handlelength=1.6,
+        handleheight=1.0,
+        columnspacing=1.2,
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.tight_layout()
     path = plot_path_for(arch, core)
     fig.savefig(path, dpi=300)
     plt.close(fig)

@@ -181,24 +181,28 @@ int main(){
         //   int train_step = train_step_order[train_step_idx];
           int train_step = train_step_idx + 1;
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
+            uint64_t probe_offset = (uint64_t)train_step * (uint64_t)stride;
 
-            // dummyAccesses();//for dummy accesses , reset the prefetcher state
+            dummyAccesses();//for dummy accesses , reset the prefetcher state
             
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
-              for(int repeat = 0; repeat < 5; repeat ++) {
+            // mfence();
+              // for(int repeat = 0; repeat < 5; repeat ++) {
               for(int step = 0; step < train_step -1; step++){
                   stride_access(array2 + (step * stride));
+                  // mfence();
               }
-              }
+              // }
               // trigger.
               stride_access(array2 + ((train_step -1) * stride));
+              // mfence();
               
               delay_after_trigger();
 
               //probe
-              uint64_t probe_offset = (uint64_t)train_step * (uint64_t)stride;
+              
               
               probe_addr = array2 + probe_offset;
               

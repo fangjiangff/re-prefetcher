@@ -7,7 +7,12 @@
 #include "until.h"
 // #include "victim.h"
 
-#define Items 10240
+#ifndef ARRAY2_PAGES
+#define ARRAY2_PAGES 160
+#endif
+
+#define ARRAY2_SIZE (ARRAY2_PAGES * PAGE_SIZE)
+#define Items (ARRAY2_SIZE / LINE_SIZE)
 
 #ifndef STRIDE_BYTES
 #define STRIDE_BYTES 64
@@ -69,7 +74,8 @@
 #define PREFETCH_WAIT_ITERS 100
 #endif
 
-uint8_t array2[Items * LINE_SIZE] __attribute__((aligned(4096)));;
+static Mapping array2_mapping;
+static uint8_t *array2;
 
 long long int latency_sum[PROBE_POSITIONS] = {0};
 int probe_count[PROBE_POSITIONS] = {0};
@@ -169,8 +175,11 @@ int main(){
   unsigned int junk = 0;
 
 
-  memset(array2,-1,Items*LINE_SIZE*sizeof(uint8_t));
-
+  array2_mapping = allocate_mapping(ARRAY2_SIZE);
+  array2 = array2_mapping.base_addr;
+  memset(array2, -1, array2_mapping.size);
+  random_activity(array2_mapping);
+  flush_mapping(array2_mapping);
 
   dummy_buffer = (uint8_t*)mmap(NULL, DUMMY_BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
   if(dummy_buffer == MAP_FAILED) {
@@ -181,12 +190,7 @@ int main(){
   for(int i=0; i< Items; i++){
     mLoad(&array2[i * LINE_SIZE]);
   }
-
-
-  for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
-    flush(&array2[offset]);
-  }
-  mfence();
+  flush_mapping(array2_mapping);
 
 
   uint64_t rounds = ROUNDS;
@@ -201,7 +205,7 @@ int main(){
       fprintf(stderr, "STRIDE_BYTES must be positive\n");
       return 1;
     }
-    if ((uint64_t)(train_step - 1) * (uint64_t)stride >= Items * LINE_SIZE) {
+    if ((uint64_t)(train_step - 1) * (uint64_t)stride >= ARRAY2_SIZE) {
       fprintf(stderr, "training range exceeds array2 size\n");
       return 1;
     }
@@ -210,21 +214,17 @@ int main(){
 
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
 
-            
+            // dummyAccesses();//for dummy accesses , reset the prefetcher state
+            // random_activity(array2_mapping);
+            flush_mapping(array2_mapping);
 
-            dummyAccesses();//for dummy accesses , reset the prefetcher state
-
-            for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
-                  flush(&array2[offset]);//flush 0-256. probe 0-64
-            }
 
             for(int step = 0; step < train_step-1; step++){
                 stride_access(array2 + (step * stride));
             }
             //trigger access
 #if !NO_TRIGGER
-          // stride_access(array2 +  ((train_step -2) * stride));
-          stride_access(array2 +  ((train_step -1) * stride));
+            stride_access(array2 +  ((train_step -1) * stride));
 #endif
 
             int probe_pos = (atkRound) % PROBE_POSITIONS;//test one position each round
@@ -240,6 +240,7 @@ int main(){
               latency_sum[probe_pos] += time2;
               probe_count[probe_pos]++;
           }
+
           for(int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
               long long int avg_ns = 0;
               if(probe_count[probe_pos] > 0) {
@@ -255,6 +256,8 @@ int main(){
       printf("\n");
   // }
 
+  unmap_mapping(array2_mapping);
+  munmap(dummy_buffer, DUMMY_BUFFER_SIZE);
   (void)junk;
   return 0;
 }
