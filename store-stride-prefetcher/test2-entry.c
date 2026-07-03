@@ -38,8 +38,8 @@
 #define COMPETITOR_ACCESSES (TRAIN_ACCESSES)
 #endif
 
-#ifndef PROBE_LINES
-#define PROBE_LINES 64
+#ifndef PROBE_POSITIONS
+#define PROBE_POSITIONS 100
 #endif
 
 #ifndef TRAIN_ACCESS_LOAD
@@ -50,15 +50,7 @@
 #define VICTIM_LAST_TRIGGER_LINE ((TRAIN_ACCESSES + TRIGGER_ACCESSES - 1) * STRIDE_LINES)
 #define VICTIM_PROBE_LINE ((TRAIN_ACCESSES + TRIGGER_ACCESSES) * STRIDE_LINES)
 
-/*
- * competitor page 地址间隔，单位是 page。
- *
- * 默认 1 表示连续 page：
- *   competitor page 0, 1, 2, ...
- *
- * 如果你怀疑 prefetcher 是 set-associative，并且 page index 低位参与 set index，
- * 可以运行时把 page_step_pages 改大，例如 2,4,8,16,64。
- */
+
 #define DEFAULT_COMPETITOR_PAGE_STEP 1
 
 #define MAX_MAPPED_REGIONS 1024
@@ -74,6 +66,7 @@ static uint8_t *dummy_buffer;
 static size_t page_size;
 static size_t dummy_buffer_size;
 static size_t competitor_buffer_size;
+static size_t victim_buffer_size;
 
 struct mapped_region {
     uintptr_t base;
@@ -274,7 +267,7 @@ static void dummy_accesses(void) {
         // asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[i]));
         asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
         // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
-     }
+    }
 }
 
 static void flush_dummy_buffer(void) {
@@ -311,7 +304,7 @@ static uint8_t *competitor_page(int index, int page_step_pages) {
 }
 
 static void flush_victim_lines(void) {
-    for (size_t offset = 0; offset < page_size; offset += LINE_SIZE) {
+    for (size_t offset = 0; offset < victim_buffer_size; offset += LINE_SIZE) {
         flush_line_addr(victim_buffer + offset);
     }
 }
@@ -365,11 +358,10 @@ static uint64_t run_one_round(access_gadget_f access_gadget,
     uint8_t *probe_addr =
         victim_buffer + ((uint64_t)probe_line * (uint64_t)LINE_SIZE);
 
-    flush_dummy_buffer();
+    // flush_dummy_buffer();
     // mfence();
     dummy_accesses();
     
-
     flush_victim_lines();
     flush_competitor_lines(competitor_count, page_step_pages, stride);
 
@@ -391,12 +383,10 @@ static uint64_t run_one_round(access_gadget_f access_gadget,
     }
 
     // mfence();
-
     /*
      * 4. 等待可能的预取完成
      */
     // delay_after_trigger();
-
     /*
      * 5. probe one victim candidate line.
      */
@@ -423,6 +413,45 @@ static const char *probe_role(int probe_line, int predicted_line) {
     }
 
     return "candidate";
+}
+
+static void run_probe_map(access_gadget_f access_gadget,
+                          int competitor_count,
+                          int page_step_pages,
+                          int do_trigger,
+                          int stride,
+                          int predicted_line,
+                          int rounds) {
+    uint64_t latency_sum[PROBE_POSITIONS] = {0};
+    int probe_count[PROBE_POSITIONS] = {0};
+
+    for (int r = 0; r < rounds; r++) {
+        int probe_line = r % PROBE_POSITIONS;
+
+        latency_sum[probe_line] += run_one_round(access_gadget,
+                                                 competitor_count,
+                                                 page_step_pages,
+                                                 do_trigger,
+                                                 stride,
+                                                 probe_line);
+        probe_count[probe_line]++;
+    }
+
+    for (int probe_line = 0; probe_line < PROBE_POSITIONS; probe_line++) {
+        uint64_t avg = 0;
+
+        if (probe_count[probe_line] > 0) {
+            avg = latency_sum[probe_line] / (uint64_t)probe_count[probe_line];
+        }
+
+        printf("%d\t%d\t%d\t%s\t%lu\t%d\n",
+               competitor_count,
+               probe_line,
+               probe_line * LINE_SIZE,
+               probe_role(probe_line, predicted_line),
+               (unsigned long)avg,
+               probe_count[probe_line]);
+    }
 }
 
 static void print_usage(const char *prog) {
@@ -502,32 +531,47 @@ int main(int argc, char **argv) {
     uint64_t last_trigger_offset =
         (uint64_t)VICTIM_LAST_TRIGGER_LINE * (uint64_t)LINE_SIZE;
 
-    if (predicted_offset + LINE_SIZE > page_size ||
-        last_trigger_offset + LINE_SIZE > page_size ||
-        (uint64_t)PROBE_LINES * (uint64_t)LINE_SIZE > page_size) {
+    int predicted_line = VICTIM_PROBE_LINE;
+
+    if (PROBE_POSITIONS <= 0 || predicted_line >= PROBE_POSITIONS) {
         fprintf(stderr,
-                "victim offsets exceed one page: predicted_offset=%lu last_trigger_offset=%lu probe_lines=%d page_size=%lu\n",
-                (unsigned long)predicted_offset,
-                (unsigned long)last_trigger_offset,
-                PROBE_LINES,
-                (unsigned long)page_size);
+                "PROBE_POSITIONS=%d must include predicted_line=%d\n",
+                PROBE_POSITIONS,
+                predicted_line);
         return 1;
     }
 
-    int predicted_line = VICTIM_PROBE_LINE;
+    victim_buffer_size = (size_t)PROBE_POSITIONS * (size_t)LINE_SIZE;
+    if (victim_buffer_size < page_size) {
+        victim_buffer_size = page_size;
+    }
+    if (victim_buffer_size % page_size) {
+        victim_buffer_size += page_size - (victim_buffer_size % page_size);
+    }
+
+    if (predicted_offset + LINE_SIZE > victim_buffer_size ||
+        last_trigger_offset + LINE_SIZE > victim_buffer_size) {
+        fprintf(stderr,
+                "victim offsets exceed victim buffer: predicted_offset=%lu last_trigger_offset=%lu probe_positions=%d victim_size=%lu\n",
+                (unsigned long)predicted_offset,
+                (unsigned long)last_trigger_offset,
+                PROBE_POSITIONS,
+                (unsigned long)victim_buffer_size);
+        return 1;
+    }
 
     /*
      * victim page
      */
     victim_buffer = map_data_buffer(victim_buffer_addr,
-                                    page_size,
+                                    victim_buffer_size,
                                     "victim buffer");
 
     if (!victim_buffer) {
         return 1;
     }
 
-    memset(victim_buffer, -1, page_size);
+    memset(victim_buffer, -1, victim_buffer_size);
 
     /*
      * competitor pages.
@@ -595,14 +639,16 @@ int main(int argc, char **argv) {
            (unsigned long)access_pc,
            (unsigned long)victim_buffer_addr);
 
-    printf("# STRIDE_LINES=%d TRAIN_ACCESSES=%d TRIGGER_ACCESSES=%d COMPETITOR_ACCESSES=%d PROBE_LINES=%d max_competitors=%d page_step_pages=%d\n",
+    printf("# STRIDE_LINES=%d TRAIN_ACCESSES=%d TRIGGER_ACCESSES=%d COMPETITOR_ACCESSES=%d PROBE_POSITIONS=%d max_competitors=%d page_step_pages=%d\n",
            STRIDE_LINES,
            TRAIN_ACCESSES,
            TRIGGER_ACCESSES,
            COMPETITOR_ACCESSES,
-           PROBE_LINES,
+           PROBE_POSITIONS,
            max_competitors,
            page_step_pages);
+    printf("# victim_buffer_size=%lu\n",
+           (unsigned long)victim_buffer_size);
 
     printf("# victim accesses=%d train_only_accesses=%d trigger_accesses=%d stride_lines=%d\n",
            TRAIN_ACCESSES + TRIGGER_ACCESSES,
@@ -621,47 +667,25 @@ int main(int argc, char **argv) {
            STRIDE_LINES);
     printf("# lower latency means that victim line was more likely prefetched\n");
 
-    /*
-     * no-trigger calibration:
-     * victim trained, no competitors, but no victim trigger.
-     */
-    {
-        uint64_t latency = 0;
-
-        for (int r = 0; r < rounds; r++) {
-            latency += run_one_round(access_gadget,
-                                     0,
-                                     page_step_pages,
-                                     0,
-                                     stride,
-                                     predicted_line);
-        }
-
-        printf("# no_trigger_n0_latency_ns=%lu\n",
-               (unsigned long)(latency / (uint64_t)rounds));
-    }
-
+    printf("# no-trigger calibration follows as n=-1 rows\n");
     printf("n\tprobe_line\toffset_bytes\trole\tavg_ns\tprobes\n");
 
+    run_probe_map(access_gadget,
+                  -1,
+                  page_step_pages,
+                  0,
+                  stride,
+                  predicted_line,
+                  rounds);
+
     for (int n = 0; n <= max_competitors; n++) {
-        uint64_t latency = 0;
-
-        for (int r = 0; r < rounds; r++) {
-            latency += run_one_round(access_gadget,
-                                     n,
-                                     page_step_pages,
-                                     1,
-                                     stride,
-                                     predicted_line);
-        }
-
-        printf("%d\t%d\t%d\t%s\t%lu\t%lu\n",
-               n,
-               predicted_line,
-               predicted_line * LINE_SIZE,
-               probe_role(predicted_line, predicted_line),
-               (unsigned long)(latency / (uint64_t)rounds),
-               (unsigned long)rounds);
+        run_probe_map(access_gadget,
+                      n,
+                      page_step_pages,
+                      1,
+                      stride,
+                      predicted_line,
+                      rounds);
     }
 
     return 0;

