@@ -207,6 +207,7 @@ int main(){
     }
 
     uint64_t probe_offset = train_step * (uint64_t)stride;
+    int latency_sum2 = 0;
 
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
 
@@ -227,30 +228,33 @@ int main(){
           stride_access(array2 +  ((train_step -1) * stride));
 #endif
 
-            int probe_pos = (atkRound) % PROBE_POSITIONS;//test one position each round
-
-            probe_addr = array2 + (probe_pos * LINE_SIZE);
-
+            // int probe_pos = (atkRound) % PROBE_POSITIONS;//test one position each round
+            //  probe_addr = array2 + (probe_pos * LINE_SIZE);
+            // int probe_pos = ;//test one position each round
+            // probe_addr = array2 + train_step * stride;
+            probe_addr = array2 + train_step * stride;
+            
               time1 = timestamp();
             //   junk = *probe_addr;
               mLoad_inline((void*)probe_addr);
               time2 = timestamp() - time1;
 
-            //   latency_sum += time2;
-              latency_sum[probe_pos] += time2;
-              probe_count[probe_pos]++;
+              latency_sum2 += time2;
+              // latency_sum[probe_pos] += time2;
+              // probe_count[probe_pos]++;
           }
-          for(int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
-              long long int avg_ns = 0;
-              if(probe_count[probe_pos] > 0) {
-                  avg_ns = latency_sum[probe_pos] / probe_count[probe_pos];
-              }
-              printf("%3d\t%12d\t%10lld\t%5d\n",
-                     probe_pos,
-                     probe_pos * LINE_SIZE,
-                     avg_ns,
-                     probe_count[probe_pos]);
-          }
+          printf("avg latency: %llu\n", (unsigned long long)(latency_sum2 / rounds));
+          // for(int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
+          //     long long int avg_ns = 0;
+          //     if(probe_count[probe_pos] > 0) {
+          //         avg_ns = latency_sum[probe_pos] / probe_count[probe_pos];
+          //     }
+          //     printf("%3d\t%12d\t%10lld\t%5d\n",
+          //            probe_pos,
+          //            probe_pos * LINE_SIZE,
+          //            avg_ns,
+          //            probe_count[probe_pos]);
+          // }
       // }
       printf("\n");
   // }
