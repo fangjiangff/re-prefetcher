@@ -8,6 +8,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-cache")
 import matplotlib.pyplot as plt
 
 from cross_test_config import (
+    apply_access_defaults,
     apply_single_core_defaults,
     apply_threshold_defaults,
     arch_choices,
@@ -39,6 +40,7 @@ def compile_test(args):
         f"-DARCH_NAME=\"{args.arch}\"",
         f"-DVA1_BASE={args.va1_base}",
         f"-DSTRIDE_LINES={args.stride}",
+        f"-DSTORE_ACCESSES={args.accesses}",
         f"-DMIN_DIFF_BIT={args.min_diff_bit}",
         f"-DMAX_DIFF_BIT={args.max_diff_bit}",
         f"-DROUNDS={args.rounds}",
@@ -64,7 +66,8 @@ def micro_arch_name(args):
     va1 = sanitize_token(args.va1_base)
     return (
         f"{args.arch}-core{args.core}-index-mem-va"
-        f"-stride{args.stride}-probe{args.probe_positions}"
+        f"-stride{args.stride}-accesses{args.accesses}"
+        f"-probe{args.probe_positions}"
         f"-bits{args.min_diff_bit}-{args.max_diff_bit}"
         f"-va1{va1}"
     )
@@ -195,6 +198,9 @@ def main():
                         help=f"Page-aligned VA1 base. Default: {DEFAULT_VA1_BASE}")
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE_LINES,
                         help="Stride in cache lines. Default: 5.")
+    parser.add_argument("--accesses", type=int, default=None,
+                        help="Total store train+trigger accesses. Default is "
+                             "selected from --arch store accesses.")
     parser.add_argument("--min-diff-bit", type=int, default=DEFAULT_MIN_DIFF_BIT)
     parser.add_argument("--max-diff-bit", type=int, default=DEFAULT_MAX_DIFF_BIT)
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
@@ -212,8 +218,10 @@ def main():
     parser.add_argument("--no-plot", action="store_true")
     parser.add_argument("--no-compile", action="store_true")
     args = parser.parse_args()
+    args.access = "store"
 
     apply_single_core_defaults(args)
+    apply_access_defaults(args)
     apply_threshold_defaults(args)
 
     va1_base = parse_int_literal(args.va1_base)
@@ -223,6 +231,8 @@ def main():
         parser.error("--va1-base must be 4 KiB aligned")
     if args.stride < 1:
         parser.error("--stride must be >= 1")
+    if args.accesses < 2:
+        parser.error("--accesses must be >= 2")
     if args.min_diff_bit < 12:
         parser.error("--min-diff-bit must be >= 12")
     if args.max_diff_bit < args.min_diff_bit or args.max_diff_bit >= 48:
@@ -231,17 +241,21 @@ def main():
         parser.error("--rounds must be >= 1")
     if args.probe_positions < 1:
         parser.error("--probe-positions must be >= 1")
-    if 2 * args.stride >= args.probe_positions:
-        parser.error("predicted position 2 * stride must be inside probe positions")
-    if (2 * args.stride + 1) * 64 > 4096:
+    predicted_pos = args.accesses * args.stride
+    trigger_pos = (args.accesses - 1) * args.stride
+    if predicted_pos >= args.probe_positions:
+        parser.error("predicted position accesses * stride must be inside probe positions")
+    if (predicted_pos + 1) * 64 > 4096:
         parser.error("predicted position must fit inside one 4 KiB alias page")
     if args.threshold_ns < 1:
         parser.error("--threshold-ns must be >= 1")
 
     print(
         f"arch={args.arch}, core={args.core}, va1_base={args.va1_base}, "
-        f"stride={args.stride}, trainer_pos=0, trigger_pos={args.stride}, "
-        f"predicted_pos={2 * args.stride}, rounds={args.rounds}, "
+        f"stride={args.stride}, accesses={args.accesses}, "
+        f"train_pos=0..{trigger_pos - args.stride}, "
+        f"trigger_pos={trigger_pos}, predicted_pos={predicted_pos}, "
+        f"rounds={args.rounds}, "
         f"probe_positions={args.probe_positions}, threshold={args.threshold_ns} ns"
     )
 
@@ -283,7 +297,8 @@ def main():
     if not args.no_plot:
         plot_title = (
             f"{args.arch} core {args.core}: VA index contribution "
-            f"(stride={args.stride}, VA1={args.va1_base})"
+            f"(stride={args.stride}, accesses={args.accesses}, "
+            f"VA1={args.va1_base})"
         )
         plot_result(
             plot_path(args),

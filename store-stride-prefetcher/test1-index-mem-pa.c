@@ -22,6 +22,10 @@
 #define STRIDE_LINES 5
 #endif
 
+#ifndef STORE_ACCESSES
+#define STORE_ACCESSES 2
+#endif
+
 #ifndef ROUNDS
 #define ROUNDS 40000
 #endif
@@ -39,9 +43,10 @@
 #endif
 
 #define ALIAS_SIZE PAGE_SIZE
-#define TRAIN_POS 0
-#define TRIGGER_POS STRIDE_LINES
-#define PREDICTED_POS (2 * STRIDE_LINES)
+#define STRIDE_BYTES (STRIDE_LINES * LINE_SIZE)
+#define TRAIN_ONLY_ACCESSES (STORE_ACCESSES - 1)
+#define TRIGGER_POS (TRAIN_ONLY_ACCESSES * STRIDE_LINES)
+#define PREDICTED_POS (STORE_ACCESSES * STRIDE_LINES)
 #define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 struct page_info {
@@ -119,7 +124,9 @@ static uint64_t probe_latency(uint8_t *addr) {
 }
 
 __attribute__((noinline)) static void run_trainer(uint8_t *va1) {
-    mStore_inline(va1 + TRAIN_POS * LINE_SIZE);
+    for (int access = 0; access < TRAIN_ONLY_ACCESSES; access++) {
+        mStore_inline(va1 + (uint64_t)access * STRIDE_BYTES);
+    }
 }
 
 __attribute__((noinline)) static void run_trigger(uint8_t *va2) {
@@ -336,8 +343,10 @@ int main(void) {
     size_t buddy_bytes = (size_t)BUDDY_PAGES * PAGE_SIZE;
     int valid_pages;
 
-    if (STRIDE_LINES <= 0 || ROUNDS <= 0 || PROBE_POSITIONS <= 0) {
-        fprintf(stderr, "invalid STRIDE_LINES/ROUNDS/PROBE_POSITIONS\n");
+    if (STRIDE_LINES <= 0 || STORE_ACCESSES < 2 ||
+        ROUNDS <= 0 || PROBE_POSITIONS <= 0) {
+        fprintf(stderr,
+                "invalid STRIDE_LINES/STORE_ACCESSES/ROUNDS/PROBE_POSITIONS\n");
         return 1;
     }
     if (MIN_DIFF_BIT < 12 || MAX_DIFF_BIT < MIN_DIFF_BIT || MAX_DIFF_BIT >= 63) {
@@ -372,14 +381,18 @@ int main(void) {
     warm_pages(buddy_pool, (size_t)BUDDY_PAGES);
 
     printf("# store-stride PA-index contribution test\n");
-    printf("# buddy_pages=%d buddy_bytes=%" PRIu64 " stride_lines=%d rounds=%d probe_positions=%d\n",
+    printf("# buddy_pages=%d buddy_bytes=%" PRIu64 " stride_lines=%d accesses=%d train_only_accesses=%d rounds=%d probe_positions=%d\n",
            BUDDY_PAGES,
            (uint64_t)buddy_bytes,
            STRIDE_LINES,
+           STORE_ACCESSES,
+           TRAIN_ONLY_ACCESSES,
            ROUNDS,
            PROBE_POSITIONS);
     printf("# pair condition: PA1 ^ PA2 == (1 << diff_bit), with identical page offset\n");
-    printf("# trainer: PA1 + 0*LINE_SIZE, trigger: PA2 + %d*LINE_SIZE, final: PA2 + %d*LINE_SIZE\n",
+    printf("# trainer: PA1 + [0..%d]*%d*LINE_SIZE, trigger: PA2 + %d*LINE_SIZE, final: PA2 + %d*LINE_SIZE\n",
+           TRAIN_ONLY_ACCESSES - 1,
+           STRIDE_LINES,
            TRIGGER_POS,
            PREDICTED_POS);
     printf("case\tlatency_ns\n");

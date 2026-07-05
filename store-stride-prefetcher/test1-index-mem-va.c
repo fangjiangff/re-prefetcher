@@ -26,6 +26,10 @@
 #define STRIDE_LINES 5
 #endif
 
+#ifndef STORE_ACCESSES
+#define STORE_ACCESSES 2
+#endif
+
 #ifndef ROUNDS
 #define ROUNDS 40000
 #endif
@@ -40,9 +44,9 @@
 
 #define ALIAS_SIZE PAGE_SIZE
 #define STRIDE_BYTES (STRIDE_LINES * LINE_SIZE)
-#define TRAIN_POS 0
-#define TRIGGER_POS STRIDE_LINES
-#define PREDICTED_POS (2 * STRIDE_LINES)
+#define TRAIN_ONLY_ACCESSES (STORE_ACCESSES - 1)
+#define TRIGGER_POS (TRAIN_ONLY_ACCESSES * STRIDE_LINES)
+#define PREDICTED_POS (STORE_ACCESSES * STRIDE_LINES)
 #define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 static uint8_t *dummy_buffer;
@@ -112,7 +116,9 @@ static uint64_t probe_latency(uint8_t *addr) {
 }
 
 __attribute__((noinline)) static void run_trainer(uint8_t *va1) {
-    mStore_inline(va1 + TRAIN_POS * LINE_SIZE);
+    for (int access = 0; access < TRAIN_ONLY_ACCESSES; access++) {
+        mStore_inline(va1 + (uint64_t)access * STRIDE_BYTES);
+    }
 }
 
 __attribute__((noinline)) static void run_trigger(uint8_t *va2) {
@@ -269,8 +275,10 @@ static void run_same_va_baselines(uintptr_t va1_base, uint64_t rounds) {
 int main(void) {
     uintptr_t va1_base = VA1_BASE;
 
-    if (STRIDE_LINES <= 0 || ROUNDS <= 0 || PROBE_POSITIONS <= 0) {
-        fprintf(stderr, "invalid STRIDE_LINES/ROUNDS/PROBE_POSITIONS\n");
+    if (STRIDE_LINES <= 0 || STORE_ACCESSES < 2 ||
+        ROUNDS <= 0 || PROBE_POSITIONS <= 0) {
+        fprintf(stderr,
+                "invalid STRIDE_LINES/STORE_ACCESSES/ROUNDS/PROBE_POSITIONS\n");
         return 1;
     }
     if (MIN_DIFF_BIT < 12 || MAX_DIFF_BIT < MIN_DIFF_BIT || MAX_DIFF_BIT >= 48) {
@@ -301,14 +309,18 @@ int main(void) {
     }
 
     printf("# store-stride VA-index contribution test\n");
-    printf("# VA1_BASE=0x%016lx stride_lines=%d rounds=%d probe_positions=%d\n",
+    printf("# VA1_BASE=0x%016lx stride_lines=%d accesses=%d train_only_accesses=%d rounds=%d probe_positions=%d\n",
            (unsigned long)va1_base,
            STRIDE_LINES,
+           STORE_ACCESSES,
+           TRAIN_ONLY_ACCESSES,
            ROUNDS,
            PROBE_POSITIONS);
     printf("# VA2_BASE = VA1_BASE ^ (1 << diff_bit)\n");
     printf("# VA1 and VA2 are MAP_SHARED aliases of the same memfd page\n");
-    printf("# trainer: VA1 + 0*LINE_SIZE, trigger: VA2 + %d*LINE_SIZE, final: VA2 + %d*LINE_SIZE\n",
+    printf("# trainer: VA1 + [0..%d]*%d*LINE_SIZE, trigger: VA2 + %d*LINE_SIZE, final: VA2 + %d*LINE_SIZE\n",
+           TRAIN_ONLY_ACCESSES - 1,
+           STRIDE_LINES,
            TRIGGER_POS,
            PREDICTED_POS);
     printf("case\tlatency_ns\n");

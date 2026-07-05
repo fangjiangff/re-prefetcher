@@ -183,7 +183,7 @@ int main(){
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
             uint64_t probe_offset = (uint64_t)train_step * (uint64_t)stride;
 
-            dummyAccesses();//for dummy accesses , reset the prefetcher state
+            // dummyAccesses();//for dummy accesses , reset the prefetcher state
             
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
