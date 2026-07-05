@@ -34,7 +34,7 @@
 #endif
 
 #ifndef DUMMY_BUFFER_PAGES
-#define DUMMY_BUFFER_PAGES 10
+#define DUMMY_BUFFER_PAGES 0
 #endif
 
 #ifndef DUMMY_ACCESS_LOAD
@@ -84,12 +84,13 @@ static uint8_t* dummy_buffer;
 
 
 void dummyAccesses(void){
-  dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
-    //    for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
-    //     // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
-    //     asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
-    //     // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
-    //  }
+    // printf("dummySize %d\n", DUMMY_BUFFER_SIZE);
+  // dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+    for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[j]) : "memory", "w0");
+    }
 }
 
 
@@ -181,26 +182,16 @@ int main(){
   for(int i=0; i< Items; i++){
     mLoad(&array2[i * LINE_SIZE]);
   }
-
-
   for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
     flush(&array2[offset]);
   }
-  mfence();
+  // mfence();
 
 
   uint64_t rounds = ROUNDS;
 
     int stride = STRIDE_BYTES;
     int train_step = TRAIN_STEP;
-    if (train_step <= 0) {
-      fprintf(stderr, "TRAIN_STEP must be positive\n");
-      return 1;
-    }
-    if (stride <= 0) {
-      fprintf(stderr, "STRIDE_BYTES must be positive\n");
-      return 1;
-    }
     if ((uint64_t)(train_step - 1) * (uint64_t)stride >= Items * LINE_SIZE) {
       fprintf(stderr, "training range exceeds array2 size\n");
       return 1;
@@ -209,15 +200,14 @@ int main(){
     uint64_t probe_offset = train_step * (uint64_t)stride;
     int latency_sum2 = 0;
 
+
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
-
-            
-
-            dummyAccesses();//for dummy accesses , reset the prefetcher state
-
+            // dummyAccesses();  
+            // mfence();
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);//flush 0-256. probe 0-64
             }
+            // mfence();
 
             for(int step = 0; step < train_step-1; step++){
                 stride_access(array2 + (step * stride));
@@ -227,34 +217,32 @@ int main(){
           // stride_access(array2 +  ((train_step -2) * stride));
           stride_access(array2 +  ((train_step -1) * stride));
 #endif
+            int probe_pos = (atkRound) % PROBE_POSITIONS;//test one position each round
+             probe_addr = array2 + (probe_pos * LINE_SIZE);
+            // mLoad_inline((void*)array2 + 5*LINE_SIZE);//probe 0
 
-            // int probe_pos = (atkRound) % PROBE_POSITIONS;//test one position each round
-            //  probe_addr = array2 + (probe_pos * LINE_SIZE);
-            // int probe_pos = ;//test one position each round
-            // probe_addr = array2 + train_step * stride;
-            probe_addr = array2 + train_step * stride;
-            
+            //   probe_addr = array2 + probe_offset;
               time1 = timestamp();
-            //   junk = *probe_addr;
               mLoad_inline((void*)probe_addr);
               time2 = timestamp() - time1;
 
-              latency_sum2 += time2;
-              // latency_sum[probe_pos] += time2;
-              // probe_count[probe_pos]++;
+            //   latency_sum2 += time2;
+              latency_sum[probe_pos] += time2;
+              probe_count[probe_pos]++;
+              // printf("%llu\n", (unsigned long long)time2);
           }
-          printf("avg latency: %llu\n", (unsigned long long)(latency_sum2 / rounds));
-          // for(int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
-          //     long long int avg_ns = 0;
-          //     if(probe_count[probe_pos] > 0) {
-          //         avg_ns = latency_sum[probe_pos] / probe_count[probe_pos];
-          //     }
-          //     printf("%3d\t%12d\t%10lld\t%5d\n",
-          //            probe_pos,
-          //            probe_pos * LINE_SIZE,
-          //            avg_ns,
-          //            probe_count[probe_pos]);
-          // }
+        //   printf("avg latency: %llu\n", (unsigned long long)(latency_sum2 / rounds));
+          for(int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
+              long long int avg_ns = 0;
+              if(probe_count[probe_pos] > 0) {
+                  avg_ns = latency_sum[probe_pos] / probe_count[probe_pos];
+              }
+              printf("%3d\t%12d\t%10lld\t%5d\n",
+                     probe_pos,
+                     probe_pos * LINE_SIZE,
+                     avg_ns,
+                     probe_count[probe_pos]);
+          }
       // }
       printf("\n");
   // }

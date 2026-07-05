@@ -25,7 +25,7 @@ ARCH_CONFIG = {
     },
     "A78": {
         "core": 4,
-        "threshold_ns": 120,
+        "threshold_ns": 150,
         "cross_core": {
             "train_core": 4,
             "trigger_core": 5,
