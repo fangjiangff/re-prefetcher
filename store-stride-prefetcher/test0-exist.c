@@ -163,6 +163,15 @@ static void print_test_header(int stride, int train_step, uint64_t rounds) {
 }
 
 
+// static inline void cpp_rctx(void)
+// {
+// #ifdef __aarch64__
+//     asm volatile(
+//         "cpp rctx, xzr\n"
+//         ::: "memory");
+// #endif
+// }
+
 
 int main(){
   register uint64_t time1, time2;
@@ -179,12 +188,14 @@ int main(){
       exit(1);
   }
 
-  for(int i=0; i< Items; i++){
-    mLoad(&array2[i * LINE_SIZE]);
-  }
-  for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
-    flush(&array2[offset]);
-  }
+//   for(int i=0; i< Items; i++){
+//     mLoad(&array2[i * LINE_SIZE]);
+//     // mLoad_inline(&array2[i * LINE_SIZE]);
+//   }
+//   for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
+//     flush(&array2[offset]);
+//   }
+
   // mfence();
 
 
@@ -196,42 +207,46 @@ int main(){
       fprintf(stderr, "training range exceeds array2 size\n");
       return 1;
     }
-
     uint64_t probe_offset = train_step * (uint64_t)stride;
     int latency_sum2 = 0;
 
 
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
+            cpp_rctx();
             // dummyAccesses();  
             // mfence();
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);//flush 0-256. probe 0-64
             }
-            // mfence();
+            mfence();
 
             for(int step = 0; step < train_step-1; step++){
                 stride_access(array2 + (step * stride));
+                // mfence();
             }
-            //trigger access
+            // context_switch_before_trigger();
+            mLoad_inline(array2 +  61*LINE_SIZE);//trigger access
 #if !NO_TRIGGER
-          // stride_access(array2 +  ((train_step -2) * stride));
           stride_access(array2 +  ((train_step -1) * stride));
 #endif
             int probe_pos = (atkRound) % PROBE_POSITIONS;//test one position each round
-             probe_addr = array2 + (probe_pos * LINE_SIZE);
+            probe_addr = array2 + (probe_pos * LINE_SIZE);
             // mLoad_inline((void*)array2 + 5*LINE_SIZE);//probe 0
 
-            //   probe_addr = array2 + probe_offset;
+              // probe_addr = array2 + probe_offset;
+
               time1 = timestamp();
+            //   junk = *probe_addr;
               mLoad_inline((void*)probe_addr);
+            //   mStore_inline((void*)probe_addr);
               time2 = timestamp() - time1;
 
-            //   latency_sum2 += time2;
+              // latency_sum2 += time2;
               latency_sum[probe_pos] += time2;
               probe_count[probe_pos]++;
               // printf("%llu\n", (unsigned long long)time2);
           }
-        //   printf("avg latency: %llu\n", (unsigned long long)(latency_sum2 / rounds));
+          // printf("avg latency: %llu\n", (unsigned long long)(latency_sum2 / rounds));
           for(int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
               long long int avg_ns = 0;
               if(probe_count[probe_pos] > 0) {

@@ -217,6 +217,17 @@ static inline void flush_mapping(Mapping mapping) {
     mfence();
 }
 
+static inline void cpp_rctx(void)
+{
+#ifdef __aarch64__
+    asm volatile(
+        "cpp rctx, xzr\n"
+        "dsb sy\n\t"
+        "isb\n\t"
+        ::: "memory");
+#endif
+}
+
 static inline void random_activity(Mapping mapping) {
     size_t cls_per_page = PAGE_SIZE / LINE_SIZE;
 

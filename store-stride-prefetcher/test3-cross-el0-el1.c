@@ -360,8 +360,9 @@ int main(void) {
         uint64_t time1;
         uint64_t time2;
 
+        cpp_rctx();
         flush_user_page();
-        dummyAccesses();
+        // dummyAccesses();
 
         train_in_el0(stride_bytes);
 #if !NO_TRIGGER
@@ -374,10 +375,11 @@ int main(void) {
         trigger_in_el1(trigger_fd, stride_bytes);
 #endif
 #endif
-        delay_after_trigger();
+        // delay_after_trigger();
 
         time1 = timestamp();
-        junk += *probe_addr;
+        // junk += *probe_addr;
+        mStore_inline((void *)probe_addr);
         time2 = timestamp() - time1;
 
         latency_sum[probe_pos] += (long long)time2;

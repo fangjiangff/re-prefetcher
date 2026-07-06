@@ -325,6 +325,7 @@ def compile_test(no_trigger=False, same_process=False, process_switch=False):
         "-std=gnu11",
         "-O0",
         "-static",
+         "-march=armv8.5-a+predres",
         f"-DSTRIDE_LINES={args.stride}",
         f"-DTRAIN_ACCESSES={train_only_accesses()}",
         f"-DTRIGGER_ACCESSES={args.trigger_accesses}",

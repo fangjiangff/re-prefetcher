@@ -404,6 +404,7 @@ def compile_test(train_step, arch):
         "-std=gnu11",
         "-O0",
         "-static",
+        "-march=armv8.5-a+predres",
         f"-DSTRIDE_BYTES={args.stride * 64}",
         f"-DTRAIN_STEP={train_step}",
         f"-DROUNDS={args.rounds}",

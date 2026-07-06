@@ -146,6 +146,7 @@ static void run_case(const char *result_name,
     for (uint64_t round = 0; round < rounds; round++) {
         int probe_pos = (int)(round % PROBE_POSITIONS);
 
+        cpp_rctx();
         dummy_accesses();
         flush_pages(va1, va2);
 

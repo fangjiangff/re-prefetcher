@@ -35,10 +35,10 @@ def parse_args():
                         help="Override CPU core used by taskset. Default is selected from --arch.")
     parser.add_argument("--rounds", type=int, default=4000,
                         help="Rounds per stride/access-count point. Default: 100")
-    parser.add_argument("--max-stride", type=int, default=4096,
-                        help="Maximum stride in bytes. Default: 4096")
-    parser.add_argument("--max-step", type=int, default=40,
-                        help="Maximum access count. Default: 40")
+    parser.add_argument("--max-stride", type=int, default=1024,
+                        help="Maximum stride in bytes. Default: 1024")
+    parser.add_argument("--max-step", type=int, default=10,
+                        help="Maximum access count. Default: 10")
     parser.add_argument("--access", choices=["store", "load", "prefetch"],
                         default="store",
                         help=("Access instruction used for training/trigger. "
@@ -110,6 +110,12 @@ def ensure_parent(path):
         os.makedirs(parent, exist_ok=True)
 
 
+def arch_cflags_for(arch):
+    if is_x86_arch(arch):
+        return []
+    return ["-march=armv8.5-a+predres"]
+
+
 def compile_test(args):
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     compile_cmd = [
@@ -130,6 +136,7 @@ def compile_test(args):
     timer_define = timer_define_for_arch(args.arch, args.timer)
     if timer_define is not None:
         compile_cmd.insert(-4, timer_define)
+    compile_cmd[1:1] = arch_cflags_for(args.arch)
     return subprocess.run(compile_cmd)
 
 

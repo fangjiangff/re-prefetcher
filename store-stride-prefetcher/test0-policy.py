@@ -319,6 +319,7 @@ def compile_test(arch):
         "-std=gnu11",
         "-O0",
         "-static",
+         "-march=armv8.5-a+predres",
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DACCESS_SEQUENCE={sequence_macro}",

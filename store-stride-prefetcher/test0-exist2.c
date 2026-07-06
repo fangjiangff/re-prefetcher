@@ -187,10 +187,10 @@ int main(){
       exit(1);
   }
 
-  for(int i=0; i< Items; i++){
-    mLoad(&array2[i * LINE_SIZE]);
-  }
-  flush_mapping(array2_mapping);
+  // for(int i=0; i< Items; i++){
+  //   mLoad(&array2[i * LINE_SIZE]);
+  // }
+  // flush_mapping(array2_mapping);
 
 
   uint64_t rounds = ROUNDS;
@@ -213,11 +213,11 @@ int main(){
     uint64_t probe_offset = train_step * (uint64_t)stride;
 
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
-
+            cpp_rctx();
             // dummyAccesses();//for dummy accesses , reset the prefetcher state
             // random_activity(array2_mapping);
             flush_mapping(array2_mapping);
-
+            mfence();
 
             for(int step = 0; step < train_step-1; step++){
                 stride_access(array2 + (step * stride));

@@ -121,15 +121,15 @@ int main(){
       exit(1);
   }
 
-  for(int i=0; i< Items; i++){
-    mLoad(&array2[i * 64]);
-  }
+//   for(int i=0; i< Items; i++){
+//     mLoad(&array2[i * 64]);
+//   }
 
 
-  for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
-    flush(&array2[offset]);
-  }
-  mfence();
+//   for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
+//     flush(&array2[offset]);
+//   }
+//   mfence();
 
 
   if (MAX_STRIDE % LINE_SIZE != 0) {
@@ -183,12 +183,13 @@ int main(){
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
             uint64_t probe_offset = (uint64_t)train_step * (uint64_t)stride;
 
-            // dummyAccesses();//for dummy accesses , reset the prefetcher state
+            // dummyAccesses();
+            cpp_rctx(); 
             
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
-            // mfence();
+            mfence();
               // for(int repeat = 0; repeat < 5; repeat ++) {
               for(int step = 0; step < train_step -1; step++){
                   stride_access(array2 + (step * stride));
@@ -199,15 +200,15 @@ int main(){
               stride_access(array2 + ((train_step -1) * stride));
               // mfence();
               
-              delay_after_trigger();
-
+              // delay_after_trigger();
               //probe
               
               
               probe_addr = array2 + probe_offset;
               
               time1 = timestamp();
-              junk = *probe_addr;
+            //   junk = *probe_addr;
+               mStore_inline((void*)probe_addr);
               time2 = timestamp() - time1;
               latency_sum[stride_lines][train_step] += time2;
           } 

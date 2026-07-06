@@ -180,19 +180,20 @@ int main(void) {
         return 1;
     }
 
-    for (int i = 0; i < Items; i++) {
-        mLoad(&array2[i * LINE_SIZE]);
-    }
+    // for (int i = 0; i < Items; i++) {
+    //     mLoad(&array2[i * LINE_SIZE]);
+    // }
 
-    for (uint64_t offset = 0; offset < Items * LINE_SIZE; offset += LINE_SIZE) {
-        flush(&array2[offset]);
-    }
-    mfence();
+    // for (uint64_t offset = 0; offset < Items * LINE_SIZE; offset += LINE_SIZE) {
+    //     flush(&array2[offset]);
+    // }
+    // mfence();
 
     print_header(rounds);
 
     for (uint64_t atkRound = 0; atkRound < rounds; atkRound++) {
-        dummyAccesses();
+        // dummyAccesses();
+        cpp_rctx();
 
         for (uint64_t offset = 0; offset < Items * LINE_SIZE; offset += LINE_SIZE) {
             flush(&array2[offset]);
@@ -208,13 +209,14 @@ int main(void) {
 #endif
         }
 
-        delay_after_accesses();
+        // delay_after_accesses();
 
-        int probe_pos = atkRound % PROBE_POSITIONS;
+        int probe_pos = (atkRound) % PROBE_POSITIONS;
         probe_addr = array2 + probe_pos * LINE_SIZE;
 
         time1 = timestamp();
-        junk = *probe_addr;
+        // junk = *probe_addr;
+        mStore_inline(probe_addr);
         time2 = timestamp() - time1;
 
         latency_sum[probe_pos] += time2;

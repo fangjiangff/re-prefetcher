@@ -36,6 +36,7 @@ def compile_test(args):
         "-std=gnu11",
         "-O0",
         "-static",
+        "-march=armv8.5-a+predres",
         f"-DARCH_NAME=\"{args.arch}\"",
         f"-DSTRIDE_LINES={args.stride}",
         f"-DSTORE_TRIGGER_ACCESS={args.accesses}",

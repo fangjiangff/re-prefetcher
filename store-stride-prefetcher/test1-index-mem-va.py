@@ -37,6 +37,7 @@ def compile_test(args):
         "-std=gnu11",
         "-O0",
         "-static",
+        "-march=armv8.5-a+predres",
         f"-DARCH_NAME=\"{args.arch}\"",
         f"-DVA1_BASE={args.va1_base}",
         f"-DSTRIDE_LINES={args.stride}",

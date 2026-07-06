@@ -14,13 +14,14 @@ from cross_test_config import (
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(BASE_DIR, "test2-entry.c")
-OUT = os.path.join(BASE_DIR, "bin", "test2-entry")
+SRC = os.path.join(BASE_DIR, "test2-entry-rep.c")
+OUT = os.path.join(BASE_DIR, "bin", "test2-entry-rep")
 
 DEFAULT_ACCESS_PC = "0x500000120"
 DEFAULT_VICTIM_BUFFER = "0x600000000"
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_MAX_COMPETITORS = 64
+DEFAULT_SPLIT_COMPETITORS = 8
 DEFAULT_ROUNDS = 1000
 DEFAULT_PAGE_STEP = 1
 DEFAULT_PROBE_POSITIONS = 100
@@ -28,7 +29,7 @@ DEFAULT_PROBE_POSITIONS = 100
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run test2-entry.c victim-retention/competitor eviction test."
+        description="Run test2-entry-rep.c split-competitor replacement test."
     )
     parser.add_argument("--arch", required=True, choices=arch_choices())
     parser.add_argument("--core", type=int, default=None,
@@ -50,6 +51,9 @@ def parse_args():
                         help="Number of trigger accesses at the end of the stride sequence.")
     parser.add_argument("--max-competitors", type=int,
                         default=DEFAULT_MAX_COMPETITORS)
+    parser.add_argument("--split-competitors", type=int,
+                        default=DEFAULT_SPLIT_COMPETITORS,
+                        help="Train this many competitors first, then access the remaining competitors. Default: 8")
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
     parser.add_argument("--page-step", type=int, default=DEFAULT_PAGE_STEP,
                         help="Distance between competitor pages, in 4KB pages.")
@@ -109,6 +113,8 @@ def parse_args():
         parser.error("--trigger-accesses must be smaller than --accesses")
     if args.max_competitors < 0:
         parser.error("--max-competitors must be >= 0")
+    if args.split_competitors < 0:
+        parser.error("--split-competitors must be >= 0")
     if args.rounds < 1:
         parser.error("--rounds must be >= 1")
     if args.page_step < 1:
@@ -132,7 +138,7 @@ def parse_args():
 
 
 args = parse_args()
-result_dir = os.path.join(BASE_DIR, "res", "entry")
+result_dir = os.path.join(BASE_DIR, "res", "entry-rep")
 raw_dir = os.path.join(result_dir, "raw")
 multi_run_dir = os.path.join(result_dir, "multi-run")
 plot_dir = os.path.join(result_dir, "plots")
@@ -140,10 +146,10 @@ plot_dir = os.path.join(result_dir, "plots")
 
 def micro_arch_name():
     return (
-        f"{args.arch}-core{args.core}-entry"
+        f"{args.arch}-core{args.core}-entry-rep"
         f"-stride{args.stride}-accesses{args.accesses}"
         f"-trigger{args.trigger_accesses}"
-        f"-max{args.max_competitors}-step{args.page_step}"
+        f"-max{args.max_competitors}-split{args.split_competitors}-step{args.page_step}"
         f"-probe{args.probe_lines}"
         f"-{args.access}"
     )
@@ -258,6 +264,7 @@ def compile_test():
         f"-DTRAIN_ACCESSES={args.train_only_accesses}",
         f"-DTRIGGER_ACCESSES={args.trigger_accesses}",
         f"-DPROBE_POSITIONS={args.probe_lines}",
+        f"-DSPLIT_COMPETITORS={args.split_competitors}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         "-o",
         OUT,
@@ -386,6 +393,7 @@ def print_run_header():
         f"access={args.access}, "
         f"accesses={args.accesses}, train_only_accesses={args.train_only_accesses}, "
         f"trigger_accesses={args.trigger_accesses}, max_competitors={args.max_competitors}, "
+        f"split_competitors={args.split_competitors}, "
         f"rounds={args.rounds}, page_step={args.page_step}, probe_lines={args.probe_lines}, "
         f"threshold={args.threshold_ns} ns"
     )

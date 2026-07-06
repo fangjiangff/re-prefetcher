@@ -37,6 +37,7 @@ def compile_test(args):
         "-std=gnu11",
         "-O0",
         "-static",
+         "-march=armv8.5-a+predres",
         f"-DARCH_NAME=\"{args.arch}\"",
         f"-DBUDDY_PAGES={(args.buddy_mb * 1024 * 1024) // 4096}",
         f"-DSTRIDE_LINES={args.stride}",
@@ -90,6 +91,15 @@ def ensure_parent(path):
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
+
+
+def require_sudo():
+    if hasattr(os, "geteuid") and os.geteuid() != 0:
+        cmd = " ".join(["sudo", sys.executable] + sys.argv)
+        print("This test reads physical addresses from /proc/self/pagemap.", file=sys.stderr)
+        print("Please run with sudo: " + cmd, file=sys.stderr)
+        return 1
+    return 0
 
 
 def parse_result(output):
@@ -208,6 +218,10 @@ def main():
     parser.add_argument("--no-compile", action="store_true")
     args = parser.parse_args()
     args.access = "store"
+
+    sudo_error = require_sudo()
+    if sudo_error:
+        return sudo_error
 
     apply_single_core_defaults(args)
     apply_access_defaults(args)

@@ -320,6 +320,7 @@ def compile_test(no_trigger=False, context_switch=False, thread0_trigger=False):
         "-O0",
         "-static",
         "-pthread",
+        "-march=armv8.5-a+predres",
         f"-DSTRIDE_LINES={args.stride}",
         f"-DTRAIN_ACCESSES={train_only_accesses()}",
         f"-DTRIGGER_ACCESSES={args.trigger_accesses}",

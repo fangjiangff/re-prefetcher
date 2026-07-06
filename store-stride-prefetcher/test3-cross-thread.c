@@ -370,6 +370,7 @@ int main(void) {
         uint64_t time1;
         uint64_t time2;
 
+        cpp_rctx();
         flush_shared_page();
         // dummyAccesses();
 

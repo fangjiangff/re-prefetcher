@@ -38,6 +38,10 @@
 #define COMPETITOR_ACCESSES (TRAIN_ACCESSES)
 #endif
 
+#ifndef SPLIT_COMPETITORS
+#define SPLIT_COMPETITORS 8
+#endif
+
 #ifndef PROBE_POSITIONS
 #define PROBE_POSITIONS 100
 #endif
@@ -292,8 +296,7 @@ static void delay_after_trigger(void) {
 
 static uint64_t probe_latency(uint8_t *addr) {
     uint64_t time1 = timestamp();
-    // maccess(addr);
-    mStore_inline(addr);
+    maccess(addr);
     uint64_t time2 = timestamp();
 
     return time2 - time1;
@@ -330,13 +333,16 @@ static void train_victim(access_gadget_f access_gadget, int stride) {
     }
 }
 
-static void train_competitors(access_gadget_f access_gadget,
-                              int competitor_count,
-                              int page_step_pages,
-                              int stride) {
+static void train_competitors_range(access_gadget_f access_gadget,
+                                    int first_competitor,
+                                    int competitor_count,
+                                    int page_step_pages,
+                                    int stride) {
     (void)access_gadget;
 
-    for (int i = 0; i < competitor_count; i++) {
+    for (int i = first_competitor;
+         i < first_competitor + competitor_count;
+         i++) {
         uint8_t *page = competitor_page(i, page_step_pages);
 
         for (int step = 0; step < COMPETITOR_ACCESSES; step++) {
@@ -348,6 +354,31 @@ static void train_competitors(access_gadget_f access_gadget,
             //              ((uint64_t)step * (uint64_t)stride));
         }
     }
+}
+
+static void train_competitors(access_gadget_f access_gadget,
+                              int competitor_count,
+                              int page_step_pages,
+                              int stride) {
+    int first_count = competitor_count;
+
+    if (first_count > SPLIT_COMPETITORS) {
+        first_count = SPLIT_COMPETITORS;
+    }
+
+    train_competitors_range(access_gadget,
+                            0,
+                            first_count,
+                            page_step_pages,
+                            stride);
+    
+    access_gadget(victim_buffer + 23 * LINE_SIZE);
+    
+    train_competitors_range(access_gadget,
+                            first_count,
+                            competitor_count - first_count,
+                            page_step_pages,
+                            stride);
 }
 
 static uint64_t run_one_round(access_gadget_f access_gadget,
@@ -362,8 +393,8 @@ static uint64_t run_one_round(access_gadget_f access_gadget,
     // flush_dummy_buffer();
     // mfence();
     
-    // dummy_accesses();
-    cpp_rctx();
+    dummy_accesses();
+    // cpp_rctx();
     
     flush_victim_lines();
     flush_competitor_lines(competitor_count, page_step_pages, stride);
@@ -633,7 +664,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("# %s-stride entry-capacity test\n", access_name());
+    printf("# %s-stride entry replacement split test\n", access_name());
     printf("# access mode: %s (%s), same fixed PC for victim train and trigger\n",
            access_name(),
            access_instruction());
@@ -644,11 +675,12 @@ int main(int argc, char **argv) {
            (unsigned long)access_pc,
            (unsigned long)victim_buffer_addr);
 
-    printf("# STRIDE_LINES=%d TRAIN_ACCESSES=%d TRIGGER_ACCESSES=%d COMPETITOR_ACCESSES=%d PROBE_POSITIONS=%d max_competitors=%d page_step_pages=%d\n",
+    printf("# STRIDE_LINES=%d TRAIN_ACCESSES=%d TRIGGER_ACCESSES=%d COMPETITOR_ACCESSES=%d SPLIT_COMPETITORS=%d PROBE_POSITIONS=%d max_competitors=%d page_step_pages=%d\n",
            STRIDE_LINES,
            TRAIN_ACCESSES,
            TRIGGER_ACCESSES,
            COMPETITOR_ACCESSES,
+           SPLIT_COMPETITORS,
            PROBE_POSITIONS,
            max_competitors,
            page_step_pages);
@@ -671,6 +703,8 @@ int main(int argc, char **argv) {
            access_name(),
            STRIDE_LINES);
     printf("# lower latency means that victim line was more likely prefetched\n");
+    printf("# competitor training is split as first %d competitors, then the remaining competitors\n",
+           SPLIT_COMPETITORS);
 
     printf("# no-trigger calibration follows as n=-1 rows\n");
     printf("n\tprobe_line\toffset_bytes\trole\tavg_ns\tprobes\n");

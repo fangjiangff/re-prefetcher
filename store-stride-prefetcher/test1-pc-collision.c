@@ -254,6 +254,7 @@ static uint64_t run_one_round(store_gadget_f train_store,
                               int stride,
                               int probe_pos) {
     dummy_accesses();
+    cpp_rctx();
     flush_array2();
 
     /*
