@@ -224,26 +224,32 @@ int main(){
                 stride_access(array2 + (step * stride));
                 // mfence();
             }
-            // context_switch_before_trigger();
-            mLoad_inline(array2 +  61*LINE_SIZE);//trigger access
+            context_switch_before_trigger();
+            // cpp_rctx();
+            // mLoad_inline(array2 +  61*LINE_SIZE);//trigger access
 #if !NO_TRIGGER
-          stride_access(array2 +  ((train_step -1) * stride));
+            
+            stride_access(array2 +  ((train_step -1) * stride));
 #endif
+            stride_access(array2 +  ((train_step) * stride));
+            stride_access(array2 +  ((train_step+1) * stride));
+            stride_access(array2 +  ((train_step+2) * stride));
+
             int probe_pos = (atkRound) % PROBE_POSITIONS;//test one position each round
             probe_addr = array2 + (probe_pos * LINE_SIZE);
             // mLoad_inline((void*)array2 + 5*LINE_SIZE);//probe 0
 
               // probe_addr = array2 + probe_offset;
 
-              time1 = timestamp();
-            //   junk = *probe_addr;
-              mLoad_inline((void*)probe_addr);
-            //   mStore_inline((void*)probe_addr);
-              time2 = timestamp() - time1;
+            time1 = timestamp();
+            // junk = *probe_addr;
+            // mLoad_inline((void*)probe_addr);
+            mStore_inline((void*)probe_addr);
+            time2 = timestamp() - time1;
 
               // latency_sum2 += time2;
-              latency_sum[probe_pos] += time2;
-              probe_count[probe_pos]++;
+            latency_sum[probe_pos] += time2;
+            probe_count[probe_pos]++;
               // printf("%llu\n", (unsigned long long)time2);
           }
           // printf("avg latency: %llu\n", (unsigned long long)(latency_sum2 / rounds));
