@@ -1,9 +1,13 @@
+#define _GNU_SOURCE
+
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <sched.h>
 #include <sys/mman.h>
+#include <unistd.h>
 #include "until.h"
 // #include "victim.h"
 
@@ -69,6 +73,27 @@
 #define PREFETCH_WAIT_ITERS 100
 #endif
 
+#ifndef TRAIN_STORE_PC0
+#define TRAIN_STORE_PC0 0x783709b0120ull
+#endif
+
+#ifndef TRAIN_STORE_PC1
+#define TRAIN_STORE_PC1 0x2d650271c2a4ull
+#endif
+
+#ifndef TRAIN_STORE_PC2
+#define TRAIN_STORE_PC2 0x646f3e8ac548ull
+#endif
+
+#ifndef TRAIN_STORE_PC3
+#define TRAIN_STORE_PC3 0x3a74fdac8a90ull
+#endif
+
+#define TRAIN_STORE_GADGETS 4
+#define MAX_MAPPED_GADGET_PAGES 16
+
+typedef void (*store_gadget_f)(void *);
+
 uint8_t array2[Items * LINE_SIZE] __attribute__((aligned(4096)));;
 
 long long int latency_sum[PROBE_POSITIONS] = {0};
@@ -81,6 +106,120 @@ uint8_t array3[Items * LINE_SIZE] __attribute__((aligned(4096)));;
 #define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 static uint8_t* dummy_buffer;
+
+static size_t page_size;
+static uintptr_t mapped_gadget_pages[MAX_MAPPED_GADGET_PAGES];
+static int mapped_gadget_page_count;
+static store_gadget_f train_stores[TRAIN_STORE_GADGETS];
+
+extern char _store_gadget_asm_start[];
+extern char _store_gadget_asm_end[];
+
+asm(
+    ".pushsection .text, \"ax\"\n"
+    ".balign 4\n"
+    ".global _store_gadget_asm_start\n"
+    ".global _store_gadget_asm_end\n"
+    "_store_gadget_asm_start:\n"
+    "    strb w0, [x0]\n"
+    "    ret\n"
+    "_store_gadget_asm_end:\n"
+    "    nop\n"
+    ".popsection\n"
+);
+
+static uintptr_t page_base(uintptr_t address) {
+    return address - (address % page_size);
+}
+
+static int gadget_page_is_mapped(uintptr_t page) {
+    for (int i = 0; i < mapped_gadget_page_count; i++) {
+        if (mapped_gadget_pages[i] == page) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int ensure_gadget_page(uintptr_t page) {
+    if (gadget_page_is_mapped(page)) {
+        return 0;
+    }
+
+    if (mapped_gadget_page_count >= MAX_MAPPED_GADGET_PAGES) {
+        fprintf(stderr, "too many mapped gadget pages\n");
+        return -1;
+    }
+
+    void *mapping = mmap((void *)page, page_size,
+                         PROT_READ | PROT_WRITE | PROT_EXEC,
+                         MAP_FIXED_NOREPLACE | MAP_ANONYMOUS |
+                         MAP_PRIVATE | MAP_POPULATE,
+                         -1, 0);
+
+    if (mapping == MAP_FAILED) {
+        fprintf(stderr, "mmap gadget page 0x%016lx failed: %s\n",
+                (unsigned long)page, strerror(errno));
+        return -1;
+    }
+
+    if ((uintptr_t)mapping != page) {
+        fprintf(stderr,
+                "mmap returned wrong page: expected 0x%016lx got %p\n",
+                (unsigned long)page, mapping);
+        return -1;
+    }
+
+    mapped_gadget_pages[mapped_gadget_page_count++] = page;
+    return 0;
+}
+
+static store_gadget_f map_store_gadget(uintptr_t store_pc) {
+    uintptr_t page = page_base(store_pc);
+    size_t page_offset = store_pc - page;
+    size_t gadget_size =
+        (size_t)(_store_gadget_asm_end - _store_gadget_asm_start);
+
+    if (page_offset + gadget_size > page_size) {
+        fprintf(stderr, "store gadget at 0x%016lx crosses a page boundary\n",
+                (unsigned long)store_pc);
+        return NULL;
+    }
+
+    if (ensure_gadget_page(page) != 0) {
+        return NULL;
+    }
+
+    memcpy((void *)store_pc, _store_gadget_asm_start, gadget_size);
+    __builtin___clear_cache((char *)store_pc,
+                            (char *)(store_pc + gadget_size));
+
+    return (store_gadget_f)(void *)store_pc;
+}
+
+static int init_train_store_gadgets(void) {
+    static const uintptr_t pcs[TRAIN_STORE_GADGETS] = {
+        TRAIN_STORE_PC0,
+        TRAIN_STORE_PC1,
+        TRAIN_STORE_PC2,
+        TRAIN_STORE_PC3,
+    };
+
+    for (int i = 0; i < TRAIN_STORE_GADGETS; i++) {
+        train_stores[i] = map_store_gadget(pcs[i]);
+        if (!train_stores[i]) {
+            return -1;
+        }
+    }
+
+    printf("# train_store_pc0=0x%016lx\n", (unsigned long)pcs[0]);
+    printf("# train_store_pc1=0x%016lx\n", (unsigned long)pcs[1]);
+    printf("# train_store_pc2=0x%016lx\n", (unsigned long)pcs[2]);
+    printf("# train_store_pc3=0x%016lx\n", (unsigned long)pcs[3]);
+
+    return 0;
+}
 
 
 void dummyAccesses(void){
@@ -181,11 +320,21 @@ int main(){
 
   memset(array2,-1,Items*LINE_SIZE*sizeof(uint8_t));
 
+  long detected_page_size = sysconf(_SC_PAGESIZE);
+  if (detected_page_size <= 0) {
+      fprintf(stderr, "failed to detect OS page size\n");
+      return 1;
+  }
+  page_size = (size_t)detected_page_size;
 
   dummy_buffer = (uint8_t*)mmap(NULL, DUMMY_BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
   if(dummy_buffer == MAP_FAILED) {
       printf("failed to map memory to access!\n");
       exit(1);
+  }
+
+  if (init_train_store_gadgets() != 0) {
+      return 1;
   }
 
 //   for(int i=0; i< Items; i++){
@@ -224,13 +373,13 @@ int main(){
             // for(int step = 0; step < train_step-1; step++){
             //     mStore_noinline(array2 + (step * stride));
             // }
-            mStore_inline(array2 + 0 * stride);
+            train_stores[0](array2 + 0 * stride);
             for(int i=0;i<1000;i++){nop();}
-            mStore_inline(array2 + 1 * stride);
+            train_stores[1](array2 + 1 * stride);
             for(int i=0;i<1000;i++){nop();}
-            mStore_inline(array2 + 2 * stride);
+            train_stores[2](array2 + 2 * stride);
             for(int i=0;i<1000;i++){nop();}
-            mStore_inline(array2 + 3 * stride);
+            train_stores[3](array2 + 3 * stride);
             for(int i=0;i<1000;i++){nop();}
             // mfence();
             

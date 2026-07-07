@@ -363,7 +363,7 @@ static uint64_t run_one_round(access_gadget_f access_gadget,
     // mfence();
     
     // dummy_accesses();
-    cpp_rctx();
+    // cpp_rctx();
     
     flush_victim_lines();
     flush_competitor_lines(competitor_count, page_step_pages, stride);

@@ -106,8 +106,8 @@ static void train_other_pages(int stride, int train_step) {
 #if OTHER_PAGES_N > 0
     for (int page = 0; page < OTHER_PAGES_N; page++) {
         uint8_t *base = other_pages + ((uint64_t)page * PAGE_SIZE);
-        for (int step = 0; step < train_step - 1; step++) {
-        // for (int step = 0; step < 1; step++) {
+        // for (int step = 0; step < train_step - 1; step++) {
+        for (int step = 0; step < 1; step++) {
             stride_access(base + 3 * LINE_SIZE + ((uint64_t)step * (uint64_t)stride));
         }
     }
@@ -162,7 +162,7 @@ int main(void) {
     print_test_header(stride, train_step, rounds);
 
     for (uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
-        cpp_rctx();
+        // cpp_rctx();
         flush_victim_lines();
         flush_other_pages(stride, train_step);
         mfence();
@@ -171,7 +171,9 @@ int main(void) {
             stride_access(array2 + ((uint64_t)step * (uint64_t)stride));
         }
 
-        train_other_pages(stride, train_step);
+        // train_other_pages(stride, train_step);
+        // uint8_t *base = other_pages;
+        // stride_access(base + 3 * LINE_SIZE);
         // context_switch_before_trigger();
 
 #if !NO_TRIGGER
