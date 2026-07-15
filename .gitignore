@@ -37,3 +37,11 @@ bin/
 *.err
 core
 core.*
+
+# Track only the selected gadget-detection sources
+/gadget_detect/*
+!/gadget_detect/LLVM_FIX/
+!/gadget_detect/LLVM_FIX/**
+!/gadget_detect/codes/
+/gadget_detect/codes/*
+!/gadget_detect/codes/search_gadget.sh

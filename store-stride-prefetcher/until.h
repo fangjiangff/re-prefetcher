@@ -90,8 +90,24 @@ static inline __attribute__((always_inline)) uint64_t timestamp(void) {
 #endif
 }
 #elif defined(__aarch64__)
+#if (defined(CNTVCT) + defined(GETTIME) + defined(PMCCNTR)) > 1
+#error "Select only one aarch64 timestamp source: CNTVCT, GETTIME, or PMCCNTR"
+#endif
+
+#if !defined(CNTVCT) && !defined(GETTIME) && !defined(PMCCNTR)
+#define CNTVCT 1
+#endif
+
+#if defined(CNTVCT)
+#define TIMESTAMP_SOURCE_NAME "cntvct_el0"
+#define TIMESTAMP_UNIT_NAME "ticks"
+#elif defined(PMCCNTR)
+#define TIMESTAMP_SOURCE_NAME "pmccntr_el0"
+#define TIMESTAMP_UNIT_NAME "cycles"
+#else
 #define TIMESTAMP_SOURCE_NAME "clock_gettime(CLOCK_MONOTONIC)"
 #define TIMESTAMP_UNIT_NAME "ns"
+#endif
 
 static inline __attribute__((always_inline)) void mfence(void) {
     asm volatile("DSB SY\nISB" ::: "memory");
@@ -100,6 +116,12 @@ static inline __attribute__((always_inline)) void mfence(void) {
 static inline __attribute__((always_inline)) void flush(void *addr) {
     asm volatile("DC CIVAC, %0" :: "r"(addr) : "memory");
 }
+// static inline __attribute__((always_inline)) void flush(void *p) {
+//     asm volatile("dc civac, %0"::"r"(p));
+//     asm volatile("dsb ish");
+//     asm volatile("isb");
+// }
+
 
 #define _mStore(pre, addr)                      \
     asm volatile(pre "strb w0, [%0]\n\t"        \
@@ -115,7 +137,33 @@ static inline __attribute__((always_inline)) void flush(void *addr) {
     asm volatile(pre "PRFM PLDL1KEEP, [%0]\n\t" \
                  :: "r"(addr))
 
+
 static inline __attribute__((always_inline)) uint64_t timestamp(void) {
+#if defined(CNTVCT)
+    uint64_t time;
+
+    asm volatile(
+        "dsb sy\n\t"
+        "isb\n\t"
+        "mrs %0, cntvct_el0\n\t"
+        "isb\n\t"
+        : "=r"(time)
+        :
+        : "memory");
+    return time;
+#elif defined(PMCCNTR)
+    uint64_t cycles;
+
+    asm volatile(
+        "dsb sy\n\t"
+        "isb\n\t"
+        "mrs %0, pmccntr_el0\n\t"
+        "isb\n\t"
+        : "=r"(cycles)
+        :
+        : "memory");
+    return cycles;
+#else
     struct timespec t;
 
     asm volatile("DSB SY" ::: "memory");
@@ -125,6 +173,7 @@ static inline __attribute__((always_inline)) uint64_t timestamp(void) {
     asm volatile("DSB SY" ::: "memory");
 
     return t.tv_sec * 1000ULL * 1000ULL * 1000ULL + t.tv_nsec;
+#endif
 }
 #else
 #error "unknown architecture. Only x86_64 and aarch64 are supported"
@@ -177,6 +226,12 @@ static inline __attribute__((always_inline)) void dummyAccess(void *buffer,
     // mfence();
 }
 
+static inline __attribute__((always_inline)) void nops(){
+    for(int k = 0; k < 100; k++) {
+        nop();
+    }
+}
+
 typedef struct {
     uint8_t *base_addr;
     size_t size;
@@ -221,6 +276,7 @@ static inline void cpp_rctx(void)
 {
 #ifdef __aarch64__
     asm volatile(
+        // "isb\n\t"
         "cpp rctx, xzr\n"
         "dsb sy\n\t"
         "isb\n\t"

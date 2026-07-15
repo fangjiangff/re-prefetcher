@@ -1,0 +1,247 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <sched.h>
+#include <sys/mman.h>
+#include "../until.h"
+// #include "victim.h"
+
+#define Items 10240
+
+#ifndef STRIDE_BYTES
+#define STRIDE_BYTES 64
+#endif
+
+#ifndef TRAIN_STEP
+#define TRAIN_STEP 10
+#endif
+
+#ifndef ROUNDS
+#define ROUNDS 4000
+#endif
+
+#ifndef PROBE_POSITIONS
+#define PROBE_POSITIONS 100
+#endif
+
+#ifndef SINGLE_PROBE
+#define SINGLE_PROBE 0
+#endif
+
+#ifndef SINGLE_PROBE_POSITION
+#define SINGLE_PROBE_POSITION (TRAIN_STEP * (STRIDE_BYTES / LINE_SIZE))
+#endif
+
+#if SINGLE_PROBE && (SINGLE_PROBE_POSITION < 0 || SINGLE_PROBE_POSITION >= PROBE_POSITIONS)
+#error "SINGLE_PROBE_POSITION must be inside PROBE_POSITIONS"
+#endif
+
+#ifndef TRAIN_ACCESS_LOAD
+#define TRAIN_ACCESS_LOAD 0
+#endif
+
+#ifndef TRAIN_ACCESS_PREFETCH
+#define TRAIN_ACCESS_PREFETCH 0
+#endif
+
+#ifndef DUMMY_BUFFER_PAGES
+#define DUMMY_BUFFER_PAGES 10
+#endif
+
+#ifndef DUMMY_ACCESS_LOAD
+#define DUMMY_ACCESS_LOAD 0
+#endif
+
+#ifndef DUMMY_ACCESS_STORE
+#define DUMMY_ACCESS_STORE 0
+#endif
+
+#ifndef DUMMY_ACCESS_PERMUTED
+#define DUMMY_ACCESS_PERMUTED 0
+#endif
+
+#if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
+#error "Only one train access mode can be enabled"
+#endif
+
+#ifndef NO_TRIGGER
+#define NO_TRIGGER 0
+#endif
+
+#ifndef CONTEXT_SWITCH_BEFORE_TRIGGER
+#define CONTEXT_SWITCH_BEFORE_TRIGGER 0
+#endif
+
+#ifndef CONTEXT_SWITCH_YIELDS
+#define CONTEXT_SWITCH_YIELDS 1
+#endif
+
+#ifndef PREFETCH_WAIT_ITERS
+#define PREFETCH_WAIT_ITERS 100
+#endif
+
+
+#define ARRAY2_SIZE (Items * LINE_SIZE * sizeof(uint8_t))
+
+static uint8_t *array2;
+
+long long int latency_sum[PROBE_POSITIONS] = {0};
+int probe_count[PROBE_POSITIONS] = {0};
+
+uint8_t array1[100*LINE_SIZE]={0};
+
+uint8_t array3[Items * LINE_SIZE] __attribute__((aligned(4096)));;
+
+#define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
+
+static uint8_t* dummy_buffer;
+
+void dummyAccesses(void){
+    // printf("dummySize %d\n", DUMMY_BUFFER_SIZE);
+  // dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+    for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[j]) : "memory", "w0");
+    }
+}
+
+
+static inline __attribute__((always_inline)) void stride_access(void *addr) {
+#if TRAIN_ACCESS_PREFETCH
+    mPrefetch_noinline(addr);
+#elif TRAIN_ACCESS_LOAD
+    mLoad_noinline(addr);
+#else
+    mStore_noinline(addr);
+#endif
+}
+
+static void context_switch_before_trigger(void) {
+// #if CONTEXT_SWITCH_BEFORE_TRIGGER
+    for (int i = 0; i < CONTEXT_SWITCH_YIELDS; i++) {
+        sched_yield();
+        // for (int j = 0; j < 1000; j++) {
+        //     nop();
+        // }
+    }
+// #endif
+}
+
+static void delay_after_trigger(void) {
+    uint64_t dummy = 0;
+
+    for (int k = 0; k < 100; k++) {
+        dummy += array1[k * LINE_SIZE];
+    }
+    for (int i = 0; i < 100; i++) {
+        nop();
+    }
+
+    (void)dummy;
+}
+
+int main(){
+  register uint64_t time1, time2;
+  volatile uint8_t * probe_addr;
+  unsigned int junk = 0;
+
+
+  array2 = (uint8_t*)mmap(NULL, ARRAY2_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+  if (array2 == MAP_FAILED) {
+      perror("mmap array2");
+      return 1;
+  }
+
+  memset(array2,-1,ARRAY2_SIZE);
+  if (mlock(array2, ARRAY2_SIZE) != 0) {
+      perror("mlock array2");
+  }
+
+
+  dummy_buffer = (uint8_t*)mmap(NULL, DUMMY_BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
+  if(dummy_buffer == MAP_FAILED) {
+      printf("failed to map memory to access!\n");
+      exit(1);
+  }
+  // mfence();
+
+
+  uint64_t rounds = ROUNDS;
+
+    int stride = STRIDE_BYTES;
+    int train_step = TRAIN_STEP;
+    if ((uint64_t)(train_step - 1) * (uint64_t)stride >= Items * LINE_SIZE) {
+      fprintf(stderr, "training range exceeds array2 size\n");
+      return 1;
+    }
+    printf("Test 666\n");
+    uint64_t probe_offset = train_step * (uint64_t)stride;
+    int latency_sum2 = 0;
+          
+          for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) { 
+            for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
+                  flush(&array2[offset]);//flush 0-256. probe 0-64
+            }
+            cpp_rctx();
+
+            // dummyAccesses();
+            // mfence();
+            // for(int repeat = 0;repeat < 1000;repeat++){
+       
+            for(int step = 0; step < train_step-1; step++){
+                stride_access(array2 + (step * stride));
+                // mfence();
+            }
+#if CONTEXT_SWITCH_BEFORE_TRIGGER
+        for (int i = 0; i < CONTEXT_SWITCH_YIELDS; i++) {
+            sched_yield();
+        }
+#endif
+
+#if !NO_TRIGGER
+            stride_access(array2 + ((train_step -1) * stride));
+            // mfence();
+#endif   
+
+#if SINGLE_PROBE
+            int probe_pos = SINGLE_PROBE_POSITION;
+#else
+            int probe_pos = (atkRound*13) % PROBE_POSITIONS;//test one position each round
+#endif
+            probe_addr = array2 + (probe_pos * LINE_SIZE);
+            time1 = timestamp();
+            mStore_inline((void*)probe_addr);
+            time2 = timestamp() - time1;
+
+            latency_sum[probe_pos] += time2;
+            probe_count[probe_pos]++;
+            // printf("%llu\n", (unsigned long long)time2);
+          }
+          // printf("avg latency: %llu\n", (unsigned long long)(latency_sum2 / rounds));
+#if SINGLE_PROBE
+          int first_probe_pos = SINGLE_PROBE_POSITION;
+          int last_probe_pos = SINGLE_PROBE_POSITION + 1;
+#else
+          int first_probe_pos = 0;
+          int last_probe_pos = PROBE_POSITIONS;
+#endif
+          for(int probe_pos = first_probe_pos; probe_pos < last_probe_pos; probe_pos++) {
+              long long int avg_ns = 0;
+              if(probe_count[probe_pos] > 0) {
+                  avg_ns = latency_sum[probe_pos] / probe_count[probe_pos];
+              }
+              printf("%3d\t%12d\t%10lld\t%5d\n",
+                     probe_pos,
+                     probe_pos * LINE_SIZE,
+                     avg_ns,
+                     probe_count[probe_pos]);
+          }
+      // }
+      printf("\n");
+  // }
+
+  (void)junk;
+  return 0;
+}

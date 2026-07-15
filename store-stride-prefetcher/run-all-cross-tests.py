@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from cross_test_config import ARCH_CONFIG, apply_threshold_defaults, arch_choices
+from cross_test_config import ARCH_CONFIG, arch_choices
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -15,46 +15,40 @@ RESET = "\033[0m"
 TESTS = [
     {
         "name": "cross-process",
-        "script": "test-cross-process.py",
+        "script": "test3-context/test3-cross-process.py",
         "result_dir": BASE_DIR / "res" / "cross-process-strong",
+        "trigger_suffix": "-exp4-child-trigger.tsv",
         "needs_cores": False,
     },
     {
         "name": "cross-thread",
-        "script": "test-cross-thread.py",
+        "script": "test3-context/test3-cross-thread.py",
         "result_dir": BASE_DIR / "res" / "cross-thread",
+        "trigger_suffix": "-exp4-thread1-trigger.tsv",
         "needs_cores": False,
     },
     {
         "name": "cross-el0-el1",
-        "script": "test-cross-el0-el1.py",
+        "script": "test3-context/test3-cross-el0-el1.py",
         "result_dir": BASE_DIR / "res" / "cross-el0-el1",
+        "trigger_suffix": "-exp4-el1-trigger.tsv",
         "needs_cores": False,
     },
     {
         "name": "cross-trustzone",
-        "script": "test-cross-trustzone.py",
+        "script": "test3-context/test3-cross-trustzone.py",
         "result_dir": BASE_DIR / "res" / "cross-trustzone",
+        "trigger_suffix": "-exp4-secure-trigger.tsv",
         "needs_cores": False,
     },
     {
         "name": "cross-core",
-        "script": "test-cross-core.py",
+        "script": "test3-context/test3-cross-core.py",
         "result_dir": BASE_DIR / "res" / "cross-core",
+        "trigger_suffix": "-exp4-triggercore-trigger.tsv",
         "needs_cores": True,
     },
 ]
-
-NON_TRIGGER_MARKERS = (
-    "-no-trigger-control",
-    "-same-process-baseline",
-    "-process-switch-baseline",
-    "-context-switch-baseline",
-    "-same-el0-baseline",
-    "-no-secure-switch-baseline",
-    "-secure-noop-ns-trigger",
-)
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -82,7 +76,11 @@ def parse_args():
                         help="Skip TrustZone test if OP-TEE is unavailable.")
     args = parser.parse_args()
 
-    apply_threshold_defaults(args)
+    default_threshold = ARCH_CONFIG[args.arch]["threshold_ns"]
+    if args.threshold_ns is None:
+        args.threshold_ns = default_threshold
+    if args.hit_threshold_ns is None:
+        args.hit_threshold_ns = default_threshold
 
     if args.core is not None and args.core < 0:
         parser.error("--core must be >= 0")
@@ -98,18 +96,19 @@ def parse_args():
     return args
 
 
-def trigger_tsvs(result_dir):
+def trigger_tsvs(test):
+    result_dir = test["result_dir"]
     if not result_dir.exists():
         return {}
     return {
         path: path.stat().st_mtime_ns
         for path in result_dir.glob("*.tsv")
-        if not any(marker in path.name for marker in NON_TRIGGER_MARKERS)
+        if path.name.endswith(test["trigger_suffix"])
     }
 
 
 def newest_trigger_tsv(test, before):
-    after = trigger_tsvs(test["result_dir"])
+    after = trigger_tsvs(test)
     candidates = [
         path
         for path, mtime in after.items()
@@ -196,7 +195,7 @@ def command_for_test(test, args):
 
 
 def run_test(test, args):
-    before = trigger_tsvs(test["result_dir"])
+    before = trigger_tsvs(test)
     cmd = command_for_test(test, args)
     print("=" * 60)
     print(f"Running {test['name']}: {' '.join(cmd)}")

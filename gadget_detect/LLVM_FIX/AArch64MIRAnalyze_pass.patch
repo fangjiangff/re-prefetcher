@@ -1,0 +1,50 @@
+diff --git a/llvm/lib/Target/AArch64/AArch64.h b/llvm/lib/Target/AArch64/AArch64.h
+--- a/llvm/lib/Target/AArch64/AArch64.h
++++ b/llvm/lib/Target/AArch64/AArch64.h
+@@ -49,6 +49,7 @@ FunctionPass *createAArch64PointerAuthPass();
+ FunctionPass *createAArch64BranchTargetsPass();
+ FunctionPass *createAArch64MIPeepholeOptPass();
+ FunctionPass *createAArch64PostCoalescerPass();
++FunctionPass *createAArch64MIRAnalyzePass();
+ 
+ FunctionPass *createAArch64CleanupLocalDynamicTLSPass();
+ 
+@@ -99,6 +100,7 @@ void initializeAArch64MIPeepholeOptPass(PassRegistry &);
+ void initializeAArch64O0PreLegalizerCombinerPass(PassRegistry &);
+ void initializeAArch64PostCoalescerPass(PassRegistry &);
+ void initializeAArch64PostLegalizerCombinerPass(PassRegistry &);
++void initializeAArch64MIRAnalyzePassPass(PassRegistry &);
+ void initializeAArch64PostLegalizerLoweringPass(PassRegistry &);
+ void initializeAArch64PostSelectOptimizePass(PassRegistry &);
+ void initializeAArch64PreLegalizerCombinerPass(PassRegistry &);
+diff --git a/llvm/lib/Target/AArch64/AArch64TargetMachine.cpp b/llvm/lib/Target/AArch64/AArch64TargetMachine.cpp
+--- a/llvm/lib/Target/AArch64/AArch64TargetMachine.cpp
++++ b/llvm/lib/Target/AArch64/AArch64TargetMachine.cpp
+@@ -252,6 +252,7 @@ LLVMInitializeAArch64Target() {
+   initializeAArch64MIPeepholeOptPass(PR);
+   initializeAArch64SIMDInstrOptPass(PR);
+   initializeAArch64O0PreLegalizerCombinerPass(PR);
++  initializeAArch64MIRAnalyzePassPass(PR);
+   initializeAArch64PreLegalizerCombinerPass(PR);
+   initializeAArch64PointerAuthPass(PR);
+   initializeAArch64PostCoalescerPass(PR);
+@@ -828,6 +829,8 @@ void AArch64PassConfig::addPreRegAlloc() {
+   }
+   if (TM->getOptLevel() != CodeGenOptLevel::None && EnableMachinePipeliner)
+     addPass(&MachinePipelinerID);
++
++  addPass(createAArch64MIRAnalyzePass());
+ }
+ 
+ void AArch64PassConfig::addPostRegAlloc() {
+diff --git a/llvm/lib/Target/AArch64/CMakeLists.txt b/llvm/lib/Target/AArch64/CMakeLists.txt
+--- a/llvm/lib/Target/AArch64/CMakeLists.txt
++++ b/llvm/lib/Target/AArch64/CMakeLists.txt
+@@ -76,6 +76,7 @@ add_llvm_target(AArch64CodeGen
+   AArch64MacroFusion.cpp
+   AArch64MIPeepholeOpt.cpp
+   AArch64MCInstLower.cpp
++  AArch64MIRAnalyze.cpp
+   AArch64PointerAuth.cpp
+   AArch64PostCoalescerPass.cpp
+   AArch64PromoteConstant.cpp

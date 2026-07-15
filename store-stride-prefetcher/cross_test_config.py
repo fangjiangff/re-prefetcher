@@ -1,13 +1,13 @@
 ARCH_CONFIG = {
     "X925": {
         "core": 6,
-        "threshold_ns": 110,
+        "threshold_ns": 80,
         "cross_core": {
             "train_core": 6,
             "trigger_core": 7,
         },
         "accesses": {
-            "store": 5,
+            "store": 6,
             "load": 1,
         },
     },

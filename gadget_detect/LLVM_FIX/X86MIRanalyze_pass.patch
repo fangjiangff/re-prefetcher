@@ -1,0 +1,53 @@
+diff --git a/llvm/lib/Target/X86/CMakeLists.txt b/llvm/lib/Target/X86/CMakeLists.txt
+index 1bf9f8b46799..0186ce13f379 100644
+--- a/llvm/lib/Target/X86/CMakeLists.txt
++++ b/llvm/lib/Target/X86/CMakeLists.txt
+@@ -86,6 +86,7 @@ set(sources
+   X86WinEHState.cpp
+   X86WinEHUnwindV2.cpp
+   X86InsertWait.cpp
++  X86MIRanalyze.cpp
+   GISel/X86CallLowering.cpp
+   GISel/X86InstructionSelector.cpp
+   GISel/X86LegalizerInfo.cpp
+diff --git a/llvm/lib/Target/X86/X86.h b/llvm/lib/Target/X86/X86.h
+index 6261fadf10a7..7c61da33220c 100644
+--- a/llvm/lib/Target/X86/X86.h
++++ b/llvm/lib/Target/X86/X86.h
+@@ -170,6 +170,7 @@ FunctionPass *createX86SpeculativeLoadHardeningPass();
+ FunctionPass *createX86SpeculativeExecutionSideEffectSuppression();
+ FunctionPass *createX86ArgumentStackSlotPass();
+ FunctionPass *createX86SuppressAPXForRelocationPass();
++FunctionPass *createX86MIRAnalyzePass();
+ 
+ void initializeCompressEVEXPassPass(PassRegistry &);
+ void initializeFPSPass(PassRegistry &);
+@@ -207,6 +208,7 @@ void initializeX86SpeculativeLoadHardeningPassPass(PassRegistry &);
+ void initializeX86TileConfigPass(PassRegistry &);
+ void initializeX86SuppressAPXForRelocationPassPass(PassRegistry &);
+ void initializeX86WinEHUnwindV2Pass(PassRegistry &);
++void initializeX86MIRAnalyzePassPass(PassRegistry &);
+ 
+ namespace X86AS {
+ enum : unsigned {
+diff --git a/llvm/lib/Target/X86/X86TargetMachine.cpp b/llvm/lib/Target/X86/X86TargetMachine.cpp
+index 85cc5b43d40b..9837c3fa0cb4 100644
+--- a/llvm/lib/Target/X86/X86TargetMachine.cpp
++++ b/llvm/lib/Target/X86/X86TargetMachine.cpp
+@@ -108,6 +108,7 @@ extern "C" LLVM_C_ABI void LLVMInitializeX86Target() {
+   initializeX86DynAllocaExpanderPass(PR);
+   initializeX86SuppressAPXForRelocationPassPass(PR);
+   initializeX86WinEHUnwindV2Pass(PR);
++  initializeX86MIRAnalyzePassPass(PR);
+ }
+ 
+ static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
+@@ -571,6 +572,8 @@ void X86PassConfig::addPreRegAlloc() {
+     addPass(createX86PreTileConfigPass());
+   else
+     addPass(createX86FastPreTileConfigPass());
++
++  addPass(createX86MIRAnalyzePass());
+ }
+ 
+ void X86PassConfig::addMachineSSAOptimization() {

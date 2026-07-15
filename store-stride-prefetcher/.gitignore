@@ -1,0 +1,24 @@
+# Generated test binaries and experiment results
+/bin/
+/res/
+
+# Python and plotting caches (including caches in test subdirectories)
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.matplotlib/
+
+# Local coverage, logs, and temporary files
+.coverage
+htmlcov/
+*.log
+*.out
+*.err
+*.tmp
+*.swp
+*.swo
+*~
+
+# Crash dumps
+core
+core.*
