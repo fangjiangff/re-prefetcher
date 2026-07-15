@@ -463,6 +463,7 @@ def compile_test(train_step, arch):
         "-std=gnu11",
         "-O0",
         "-static",
+        # "-march=armv8.5-a+predres",
         f"-DSTRIDE_BYTES={args.stride * 64}",
         f"-DTRAIN_STEP={train_step}",
         f"-DROUNDS={args.rounds}",
@@ -487,7 +488,7 @@ def compile_test(train_step, arch):
     timer_define = timer_define_for(arch)
     if timer_define is not None:
         compile_cmd.insert(-4, timer_define)
-    compile_cmd[1:1] = arch_cflags_for(arch)
+    # compile_cmd[1:1] = arch_cflags_for(arch)
     return subprocess.run(compile_cmd).returncode
 
 

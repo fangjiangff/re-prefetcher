@@ -182,24 +182,26 @@ int main(){
           
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) { 
 
-            cpp_rctx();
+            // cpp_rctx();
+            dummyAccesses();
             mfence();
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
-            mfence();
+            mfence();     
 
-            
+            // for(int step = 0; step < train_step; step++){
+            //     stride_access(array2 + (step * stride));
+            //     // mfence();
+            //     nops();
+            // }   
+            mLoad_inline(array2+0*stride); 
+            nops();
+            mLoad_inline(array2+1*stride); 
+            // nops();
+            // nops();
+            // nops();
 
-            for(int step = 0; step < train_step; step++){
-                stride_access(array2 + (step * stride));
-                // mfence();
-                nops();
-            }
-            
-            // nops();
-            // nops();
-            // nops();
 
 // #if CONTEXT_SWITCH_BEFORE_TRIGGER
 //         for (int i = 0; i < CONTEXT_SWITCH_YIELDS; i++) {
