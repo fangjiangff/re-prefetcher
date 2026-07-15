@@ -112,7 +112,7 @@ static inline __attribute__((always_inline)) void stride_access(void *addr) {
 #if TRAIN_ACCESS_PREFETCH
     mPrefetch_noinline(addr);
 #elif TRAIN_ACCESS_LOAD
-    mLoad_noinline(addr);
+    mLoad_inline(addr);
 #else
     mStore_noinline(addr);
 #endif
@@ -176,43 +176,71 @@ int main(){
       fprintf(stderr, "training range exceeds array2 size\n");
       return 1;
     }
-    printf("Test 666\n");
+
     uint64_t probe_offset = train_step * (uint64_t)stride;
     int latency_sum2 = 0;
           
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) { 
-            for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
-                  flush(&array2[offset]);//flush 0-256. probe 0-64
-            }
-            cpp_rctx();
 
-            // dummyAccesses();
-            // mfence();
-            // for(int repeat = 0;repeat < 1000;repeat++){
-       
-            for(int step = 0; step < train_step-1; step++){
+            cpp_rctx();
+            mfence();
+            for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
+                  flush(&array2[offset]);
+            }
+            mfence();
+
+            
+
+            for(int step = 0; step < train_step; step++){
                 stride_access(array2 + (step * stride));
                 // mfence();
+                nops();
             }
-#if CONTEXT_SWITCH_BEFORE_TRIGGER
-        for (int i = 0; i < CONTEXT_SWITCH_YIELDS; i++) {
-            sched_yield();
-        }
-#endif
+            
+            // nops();
+            // nops();
+            // nops();
 
-#if !NO_TRIGGER
-            stride_access(array2 + ((train_step -1) * stride));
+// #if CONTEXT_SWITCH_BEFORE_TRIGGER
+//         for (int i = 0; i < CONTEXT_SWITCH_YIELDS; i++) {
+//             sched_yield();
+//         }
+// #endif
+
+// #if !NO_TRIGGER
+//             stride_access(array2 + ((train_step -1) * stride));
+//             // mfence();
+//             nops();
+// #endif   
+            // mLoad_inline(array2 + 0 * stride);
             // mfence();
-#endif   
+            // mLoad_inline(array2 + 1 * stride);
+            // mfence();
+            // mLoad_inline(array2 + 2 * stride);
+            // mfence();
+            // mLoad_inline(array2 + 3 * stride);
+            // mfence();
+            // mLoad_inline(array2 + 4 * stride);
+            // mfence();
+            // mLoad_inline(array2 + 5 * stride);
+            // mfence();
+            // mLoad_inline(array2 + 6 * stride);
+            // mfence();
+            // mLoad_inline(array2 + 7 * stride);
+            // mfence();
+            // mLoad_inline(array2 + 8 * stride);
+            // mfence();
 
 #if SINGLE_PROBE
             int probe_pos = SINGLE_PROBE_POSITION;
 #else
-            int probe_pos = (atkRound*13) % PROBE_POSITIONS;//test one position each round
+            int probe_pos = (atkRound) % PROBE_POSITIONS;//test one position each round
 #endif
             probe_addr = array2 + (probe_pos * LINE_SIZE);
+
             time1 = timestamp();
-            mStore_inline((void*)probe_addr);
+            junk = *probe_addr;
+            // mStore_inline((void*)probe_addr);
             time2 = timestamp() - time1;
 
             latency_sum[probe_pos] += time2;

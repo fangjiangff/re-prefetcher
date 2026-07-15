@@ -238,7 +238,7 @@ typedef struct {
 } Mapping;
 
 #ifndef RANDOM_ACTIVITY_ITERS
-#define RANDOM_ACTIVITY_ITERS 100000
+#define RANDOM_ACTIVITY_ITERS 10000
 #endif
 
 static inline Mapping allocate_mapping(size_t mem_size) {

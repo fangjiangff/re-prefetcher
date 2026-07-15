@@ -212,10 +212,12 @@ int main(){
 
     uint64_t probe_offset = train_step * (uint64_t)stride;
 
-          for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
-            cpp_rctx();
+        for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {       
             // dummyAccesses();//for dummy accesses , reset the prefetcher state
             // random_activity(array2_mapping);
+            cpp_rctx();
+            
+            mfence();
             flush_mapping(array2_mapping);
             mfence();
 
@@ -232,8 +234,8 @@ int main(){
             probe_addr = array2 + (probe_pos * LINE_SIZE);
 
               time1 = timestamp();
-            //   junk = *probe_addr;
-              mLoad_inline((void*)probe_addr);
+              junk = *probe_addr;
+            //   mLoad_inline((void*)probe_addr);
               time2 = timestamp() - time1;
 
             //   latency_sum += time2;
