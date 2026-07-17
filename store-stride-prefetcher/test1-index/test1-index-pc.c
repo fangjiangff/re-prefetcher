@@ -11,9 +11,9 @@
 #define ITEMS 2048
 #define DUMMY_BUFFER_PAGES 10
 
+#define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
+
 #define DEFAULT_BASE_STORE_PC 0x500000120ull
-#define DEFAULT_FAR_SAME_LOW_TRIGGER_PC 0x700000120ull
-#define DEFAULT_FAR_DIFF_LOW_TRIGGER_PC 0x7100009a0ull
 
 /*
  * diff_bit 必须从 3 开始。
@@ -204,12 +204,24 @@ static void flush_array2(void) {
     mfence();
 }
 
-static void dummy_accesses(void) {
-    for (uint64_t i = 0; i < dummy_buffer_size; i += LINE_SIZE) {
-        maccess(&dummy_buffer[i]);
+void dummyAccesses(void){
+    // printf("dummySize %d\n", DUMMY_BUFFER_SIZE);
+  // dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+    for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[j]) : "memory", "w0");
     }
-    mfence();
 }
+
+// static void dummy_accesses(void) {
+//     for (uint64_t i = 0; i < dummy_buffer_size; i += LINE_SIZE) {
+//         maccess(&dummy_buffer[i]);
+//     }
+//     mfence();
+// }
+
+
 
 static void delay_after_trigger(void) {
     /*
@@ -253,9 +265,12 @@ static uint64_t run_one_round(store_gadget_f train_store,
                               int do_trigger,
                               int stride,
                               int probe_pos) {
-    dummy_accesses();
-    cpp_rctx();
+    // dummy_accesses();
+    mfence();
+    dummyAccesses();
+    // cpp_rctx();
     flush_array2();
+    mfence();
 
     /*
      * 第 1..STORE_TRIGGER_ACCESS-1 次 access: training
@@ -481,36 +496,6 @@ int main(int argc, char **argv) {
     print_case_results("trigger_only", train_store, train_store, 0, 1, stride, rounds);
     print_case_results("same_pc", train_store, train_store, 1, 1, stride, rounds);
     print_case_results("load_trigger", train_store, mLoad_noinline, 1, 1, stride, rounds);
-
-    {
-        uintptr_t far_pc = DEFAULT_FAR_SAME_LOW_TRIGGER_PC;
-        store_gadget_f far_trigger_store = map_store_gadget(far_pc);
-        char case_name[64];
-
-        snprintf(case_name, sizeof(case_name), "far_same_low_pc_0x%016lx",
-                 (unsigned long)far_pc);
-        if (!far_trigger_store) {
-            print_unmapped_case_results(case_name);
-        } else {
-            print_case_results(case_name, train_store, far_trigger_store, 1, 1,
-                               stride, rounds);
-        }
-    }
-
-    {
-        uintptr_t far_pc = DEFAULT_FAR_DIFF_LOW_TRIGGER_PC;
-        store_gadget_f far_trigger_store = map_store_gadget(far_pc);
-        char case_name[64];
-
-        snprintf(case_name, sizeof(case_name), "far_diff_low_pc_0x%016lx",
-                 (unsigned long)far_pc);
-        if (!far_trigger_store) {
-            print_unmapped_case_results(case_name);
-        } else {
-            print_case_results(case_name, train_store, far_trigger_store, 1, 1,
-                               stride, rounds);
-        }
-    }
 
     for (int diff_bit = min_diff_bit; diff_bit <= max_diff_bit; diff_bit++) {
         uintptr_t trigger_pc = base_pc ^ (1ull << diff_bit);

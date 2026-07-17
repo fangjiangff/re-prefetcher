@@ -20,16 +20,16 @@ from cross_test_config import (
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(BASE_DIR, "test1-pc-collision.c")
+SRC = os.path.join(BASE_DIR, "test1-index-pc.c")
 UTIL_SRC = os.path.join(ROOT_DIR, "until.c")
-OUT = os.path.join(ROOT_DIR, "bin", "test1-pc-collision")
+OUT = os.path.join(ROOT_DIR, "bin", "test1-index-pc")
 DEFAULT_BASE_PC = "0x500000120"
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_MIN_DIFF_BIT = 3
 DEFAULT_MAX_DIFF_BIT = 47
 DEFAULT_ROUNDS = 1000
 DEFAULT_PROBE_POSITIONS = 100
-RESULT_DIR = os.path.join(ROOT_DIR, "res", "pc-collision")
+RESULT_DIR = os.path.join(ROOT_DIR, "res", "index-pc")
 PLOT_DIR = os.path.join(ROOT_DIR, "res", "barplots")
 
 
@@ -40,7 +40,7 @@ def compile_test(args):
         "-std=gnu11",
         "-O0",
         "-static",
-        "-march=armv8.5-a+predres",
+        # "-march=armv8.5-a+predres",
         f"-DARCH_NAME=\"{args.arch}\"",
         f"-DSTRIDE_LINES={args.stride}",
         f"-DSTORE_TRIGGER_ACCESS={args.accesses}",
@@ -71,7 +71,7 @@ def run_test(args):
 
 def micro_arch_name(args):
     return (
-        f"{args.arch}-core{args.core}-pc-collision"
+        f"{args.arch}-core{args.core}-index-pc"
         f"-stride{args.stride}-accesses{args.accesses}"
         f"-{args.access}"
         f"-probe{args.probe_positions}"
@@ -191,7 +191,7 @@ def plot_result(path, rows, title, threshold_ns, vmin=None, vmax=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Compile and run test1-pc-collision.c."
+        description="Compile and run test1-index-pc.c."
     )
     parser.add_argument("--arch", required=True, choices=arch_choices())
     parser.add_argument("--core", type=int, default=None,

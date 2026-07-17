@@ -11,9 +11,9 @@ from cross_test_config import ARCH_CONFIG, arch_choices
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(BASE_DIR, "test1-index-mode-exist.c")
+SRC = os.path.join(BASE_DIR, "test1-index-mode.c")
 UTIL_SRC = os.path.join(ROOT_DIR, "until.c")
-OUT = os.path.join(ROOT_DIR, "bin", "test1-index-mode-exist")
+OUT = os.path.join(ROOT_DIR, "bin", "test1-index-mode")
 
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_TRAIN_STEP = None
@@ -30,6 +30,9 @@ SUMMARY_LABELS = {
     "T1": "T1 (different PC, same VA/PA)",
     "T2": "T2 (same process, different VA, same PA)",
     "T3": "T3 (cross-process, same VA, different PA)",
+    "T4": "T4 (same process, different PC/VA, same PA)",
+    "T5": "T5 (same process remap, same PC/VA, different PA)",
+    "T6": "T6 (same process remap, different PC, same VA, different PA)",
 }
 
 
@@ -103,11 +106,14 @@ def compile_test(args):
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DREPEAT={args.repeat}",
         f"-DCPU_ID={args.core}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
         "-o",
         OUT,
         SRC,
         UTIL_SRC,
     ]
+    if args.arch == "X925":
+        cmd.insert(5, "-march=armv8.5-a+predres")
     return subprocess.run(cmd)
 
 
@@ -128,7 +134,7 @@ def parse_results(output):
             raise ValueError(f"unexpected output row: {line}")
         rows[fields[0]] = int(fields[5])
 
-    required = ("T0_no_trigger", "T0", "T1", "T2", "T3")
+    required = ("T0_no_trigger", "T0", "T1", "T2", "T3", "T4", "T5", "T6")
     missing = [test_id for test_id in required if test_id not in rows]
     if missing:
         raise ValueError(f"missing result rows: {', '.join(missing)}")
@@ -140,7 +146,7 @@ def is_prefetched(rows, test_id, threshold_ns):
 
 
 def print_summary(rows, threshold_ns):
-    for test_id in ("T0_no_trigger", "T0", "T1", "T2", "T3"):
+    for test_id in ("T0_no_trigger", "T0", "T1", "T2", "T3", "T4", "T5", "T6"):
         prefetched = is_prefetched(rows, test_id, threshold_ns)
         verdict = "yes" if prefetched else "no"
         color = GREEN if prefetched else RED
@@ -150,9 +156,12 @@ def print_summary(rows, threshold_ns):
     t1_yes = is_prefetched(rows, "T1", threshold_ns)
     t2_yes = is_prefetched(rows, "T2", threshold_ns)
     t3_yes = is_prefetched(rows, "T3", threshold_ns)
+    t4_yes = is_prefetched(rows, "T4", threshold_ns)
+    t5_yes = is_prefetched(rows, "T5", threshold_ns)
+    t6_yes = is_prefetched(rows, "T6", threshold_ns)
 
     if not t0_ok:
-        print("Interpretation: T0 sanity failed, so T1/T2/T3 should not be used to infer index mode yet.", file=sys.stderr)
+        print("Interpretation: T0 sanity failed, so T1/T2/T3/T4/T5/T6 should not be used to infer index mode yet.", file=sys.stderr)
         print("Expected T0_no_trigger no and T0 yes.", file=sys.stderr)
         return
 
@@ -172,13 +181,32 @@ def print_summary(rows, threshold_ns):
     else:
         print("  T3 no: same VA with different PA did not work across processes; do not treat this as proof against VA indexing because context switch/ASID/state flush may be the cause.")
 
-    if t2_yes:
-        conclusion = "PA"
-    elif not t1_yes:
-        conclusion = "PC"
+    if t4_yes:
+        print("  T4 yes: changing PC and VA together while retaining PA still works; this strongly supports PA-sufficient matching, though a hash collision remains possible.")
     else:
-        conclusion = "VA"
-    print(f"Final index guess: {GREEN}{conclusion}{RESET}")
+        print("  T4 no: retaining PA is not sufficient when PC and VA both change; this does not identify which changed field is required.")
+
+    if t5_yes:
+        print("  T5 yes: changing only the physical backing at one VA in one process still works; identical PA is not required.")
+    else:
+        print("  T5 no: changing the physical backing breaks the effect; this supports PA involvement, but mmap/munmap and TLB invalidation are confounders.")
+
+    if t6_yes:
+        print("  T6 yes: changing PC and PA together at the same VA still works; this strongly supports VA-sufficient matching, though a hash collision remains possible.")
+    else:
+        print("  T6 no: retaining VA is not sufficient when PC and PA both change; PC/PA changes and remapping effects remain confounded.")
+
+    candidates = []
+    if not t1_yes:
+        candidates.append("PC")
+    if not t2_yes:
+        candidates.append("VA")
+    if not t5_yes:
+        candidates.append("PA (remap caveat)")
+    if candidates:
+        print("Potential required match fields: " + ", ".join(candidates))
+    else:
+        print("No individual PC/VA/PA equality condition appeared strictly required in these cases.")
 
 
 def main():

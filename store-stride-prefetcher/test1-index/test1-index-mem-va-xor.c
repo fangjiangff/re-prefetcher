@@ -188,31 +188,31 @@ static void run_case(const char *result_name,
     printf("%s\t%lu\n", result_name, predicted_avg_ns);
 }
 
-static void print_full_failure(int diff_bit) {
-    printf("bit_%d_full\t-1\n", diff_bit);
+static void print_mask_failure(const char *result_name) {
+    printf("%s\t-1\n", result_name);
 }
 
-static void run_bit(int diff_bit, uintptr_t va1_base, uint64_t rounds) {
-    uintptr_t va2_base = va1_base ^ (1ull << diff_bit);
-    char result_name[64];
-    char detail_name[64];
-
-    snprintf(result_name, sizeof(result_name), "bit_%d_full", diff_bit);
-    snprintf(detail_name, sizeof(detail_name), "bit_%d_full", diff_bit);
+static void run_mask_case(const char *result_name,
+                          const char *detail_name,
+                          uint64_t mask,
+                          uintptr_t va1_base,
+                          uint64_t rounds) {
+    uintptr_t va2_base = va1_base ^ mask;
 
     if ((va1_base % PAGE_SIZE) != 0 || (va2_base % PAGE_SIZE) != 0) {
-        print_full_failure(diff_bit);
+        print_mask_failure(result_name);
         fprintf(stderr,
-                "bit_%d skipped: VA1/VA2 must both be page aligned (va1=0x%016lx va2=0x%016lx)\n",
-                diff_bit,
+                "%s skipped: VA1/VA2 must both be page aligned (va1=0x%016lx va2=0x%016lx mask=0x%016lx)\n",
+                detail_name,
                 (unsigned long)va1_base,
-                (unsigned long)va2_base);
+                (unsigned long)va2_base,
+                (unsigned long)mask);
         return;
     }
 
     int fd = create_alias_fd();
     if (fd < 0) {
-        print_full_failure(diff_bit);
+        print_mask_failure(result_name);
         return;
     }
 
@@ -226,7 +226,7 @@ static void run_bit(int diff_bit, uintptr_t va1_base, uint64_t rounds) {
             munmap(va2, ALIAS_SIZE);
         }
         close(fd);
-        print_full_failure(diff_bit);
+        print_mask_failure(result_name);
         return;
     }
 
@@ -237,11 +237,93 @@ static void run_bit(int diff_bit, uintptr_t va1_base, uint64_t rounds) {
     }
     flush_aliases(va1, va2);
 
+    printf("# pair_detail\t%s\tva1=0x%016lx\tva2=0x%016lx\tmask=0x%016lx\tva_xor=0x%016lx\n",
+           detail_name,
+           (unsigned long)va1_base,
+           (unsigned long)va2_base,
+           (unsigned long)mask,
+           (unsigned long)(va1_base ^ va2_base));
     run_case(result_name, detail_name, va1, va2, rounds, 1, 1);
 
     munmap(va2, ALIAS_SIZE);
     munmap(va1, ALIAS_SIZE);
     close(fd);
+}
+
+static void run_bit(int bit, uintptr_t va1_base, uint64_t rounds) {
+    char result_name[64];
+    char detail_name[64];
+    uint64_t mask = 1ULL << bit;
+
+    snprintf(result_name, sizeof(result_name), "bit_%d_full", bit);
+    snprintf(detail_name, sizeof(detail_name), "bit_%d_full", bit);
+    run_mask_case(result_name, detail_name, mask, va1_base, rounds);
+}
+
+static void run_bit_pair(int bit_a, int bit_b,
+                         uintptr_t va1_base, uint64_t rounds) {
+    char result_name[64];
+    char detail_name[64];
+    uint64_t mask = (1ULL << bit_a) | (1ULL << bit_b);
+
+    snprintf(result_name, sizeof(result_name), "bits_%d_%d_full", bit_a, bit_b);
+    snprintf(detail_name, sizeof(detail_name), "bits_%d_%d_full", bit_a, bit_b);
+    run_mask_case(result_name, detail_name, mask, va1_base, rounds);
+}
+
+static void run_bit_triple(int bit_a, int bit_b, int bit_c,
+                           uintptr_t va1_base, uint64_t rounds) {
+    char result_name[80];
+    char detail_name[80];
+    uint64_t mask = (1ULL << bit_a) | (1ULL << bit_b) | (1ULL << bit_c);
+
+    snprintf(result_name, sizeof(result_name), "triple_%d_%d_%d_full",
+             bit_a, bit_b, bit_c);
+    snprintf(detail_name, sizeof(detail_name), "triple_%d_%d_%d_full",
+             bit_a, bit_b, bit_c);
+    run_mask_case(result_name, detail_name, mask, va1_base, rounds);
+}
+
+static void run_pairpair(int bit_a, int bit_b, int bit_c, int bit_d,
+                         uintptr_t va1_base, uint64_t rounds) {
+    char result_name[96];
+    char detail_name[96];
+    uint64_t mask = (1ULL << bit_a) | (1ULL << bit_b) |
+                    (1ULL << bit_c) | (1ULL << bit_d);
+
+    snprintf(result_name, sizeof(result_name), "pairpair_%d_%d__%d_%d_full",
+             bit_a, bit_b, bit_c, bit_d);
+    snprintf(detail_name, sizeof(detail_name), "pairpair_%d_%d__%d_%d_full",
+             bit_a, bit_b, bit_c, bit_d);
+    run_mask_case(result_name, detail_name, mask, va1_base, rounds);
+}
+
+static void run_targeted_hash_cases(uintptr_t va1_base, uint64_t rounds) {
+    static const int groups[][3] = {
+        {16, 22, 28}, {17, 23, 29}, {18, 24, 30},
+        {19, 25, 31}, {20, 26, 32}, {21, 27, 33},
+    };
+    const int group_count = (int)(sizeof(groups) / sizeof(groups[0]));
+
+    for (int group = 0; group < group_count; group++) {
+        run_bit_triple(groups[group][0], groups[group][1], groups[group][2],
+                       va1_base, rounds);
+    }
+    for (int group_a = 0; group_a < group_count; group_a++) {
+        for (int group_b = group_a + 1; group_b < group_count; group_b++) {
+            for (int a0 = 0; a0 < 3; a0++) {
+                for (int a1 = a0 + 1; a1 < 3; a1++) {
+                    for (int b0 = 0; b0 < 3; b0++) {
+                        for (int b1 = b0 + 1; b1 < 3; b1++) {
+                            run_pairpair(groups[group_a][a0], groups[group_a][a1],
+                                         groups[group_b][b0], groups[group_b][b1],
+                                         va1_base, rounds);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 static void run_same_va_baselines(uintptr_t va1_base, uint64_t rounds) {
@@ -322,7 +404,7 @@ int main(void) {
         return 1;
     }
 
-    printf("# store-stride VA-index contribution test\n");
+    printf("# store-stride VA xor-index contribution test\n");
     printf("# VA1_BASE=0x%016lx stride_lines=%d accesses=%d train_only_accesses=%d rounds=%d probe_positions=%d\n",
            (unsigned long)va1_base,
            STRIDE_LINES,
@@ -330,7 +412,9 @@ int main(void) {
            TRAIN_ONLY_ACCESSES,
            ROUNDS,
            PROBE_POSITIONS);
-    printf("# VA2_BASE = VA1_BASE ^ (1 << diff_bit)\n");
+    printf("# pair condition: VA1 ^ VA2 == mask, with identical page offset\n");
+    printf("# single-bit controls cover MIN_DIFF_BIT..MAX_DIFF_BIT; pairwise xor masks cover MIN_DIFF_BIT..33\n");
+    printf("# targeted checks use triples and cross-group pairpair masks for candidate xor hashes\n");
     printf("# VA1 and VA2 are MAP_SHARED aliases of the same memfd page\n");
     printf("# trainer: VA1 + [0..%d]*%d*LINE_SIZE, trigger: VA2 + %d*LINE_SIZE, final: VA2 + %d*LINE_SIZE\n",
            TRAIN_ONLY_ACCESSES - 1,
@@ -344,6 +428,13 @@ int main(void) {
     for (int diff_bit = MIN_DIFF_BIT; diff_bit <= MAX_DIFF_BIT; diff_bit++) {
         run_bit(diff_bit, va1_base, ROUNDS);
     }
+
+    for (int bit_a = MIN_DIFF_BIT; bit_a <= 33; bit_a++) {
+        for (int bit_b = bit_a + 1; bit_b <= 33; bit_b++) {
+            run_bit_pair(bit_a, bit_b, va1_base, ROUNDS);
+        }
+    }
+    run_targeted_hash_cases(va1_base, ROUNDS);
 
     munmap(dummy_buffer, DUMMY_BUFFER_SIZE);
     return 0;
