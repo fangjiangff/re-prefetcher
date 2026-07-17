@@ -251,7 +251,8 @@ def plot_pairwise_heatmap(path, rows, title, threshold_ns, bit_min=13, bit_max=3
             highlight_cells.append((lower, upper))
 
     values = [v for row in matrix for v in row if not math.isnan(v)]
-    vmax = max(max(values) if values else 0, threshold_ns) * 1.05
+    # vmax = max(max(values) if values else 0, threshold_ns) * 1.05
+    vmax = 200
     fig, ax = plt.subplots(figsize=(9.5, 8.5))
     cmap = plt.get_cmap("viridis_r").copy()
     cmap.set_bad(color="#E6E8EB")
@@ -265,11 +266,11 @@ def plot_pairwise_heatmap(path, rows, title, threshold_ns, bit_min=13, bit_max=3
     ax.set_yticklabels(bits, fontsize=11)
     ax.tick_params(axis="both", which="major", length=0)
     bottom_axis = len(bits) - 0.5
-    for lower, upper in highlight_cells:
-        ax.plot([upper, upper], [lower, bottom_axis], color="#D62728",
-                linestyle="--", linewidth=1.2, alpha=0.95, zorder=3)
-        ax.plot([-0.5, upper], [lower, lower], color="#D62728",
-                linestyle="--", linewidth=1.2, alpha=0.95, zorder=3)
+    # for lower, upper in highlight_cells:
+    #     ax.plot([upper, upper], [lower, bottom_axis], color="#D62728",
+    #             linestyle="--", linewidth=1.2, alpha=0.95, zorder=3)
+    #     ax.plot([-0.5, upper], [lower, lower], color="#D62728",
+    #             linestyle="--", linewidth=1.2, alpha=0.95, zorder=3)
     for spine in ax.spines.values():
         spine.set_visible(False)
 

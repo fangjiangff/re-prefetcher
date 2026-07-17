@@ -129,18 +129,20 @@ static void flush_pages(uint8_t *va1, uint8_t *va2) {
 
 static uint64_t probe_latency(uint8_t *addr) {
     uint64_t start = timestamp();
-    mLoad_inline(addr);
+    mStore_inline(addr);
     return timestamp() - start;
 }
 
 __attribute__((noinline)) static void run_trainer(uint8_t *va1) {
     for (int access = 0; access < TRAIN_ONLY_ACCESSES; access++) {
         mStore_inline(va1 + (uint64_t)access * STRIDE_BYTES);
+        nops();
     }
 }
 
 __attribute__((noinline)) static void run_trigger(uint8_t *va2) {
     mStore_inline(va2 + TRIGGER_POS * LINE_SIZE);
+    nops();
 }
 
 static void run_case(const char *result_name,

@@ -265,13 +265,19 @@ static void run_scan(uint8_t *pa1_va, uint8_t *pa2_va) {
         dummy_accesses();
         flush_experiment_lines(pa1_va, pa2_va);
 
-        mStore_inline(pa2_va + 15 * LINE_SIZE);
-        mStore_inline(pa1_va + 20 * LINE_SIZE);
+    
         mStore_inline(pa1_va + 0 * LINE_SIZE);
-        mStore_inline(pa2_va + 5 * LINE_SIZE);
+        nops();
+        mStore_inline(pa1_va + 5 * LINE_SIZE);
+        nops();
         mStore_inline(pa1_va + 10 * LINE_SIZE);
+        nops();
+        mStore_inline(pa1_va + 15 * LINE_SIZE);
+        nops();
+        mStore_inline(pa2_va + 20 * LINE_SIZE);
+        nops();
        
-        mStore_inline(pa1_va + 25 * LINE_SIZE);
+        // mStore_inline(pa1_va + 25 * LINE_SIZE);
         // run_trainer(pa1_va);// mStore_inline(pa1_va + 0 * LINE_SIZE);
         // run_trigger(pa2_va);// mStore_inline(pa2_va + 5 * LINE_SIZE);
         // mStore_inline(pa1_va + 30 * LINE_SIZE);
@@ -285,13 +291,18 @@ static void run_scan(uint8_t *pa1_va, uint8_t *pa2_va) {
         // run_trainer(pa1_va);
         // run_trigger(pa2_va);
 
-        mStore_inline(pa2_va + 15 * LINE_SIZE);
-        mStore_inline(pa1_va + 20 * LINE_SIZE);
         mStore_inline(pa1_va + 0 * LINE_SIZE);
-        mStore_inline(pa2_va + 5 * LINE_SIZE);
+        nops();
+        mStore_inline(pa1_va + 5 * LINE_SIZE);
+        nops();
         mStore_inline(pa1_va + 10 * LINE_SIZE);
+        nops();
+        mStore_inline(pa1_va + 15 * LINE_SIZE);
+        nops();
+        mStore_inline(pa2_va + 20 * LINE_SIZE);
+        nops();
        
-        mStore_inline(pa1_va + 25 * LINE_SIZE);
+        // mStore_inline(pa1_va + 25 * LINE_SIZE);
         // mStore_inline(pa1_va + 30 * LINE_SIZE);
         latency_sum[1][probe_pos] += probe_latency(pa2_va + (uint64_t)probe_pos * LINE_SIZE);
         probe_count[1][probe_pos]++;

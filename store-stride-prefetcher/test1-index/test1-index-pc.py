@@ -27,7 +27,7 @@ DEFAULT_BASE_PC = "0x500000120"
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_MIN_DIFF_BIT = 3
 DEFAULT_MAX_DIFF_BIT = 47
-DEFAULT_ROUNDS = 1000
+DEFAULT_ROUNDS = 40000
 DEFAULT_PROBE_POSITIONS = 100
 RESULT_DIR = os.path.join(ROOT_DIR, "res", "index-pc")
 PLOT_DIR = os.path.join(ROOT_DIR, "res", "barplots")
@@ -40,7 +40,7 @@ def compile_test(args):
         "-std=gnu11",
         "-O0",
         "-static",
-        # "-march=armv8.5-a+predres",
+        "-march=armv8.5-a+predres",
         f"-DARCH_NAME=\"{args.arch}\"",
         f"-DSTRIDE_LINES={args.stride}",
         f"-DSTORE_TRIGGER_ACCESS={args.accesses}",

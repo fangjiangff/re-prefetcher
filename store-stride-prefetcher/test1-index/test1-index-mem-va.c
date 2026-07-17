@@ -121,18 +121,20 @@ static void flush_aliases(uint8_t *va1, uint8_t *va2) {
 
 static uint64_t probe_latency(uint8_t *addr) {
     uint64_t start = timestamp();
-    mLoad_inline(addr);
+    mStore_inline(addr);
     return timestamp() - start;
 }
 
 __attribute__((noinline)) static void run_trainer(uint8_t *va1) {
     for (int access = 0; access < TRAIN_ONLY_ACCESSES; access++) {
         mStore_inline(va1 + (uint64_t)access * STRIDE_BYTES);
+        nops();
     }
 }
 
 __attribute__((noinline)) static void run_trigger(uint8_t *va2) {
     mStore_inline(va2 + TRIGGER_POS * LINE_SIZE);
+    nops();
 }
 
 static void run_case(const char *result_name,
@@ -231,11 +233,11 @@ static void run_bit(int diff_bit, uintptr_t va1_base, uint64_t rounds) {
     }
 
     memset(va1, -1, ALIAS_SIZE);
-    for (size_t offset = 0; offset < ALIAS_SIZE; offset += LINE_SIZE) {
-        mLoad_inline(va1 + offset);
-        mLoad_inline(va2 + offset);
-    }
-    flush_aliases(va1, va2);
+    // for (size_t offset = 0; offset < ALIAS_SIZE; offset += LINE_SIZE) {
+    //     mLoad_inline(va1 + offset);
+    //     mLoad_inline(va2 + offset);
+    // }
+    // flush_aliases(va1, va2);
 
     run_case(result_name, detail_name, va1, va2, rounds, 1, 1);
 
@@ -273,10 +275,10 @@ static void run_same_va_baselines(uintptr_t va1_base, uint64_t rounds) {
     }
 
     memset(va1, -1, ALIAS_SIZE);
-    for (size_t offset = 0; offset < ALIAS_SIZE; offset += LINE_SIZE) {
-        mLoad_inline(va1 + offset);
-    }
-    flush_aliases(va1, va1);
+    // for (size_t offset = 0; offset < ALIAS_SIZE; offset += LINE_SIZE) {
+    //     mLoad_inline(va1 + offset);
+    // }
+    // flush_aliases(va1, va1);
 
     run_case("same_va_full", "same_va_full", va1, va1, rounds, 1, 1);
     run_case("same_va_no_trigger", "same_va_no_trigger", va1, va1, rounds, 1, 0);
