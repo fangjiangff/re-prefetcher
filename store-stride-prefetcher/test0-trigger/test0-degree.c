@@ -96,15 +96,15 @@ int main(){
       exit(1);
   }
 
-  for(int i=0; i< Items; i++){
-    mLoad(&array2[i * LINE_SIZE]);
-  }
+  // for(int i=0; i< Items; i++){
+  //   mLoad(&array2[i * LINE_SIZE]);
+  // }
 
 
-  for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
-    flush(&array2[offset]);
-  }
-  mfence();
+  // for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
+  //   flush(&array2[offset]);
+  // }
+  // mfence();
 
 
   if (TEST_STRIDE <= 0 || TEST_STRIDE % LINE_SIZE != 0) {
@@ -145,8 +145,12 @@ int main(){
       for(int train_step = 1; train_step <= MAX_STEP ; train_step++){
         for(int pos = 0; pos < PROBES; pos++){//test one position
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
-            dummyAccesses();//for dummy accesses , reset the prefetcher state
             
+            cpp_rctx();
+            mfence();
+            dummyAccesses();//for dummy accesses , reset the prefetcher state
+            mfence();
+
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
@@ -157,7 +161,7 @@ int main(){
               // trigger.
               stride_access(array2 + ((train_step -1) * stride));
               
-              delay_after_trigger();
+              // delay_after_trigger();
               
               probe_addr = array2 + (pos*stride);
               

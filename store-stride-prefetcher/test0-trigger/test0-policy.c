@@ -59,11 +59,22 @@ uint8_t array1[100 * LINE_SIZE] = {0};
 long long int latency_sum[PROBE_POSITIONS] = {0};
 int probe_count[PROBE_POSITIONS] = {0};
 
-static void dummyAccesses(void) {
-    for (uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j += LINE_SIZE) {
-        mPrefetch_inline(dummy_buffer + j);
+// static void dummyAccesses(void) {
+//     for (uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j += LINE_SIZE) {
+//         mPrefetch_inline(dummy_buffer + j);
+//     }
+// }
+
+void dummyAccesses(void){
+    // printf("dummySize %d\n", DUMMY_BUFFER_SIZE);
+  // dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
+    for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
+        asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[j]) : "memory", "w0");
     }
 }
+
 
 static inline __attribute__((always_inline)) void policy_access(void *addr, char type) {
 #if HAS_ACCESS_TYPE_SEQUENCE
@@ -180,21 +191,15 @@ int main(void) {
         return 1;
     }
 
-    // for (int i = 0; i < Items; i++) {
-    //     mLoad(&array2[i * LINE_SIZE]);
-    // }
-
-    // for (uint64_t offset = 0; offset < Items * LINE_SIZE; offset += LINE_SIZE) {
-    //     flush(&array2[offset]);
-    // }
-    // mfence();
-
     print_header(rounds);
 
     for (uint64_t atkRound = 0; atkRound < rounds; atkRound++) {
-        // dummyAccesses();
+        
         cpp_rctx();
-
+        mfence();
+        dummyAccesses();//for dummy accesses , reset the prefetcher state
+        mfence();
+        
         for (uint64_t offset = 0; offset < Items * LINE_SIZE; offset += LINE_SIZE) {
             flush(&array2[offset]);
         }

@@ -56,7 +56,7 @@ def parse_args():
                         help=("Access instruction used for training/trigger. "
                               "prefetch uses the architecture-specific "
                               "prefetch instruction. Default: store"))
-    parser.add_argument("--hit-threshold-ns", dest="threshold_ns", type=int, default=180,
+    parser.add_argument("--hit-threshold-ns", dest="threshold_ns", type=int, default=80,
                         help="Candidate latency <= this value is treated as prefetched. "
                              "Default is selected from --arch.")
     parser.add_argument("--timer", choices=["gettime", "rdtsc"],
@@ -132,6 +132,7 @@ def compile_test(args):
         "-std=gnu11",
         "-O0",
         "-static",
+        "-march=armv8.5-a+predres",
         f"-DTEST_STRIDE={args.stride * 64}",
         f"-DMAX_STEP={args.max_step}",
         f"-DPROBES={args.probe_positions}",
@@ -284,7 +285,7 @@ def plot_heatmap(path, rows, title, unit):
         annot=False,
         ax=ax,
         vmin=20,
-        vmax=300,
+        vmax=200,
         cbar=True,
         cbar_kws={"pad": 0.01},
         linewidths=0.35,

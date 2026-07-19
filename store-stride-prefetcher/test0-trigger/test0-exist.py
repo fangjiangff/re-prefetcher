@@ -18,8 +18,6 @@ OUT = os.path.join(ROOT_DIR, "bin", "test0-exist")
 
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_TRAIN_STEP = 3
-DEFAULT_TRAIN_STEP_MIN = 1
-DEFAULT_TRAIN_STEP_MAX = 10
 DEFAULT_ROUNDS = 40000
 DEFAULT_PROBE_POSITIONS = 100
 GREEN = "\033[32m"
@@ -49,12 +47,6 @@ def parse_args():
                         help=f"Stride in cache lines. Default: {DEFAULT_STRIDE_LINES}")
     parser.add_argument("--train-step", type=int, default=DEFAULT_TRAIN_STEP,
                         help=f"Train-step for single-run mode. Default: {DEFAULT_TRAIN_STEP}")
-    parser.add_argument("--batch", action="store_true",
-                        help="Sweep train-step-min..train-step-max instead of a single train-step.")
-    parser.add_argument("--train-step-min", type=int, default=DEFAULT_TRAIN_STEP_MIN,
-                        help=f"First train-step for --batch. Default: {DEFAULT_TRAIN_STEP_MIN}")
-    parser.add_argument("--train-step-max", type=int, default=DEFAULT_TRAIN_STEP_MAX,
-                        help=f"Last train-step for --batch. Default: {DEFAULT_TRAIN_STEP_MAX}")
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS,
                         help=f"Rounds per test. Default: {DEFAULT_ROUNDS}")
     parser.add_argument("--probe-positions", type=int,
@@ -100,16 +92,6 @@ def parse_args():
                         help="Comma-separated dummy page counts for --dummy-sweep.")
     parser.add_argument("--no-trigger", action="store_true",
                         help="Skip the final same-PC trigger access after training.")
-    parser.add_argument("--context-switch", action="store_true",
-                        help="Call sched_yield between training and trigger.")
-    parser.add_argument("--context-switch-yields", type=int, default=1,
-                        help="Number of sched_yield calls between training and trigger.")
-    parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
-                        help="Compiler command. Default: $CC or gcc")
-    parser.add_argument("--objdump", default=os.environ.get("OBJDUMP", "objdump"),
-                        help="Objdump command used to generate .dump files. Default: $OBJDUMP or objdump")
-    parser.add_argument("--no-dump", action="store_true",
-                        help="Do not generate objdump disassembly files.")
     parser.add_argument("--plot-only", action="store_true",
                         help="Only read existing TSV results and print summaries.")
     parser.add_argument("--no-plot", action="store_true",
@@ -128,12 +110,8 @@ def parse_args():
         parser.error("Use either --arch/--core or --arches/--cores, not both")
     if args.stride < 1:
         parser.error("--stride must be >= 1")
-    if args.train_step < 1:
-        parser.error("--train-step must be >= 1")
-    if args.train_step_min < 1:
-        parser.error("--train-step-min must be >= 1")
-    if args.train_step_max < args.train_step_min:
-        parser.error("--train-step-max must be >= --train-step-min")
+    if args.train_step < 0:
+        parser.error("--train-step must be >= 0")
     if args.rounds < 1:
         parser.error("--rounds must be >= 1")
     if args.probe_positions < 1:
@@ -146,8 +124,6 @@ def parse_args():
         parser.error("--dummy-buffer-pages must be >= 1")
     if args.hit_threshold_ns is not None and args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
-    if args.context_switch_yields < 1:
-        parser.error("--context-switch-yields must be >= 1")
     requested_arches = []
     if args.arches is not None:
         requested_arches.extend(item.strip() for item in args.arches.split(",") if item.strip())
@@ -166,8 +142,7 @@ def parse_args():
             f"--timer {args.timer} is not supported for: "
             + ", ".join(unsupported_timer_arches)
         )
-    max_train_step = args.train_step_max if args.batch else args.train_step
-    if max_train_step * args.stride >= args.probe_positions:
+    if args.train_step * args.stride >= args.probe_positions:
         parser.error("predicted position train_step * stride must be inside probe positions")
     if args.probe_mode == "single" and args.single_probe_position is not None:
         if args.single_probe_position >= args.probe_positions:
@@ -202,7 +177,6 @@ args = parse_args()
 result_dir = os.path.join(ROOT_DIR, "res", "store-stride")
 plot_dir = os.path.join(ROOT_DIR, "res", "barplots")
 raw_dir = os.path.join(result_dir, "raw")
-dump_dir = os.path.join(result_dir, "dump")
 
 
 def parse_csv_list(value):
@@ -242,8 +216,6 @@ def targets():
 
 
 def train_steps():
-    if args.batch:
-        return range(args.train_step_min, args.train_step_max + 1)
     return [args.train_step]
 
 
@@ -265,12 +237,6 @@ def dummy_configs():
 
 def is_x86_arch(arch):
     return arch in {"x86", "Zen4"}
-
-
-def supported_timers_for_arch(arch):
-    if is_x86_arch(arch):
-        return {"gettime", "rdtsc"}
-    return {"gettime", "cntvct", "pmccntr"}
 
 
 def timer_for_arch(arch):
@@ -321,10 +287,6 @@ def arch_cflags_for(arch):
 
 def micro_arch_name(arch, core, train_step):
     trigger_suffix = "-no-trigger" if args.no_trigger else ""
-    switch_suffix = (
-        f"-ctxswitch{args.context_switch_yields}"
-        if args.context_switch else ""
-    )
     dummy_suffix = ""
     timer = timer_for_arch(arch)
     timer_suffix = ""
@@ -343,7 +305,7 @@ def micro_arch_name(arch, core, train_step):
     return (
         f"{arch}-core{core}-stride{args.stride}"
         f"-train{train_step}-{args.access}"
-        f"{timer_suffix}{probe_mode_suffix(train_step)}{trigger_suffix}{switch_suffix}"
+        f"{timer_suffix}{probe_mode_suffix(train_step)}{trigger_suffix}"
         f"{dummy_suffix}"
     )
 
@@ -356,10 +318,6 @@ def raw_path_for(arch, core, train_step):
     return os.path.join(raw_dir, f"{micro_arch_name(arch, core, train_step)}.txt")
 
 
-def dump_path_for(arch, core, train_step):
-    return os.path.join(dump_dir, f"{micro_arch_name(arch, core, train_step)}.dump")
-
-
 def plot_path_for(arch, core, train_step):
     return os.path.join(plot_dir, f"{micro_arch_name(arch, core, train_step)}.png")
 
@@ -369,7 +327,6 @@ def ensure_dirs():
     os.makedirs(result_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
     os.makedirs(raw_dir, exist_ok=True)
-    os.makedirs(dump_dir, exist_ok=True)
 
 
 def accessed_offsets(train_step):
@@ -380,10 +337,6 @@ def accessed_offsets(train_step):
 
 def predicted_position(train_step):
     return train_step * args.stride
-
-
-def predicted_offset(train_step):
-    return predicted_position(train_step) * 64
 
 
 def threshold_ns_for(arch):
@@ -459,7 +412,7 @@ def read_tsv(path):
 
 def compile_test(train_step, arch):
     compile_cmd = [
-        args.cc,
+        os.environ.get("CC", "gcc"),
         "-std=gnu11",
         "-O0",
         "-static",
@@ -471,15 +424,11 @@ def compile_test(train_step, arch):
         f"-DSINGLE_PROBE={1 if args.probe_mode == 'single' else 0}",
         f"-DSINGLE_PROBE_POSITION={single_probe_position(train_step)}",
         f"-DCPU_ID=0",
+        f"-DENABLE_CPP_RCTX={1 if arch == 'X925' else 0}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
         f"-DDUMMY_BUFFER_PAGES={args.dummy_buffer_pages}",
-        f"-DDUMMY_ACCESS_LOAD={1 if args.dummy_access == 'load' else 0}",
-        f"-DDUMMY_ACCESS_STORE={1 if args.dummy_access == 'store' else 0}",
-        f"-DDUMMY_ACCESS_PERMUTED={1 if args.dummy_order == 'permuted' else 0}",
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
-        f"-DCONTEXT_SWITCH_BEFORE_TRIGGER={1 if args.context_switch else 0}",
-        f"-DCONTEXT_SWITCH_YIELDS={args.context_switch_yields}",
         "-o",
         OUT,
         SRC,
@@ -488,29 +437,9 @@ def compile_test(train_step, arch):
     timer_define = timer_define_for(arch)
     if timer_define is not None:
         compile_cmd.insert(-4, timer_define)
-    # compile_cmd[1:1] = arch_cflags_for(arch)
+    if arch == "X925":
+        compile_cmd[1:1] = arch_cflags_for(arch)
     return subprocess.run(compile_cmd).returncode
-
-
-def write_dump(arch, core, train_step):
-    if args.no_dump:
-        return
-
-    path = dump_path_for(arch, core, train_step)
-    run = subprocess.run(
-        [args.objdump, "-d", OUT],
-        capture_output=True,
-        text=True,
-    )
-    if run.returncode != 0:
-        print(f"Warning: failed to generate dump file '{path}'")
-        if run.stderr:
-            print(run.stderr, file=sys.stderr)
-        return
-
-    with open(path, "w") as f:
-        f.write(run.stdout)
-    print(f"Saved dump to {path}")
 
 
 def run_binary(core):
@@ -520,6 +449,12 @@ def run_binary(core):
         text=True,
     )
 
+
+def print_pmu_output(output):
+    """Print only PMU comment lines from the captured program output."""
+    for line in output.splitlines():
+        if line.lstrip().startswith("# PMU"):
+            print(line)
 
 def run_one(arch, core, train_step):
     threshold_ns = threshold_ns_for(arch)
@@ -536,14 +471,11 @@ def run_one(arch, core, train_step):
         f"dummy_access={args.dummy_access}, "
         f"dummy_order={args.dummy_order}, "
         f"dummy_buffer_pages={args.dummy_buffer_pages}, "
-        f"context_switch={args.context_switch}, "
-        f"context_switch_yields={args.context_switch_yields}"
     )
 
     if compile_test(train_step, arch) != 0:
         print("Compile failed")
         return []
-    write_dump(arch, core, train_step)
 
     run = run_binary(core)
     if run.returncode != 0:
@@ -553,6 +485,8 @@ def run_one(arch, core, train_step):
         if run.stderr:
             print(run.stderr)
         return []
+
+    print_pmu_output(run.stdout)
 
     raw_path = raw_path_for(arch, core, train_step)
     with open(raw_path, "w") as f:

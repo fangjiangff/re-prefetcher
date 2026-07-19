@@ -215,7 +215,7 @@ int main(){
         for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {       
             // dummyAccesses();//for dummy accesses , reset the prefetcher state
             // random_activity(array2_mapping);
-            cpp_rctx();
+            // cpp_rctx();
             
             mfence();
             flush_mapping(array2_mapping);

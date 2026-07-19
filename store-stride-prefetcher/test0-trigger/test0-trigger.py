@@ -39,8 +39,8 @@ def parse_args():
                         help="Override CPU core used by taskset. Default is selected from --arch.")
     parser.add_argument("--rounds", type=int, default=4000,
                         help="Rounds per stride/access-count point. Default: 100")
-    parser.add_argument("--max-stride", type=int, default=2048,
-                        help="Maximum stride in bytes. Default: 2048")
+    parser.add_argument("--max-stride", type=int, default=4096,
+                        help="Maximum stride in bytes. Default: 4096(= 64 * 64)")
     parser.add_argument("--max-step", type=int, default=40,
                         help="Maximum access count. Default: 10")
     parser.add_argument("--access", choices=["store", "load", "prefetch"],
@@ -132,6 +132,7 @@ def compile_test(args):
         f"-DMAX_STEP={args.max_step}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
         "-o",
         OUT,
         SRC,
@@ -239,7 +240,7 @@ def plot_heatmap(path, rows, title, unit):
         ax=ax,
         # center=180,
         vmin=0,
-        vmax=150,
+        vmax=200,
         cbar=True,
         cbar_kws={"pad": 0.01},
         yticklabels=False,

@@ -20,6 +20,10 @@
 #define ROUNDS 4000
 #endif
 
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
 
 #ifndef TRAIN_ACCESS_LOAD
 #define TRAIN_ACCESS_LOAD 0
@@ -75,11 +79,19 @@ static void shuffle_ints(int *values, int count) {
 
 void dummyAccesses(void){
   // dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
-       for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+    for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
         // asm volatile("PRFM PLDL3STRM, [%0]\n\t" :: "r"(&dummy_buffer[i]));
         asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
-        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[i]) : "memory", "w0");
+        // asm volatile("LDR w0, [%0]\n\t" :: "r"(&dummy_buffer[j]) : "memory", "w0");
+        // asm volatile("STR wzr, [%0]\n\t" :: "r"(&dummy_buffer[j]) : "memory");
+
      }
+}
+
+static inline void reset_prefetcher_context(void) {
+#if ENABLE_CPP_RCTX
+    cpp_rctx();
+#endif
 }
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
@@ -158,6 +170,7 @@ int main(){
 #endif
   );
   printf("# timer: %s %s\n", TIMESTAMP_SOURCE_NAME, TIMESTAMP_UNIT_NAME);
+  printf("# ENABLE_CPP_RCTX=%d\n", ENABLE_CPP_RCTX);
   printf("# stride_lines train_step avg_%s\n", TIMESTAMP_UNIT_NAME);
 
   int stride_order[MAX_STRIDE_LINES];
@@ -173,31 +186,38 @@ int main(){
   shuffle_ints(stride_order, MAX_STRIDE_LINES);
   shuffle_ints(train_step_order, MAX_STEP);
 
+
   for(int stride_idx = 0; stride_idx < MAX_STRIDE_LINES; stride_idx++){
+  // for(int stride_idx = 4; stride_idx < 5; stride_idx++){
     //   int stride_lines = stride_order[stride_idx];
     int stride_lines = stride_idx + 1;
       int stride = stride_lines * LINE_SIZE;
       for(int train_step_idx = 0; train_step_idx < MAX_STEP; train_step_idx++){
+      //  for(int train_step_idx = 5; train_step_idx < 6; train_step_idx++){
         //   int train_step = train_step_order[train_step_idx];
           int train_step = train_step_idx + 1;
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
+            reset_prefetcher_context();
             uint64_t probe_offset = (uint64_t)train_step * (uint64_t)stride;
 
+            mfence();
             dummyAccesses();
-            // cpp_rctx(); 
             
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
             mfence();
+            
               // for(int repeat = 0; repeat < 5; repeat ++) {
               for(int step = 0; step < train_step -1; step++){
                   stride_access(array2 + (step * stride));
+                  nops();
                   // mfence();
               }
               // }
               // trigger.
               stride_access(array2 + ((train_step -1) * stride));
+              nops();
               // mfence();
               
             //   delay_after_trigger();
@@ -208,10 +228,10 @@ int main(){
               
               time1 = timestamp();
             //   junk = *probe_addr;
-               mStore_inline((void*)probe_addr);
+              mStore_inline((void*)probe_addr);
               time2 = timestamp() - time1;
               latency_sum[stride_lines][train_step] += time2;
-          } 
+          }
           printf("%d\t%d\t%lld\n",
                  stride_lines,
                  train_step,
