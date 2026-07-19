@@ -391,6 +391,7 @@ def compile_test(train_step, other_pages, arch):
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
+        f"-DPMU_CORE_X925={1 if arch == 'X925' else 0}",
         f"-DCONTEXT_SWITCH_BEFORE_TRIGGER={1 if args.context_switch else 0}",
         f"-DCONTEXT_SWITCH_YIELDS={args.context_switch_yields}",
         "-o",
@@ -426,6 +427,19 @@ def run_binary(core):
     return subprocess.run(["taskset", "-c", str(core), OUT], capture_output=True, text=True)
 
 
+def print_pmu_output(output):
+    current_pages = None
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# begin_other_pages="):
+            current_pages = stripped.split("=", 1)[1]
+        elif stripped.startswith("# PMU"):
+            if current_pages is not None:
+                print(f"# PMU other_pages={current_pages} {stripped[5:].lstrip()}")
+            else:
+                print(stripped)
+
+
 def run_one(arch, core, train_step, max_other_pages):
     threshold_ns = threshold_ns_for(arch)
     threshold_unit = timer_unit_for(arch)
@@ -456,6 +470,7 @@ def run_one(arch, core, train_step, max_other_pages):
         return {}
 
     print_page_mapping_info(run.stdout)
+    print_pmu_output(run.stdout)
 
     raw_path = raw_path_for(arch, core, train_step, max_other_pages)
     with open(raw_path, "w") as f:

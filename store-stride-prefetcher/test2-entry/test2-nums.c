@@ -9,6 +9,9 @@
 #include <unistd.h>
 #include "../until.h"
 
+#define PMU_WINDOW_NAME "test2-training-lines-341-361"
+#include "../pmu.h"
+
 #define Items 10240
 
 #ifndef STRIDE_BYTES
@@ -39,13 +42,7 @@
 #define NO_TRIGGER 0
 #endif
 
-#ifndef CONTEXT_SWITCH_BEFORE_TRIGGER
-#define CONTEXT_SWITCH_BEFORE_TRIGGER 0
-#endif
 
-#ifndef CONTEXT_SWITCH_YIELDS
-#define CONTEXT_SWITCH_YIELDS 1
-#endif
 
 uint8_t array2[Items * LINE_SIZE] __attribute__((aligned(4096)));
 long long int latency_sum[PROBE_POSITIONS] = {0};
@@ -60,6 +57,7 @@ static uint8_t **other_pages;
 #define PAGEMAP_PFN_MASK ((1ULL << 55) - 1)
 #define PREFETCH_PA_FIELD_MASK ((1ULL << 18) - 1)
 #define PREFETCH_HASH_MASK ((1U << 6) - 1)
+
 
 static int physical_page_info(int pagemap_fd, const void *addr,
                               uint64_t *physical_addr, uint8_t *hash) {
@@ -216,17 +214,7 @@ static int allocate_unique_other_pages(void) {
 }
 #endif
 
-static inline __attribute__((always_inline)) void stride_access(void *addr) {
-    mStore_noinline(addr);
-}
 
-static void context_switch_before_trigger(void) {
-#if CONTEXT_SWITCH_BEFORE_TRIGGER
-    for (int i = 0; i < CONTEXT_SWITCH_YIELDS; i++) {
-        sched_yield();
-    }
-#endif
-}
 
 static void print_test_header(int stride, int train_step, int active_pages,
                               uint64_t rounds) {
@@ -272,22 +260,32 @@ static void flush_other_pages(int active_pages) {
 #endif
 }
 
-static void train_other_pages(int stride, int train_step, int active_pages) {
+static void train_other_pages_range(int stride, int train_step,
+                                    int first_page, int end_page) {
 #if OTHER_PAGES_N > 0
-    for (int page = 0; page < active_pages; page++) {
+    for (int page = first_page; page < end_page; page++) {
         uint8_t *base = other_pages[page];
-        for (int step = 0; step < train_step - 1; step++) {
-        // for (int step = 0; step < 1; step++) {
-            stride_access(base + 3 * LINE_SIZE +
+        // for (int step = 0; step < train_step - 1; step++) {
+        for (int step = 0; step < 1; step++) {
+            mStore_inline(base + 3 * LINE_SIZE +
                           ((uint64_t)step * (uint64_t)stride));
+            nops();
         }
     }
 #else
     (void)stride;
     (void)train_step;
-    (void)active_pages;
+    (void)first_page;
+    (void)end_page;
 #endif
 }
+
+// void dummyAccesses(void){
+//     for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+//         asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+//      }
+// }
+
 
 int main(void) {
     register uint64_t time1, time2;
@@ -329,6 +327,11 @@ int main(void) {
         return 1;
     }
 
+    int pmu_ready = (pmu_setup() == 0);
+    if (!pmu_ready) {
+        printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
+    }
+
     for (int active_pages = 0; active_pages <= OTHER_PAGES_N;
          active_pages++) {
         memset(latency_sum, 0, sizeof(latency_sum));
@@ -337,34 +340,70 @@ int main(void) {
 
         printf("# begin_other_pages=%d\n", active_pages);
         print_test_header(stride, train_step, active_pages, rounds);
+        if (pmu_ready) {
+            pmu_reset_accumulated();
+        }
 
         for (uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
+           
+            // mfence();
+            // dummyAccesses();
             flush_victim_lines();
             flush_other_pages(active_pages);
-
-            cpp_rctx();
+            // mfence();
+            
             // mfence();
 
             // for (int step = 0; step < train_step - 1; step++) {
             //     stride_access(array2 + ((uint64_t)step * (uint64_t)stride));
             // }
 
-            mStore_inline(array2 + (0 * (uint64_t)stride));
-            mStore_inline(array2 + (1 * (uint64_t)stride));
-            mStore_inline(array2 + (2 * (uint64_t)stride));
-            mStore_inline(array2 + (3 * (uint64_t)stride));
 
-            train_other_pages(7 * LINE_SIZE, train_step, active_pages);
-            // uint8_t *base = other_pages;
-            // stride_access(base + 3 * LINE_SIZE);
-            // context_switch_before_trigger();
+            int pmu_running = 0;
+            if (pmu_ready) {
+                pmu_running = (pmu_start() == 0);
+                if (!pmu_running) {
+                    printf("# PMU unavailable: counter group could not be started\n");
+                    pmu_ready = 0;
+                }
+            }
+            cpp_rctx();
+
+            
+// #if OTHER_PAGES_N > 11
+//             mLoad_inline(other_pages[0] + 7 * LINE_SIZE);
+//             mLoad_inline(other_pages[1] + 3 * LINE_SIZE);
+// #endif
+
+            mStore_inline(array2 + (0 * (uint64_t)stride));
+            nops();
+            mStore_inline(array2 + (1 * (uint64_t)stride));
+            nops(); 
+
+            // int competitor_split = active_pages / 2;
+            train_other_pages_range(stride, train_step,
+                                    0, active_pages);
+            // train_other_pages_range(stride, train_step,
+            //                         0, 3);
+            // nops();    
+                     
+            // train_other_pages_range(stride, train_step,
+            //                     3, active_pages);
+        //     // mfence();
+        //     // uint8_t *base = other_pages;
+        //     // stride_access(base + 3 * LINE_SIZE);
+        //     // context_switch_before_trigger();
 
 #if !NO_TRIGGER  
-            mStore_inline(array2 + (4 * (uint64_t)stride));
-            // stride_access(array2 + ((uint64_t)(train_step - 1) *
-            //                                (uint64_t)stride));
-            mStore_inline(array2 + (5 * (uint64_t)stride));
+            mStore_inline(array2 + (2 * (uint64_t)stride));
+            nops();
 #endif
+
+
+
+            if (pmu_running) {
+                pmu_stop_and_accumulate();
+            }
 
             int probe_pos = (int)(atkRound % PROBE_POSITIONS);
             probe_addr = array2 + ((uint64_t)probe_pos * LINE_SIZE);
@@ -379,6 +418,9 @@ int main(void) {
             latency2_sum += time2;
             latency_sum[probe_pos] += time2;
             probe_count[probe_pos]++;
+        }
+        if (pmu_ready) {
+            pmu_print_accumulated(rounds);
         }
         // printf("avg_latency=%llu\n",
         //        (unsigned long long)(latency2_sum / rounds));
@@ -396,6 +438,8 @@ int main(void) {
         }
         printf("# end_other_pages=%d\n\n", active_pages);
     }
+
+    pmu_cleanup();
 
 #if OTHER_PAGES_N > 0
     free(other_pages);
