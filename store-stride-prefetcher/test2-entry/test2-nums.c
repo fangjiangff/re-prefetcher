@@ -260,10 +260,13 @@ static void flush_other_pages(int active_pages) {
 #endif
 }
 
+// static void train_other_pages_range(int stride, int train_step,
+//                                     int first_page, int end_page) {
 static void train_other_pages_range(int stride, int train_step,
-                                    int first_page, int end_page) {
+                                    int activte_pages) {
 #if OTHER_PAGES_N > 0
-    for (int page = first_page; page < end_page; page++) {
+    // for (int page = first_page; page < end_page; page++) {
+    for (int page = 0; page < activte_pages; page++) {
         uint8_t *base = other_pages[page];
         // for (int step = 0; step < train_step - 1; step++) {
         for (int step = 0; step < 1; step++) {
@@ -379,10 +382,9 @@ int main(void) {
             nops();
             mStore_inline(array2 + (1 * (uint64_t)stride));
             nops(); 
-
             // int competitor_split = active_pages / 2;
             train_other_pages_range(stride, train_step,
-                                    0, active_pages);
+                                    active_pages);
             // train_other_pages_range(stride, train_step,
             //                         0, 3);
             // nops();    
