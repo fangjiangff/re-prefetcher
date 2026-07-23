@@ -168,13 +168,9 @@ static int allocate_other_pages(void) {
             return -1;
         }
 
-        uint64_t pa_field = (physical_addr >> 16) & PREFETCH_PA_FIELD_MASK;
-        uint64_t victim_pa_field =
-            (victim_pa >> 16) & PREFETCH_PA_FIELD_MASK;
-        int duplicate = pa_field == victim_pa_field;
+        int duplicate = hash == victim_hash;
         for (size_t i = 0; i < selected; i++) {
-            if (((physical_addrs[i] >> 16) & PREFETCH_PA_FIELD_MASK) ==
-                pa_field) {
+            if (hashes[i] == hash) {
                 duplicate = 1;
                 break;
             }
@@ -191,7 +187,7 @@ static int allocate_other_pages(void) {
     if (selected != OTHER_PAGES_N) {
         fprintf(stderr,
                 "candidate pool supplied only %zu unique non-victim "
-                "PA[33:16] values for %d pages; increase "
+                "physical-address hashes for %d pages; increase "
                 "CANDIDATE_PAGES_PER_OTHER\n",
                 selected, OTHER_PAGES_N);
         free(hashes);
@@ -217,46 +213,6 @@ static int allocate_other_pages(void) {
     free(hashes);
     free(physical_addrs);
     return 0;
-#else
-    /* Keep A725 training VAs distinct and non-adjacent by placing an
-       inaccessible guard page after every usable page. */
-    if ((size_t)OTHER_PAGES_N > SIZE_MAX / (2 * PAGE_SIZE)) {
-        fprintf(stderr, "invalid other-page mapping size\n");
-        return -1;
-    }
-    other_pages_mapping_size = (size_t)OTHER_PAGES_N * 2 * PAGE_SIZE;
-    other_pages_mapping = mmap(NULL, other_pages_mapping_size,
-                               PROT_READ | PROT_WRITE,
-                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (other_pages_mapping == MAP_FAILED) {
-        fprintf(stderr, "failed to map A725 pages: %s\n", strerror(errno));
-        other_pages_mapping = NULL;
-        return -1;
-    }
-    other_pages = calloc(OTHER_PAGES_N, sizeof(*other_pages));
-    if (!other_pages) {
-        fprintf(stderr, "failed to allocate other-page metadata\n");
-        return -1;
-    }
-
-    printf("# victim_page va=%p allocation=A725-va-spaced\n", (void *)array2);
-    for (size_t i = 0; i < OTHER_PAGES_N; i++) {
-        uint8_t *page = other_pages_mapping + i * 2 * PAGE_SIZE;
-        uint8_t *guard = page + PAGE_SIZE;
-        if (mprotect(guard, PAGE_SIZE, PROT_NONE) != 0) {
-            fprintf(stderr, "failed to protect A725 guard page: %s\n",
-                    strerror(errno));
-            return -1;
-        }
-        page[0] = 0xff;
-        other_pages[i] = page;
-        printf("# other_page[%zu] va=%p va_page=0x%llx guard_va=%p\n",
-               i, (void *)page,
-               (unsigned long long)((uintptr_t)page / PAGE_SIZE),
-               (void *)guard);
-    }
-    return 0;
-#endif
 }
 #endif
 
@@ -368,7 +324,7 @@ int main(void) {
                 system_page_size, PAGE_SIZE);
         return 1;
     }
-    if (allocate_other_pages() != 0) {
+    if (allocate_unique_other_pages() != 0) {
         return 1;
     }
 #endif
@@ -437,7 +393,7 @@ int main(void) {
                     pmu_ready = 0;
                 }
             }
-            cpp_rctx();
+            // cpp_rctx();
 
             
 // #if OTHER_PAGES_N > 11

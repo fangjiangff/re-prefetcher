@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <sched.h>
+#include <time.h>
 #include <sys/mman.h>
 #include "../until.h"
 // #include "victim.h"
@@ -65,6 +67,10 @@
 #define ENABLE_DUMMY_ACCESSES 1
 #endif
 
+#ifndef ENABLE_SCHED_YIELD
+#define ENABLE_SCHED_YIELD 0
+#endif
+
 #if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
 #error "Only one train access mode can be enabled"
 #endif
@@ -83,13 +89,32 @@ int probe_count[PROBE_POSITIONS] = {0};
 
 
 #define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
+#define PREFETCHER_FILL_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 static uint8_t* dummy_buffer;
+static uint8_t* prefetcher_fill_buffer;
 
 void dummyAccesses(void){
     for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
         asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
      }
+}
+
+/*
+ * Cortex-A725 cannot issue CPP RCTX from EL0. Touch independent pages with
+ * store streams instead, so that they compete for the store-prefetcher
+ * entries used by the measured stream.
+ */
+static void occupy_store_prefetcher_entries(void)
+{
+    for (size_t page = 0; page < DUMMY_BUFFER_PAGES; page++) {
+        uint8_t *page_base = prefetcher_fill_buffer + page * PAGE_SIZE;
+
+        for (size_t line = 0; line < 6; line++)
+            mStore_inline(page_base + line * LINE_SIZE);
+    }
+
+    mfence();
 }
 
 
@@ -118,6 +143,12 @@ int main(){
   }
   // mfence();
 
+  prefetcher_fill_buffer = (uint8_t*)mmap(NULL, PREFETCHER_FILL_BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
+  if(prefetcher_fill_buffer == MAP_FAILED) {
+      printf("failed to map prefetcher fill buffer!\n");
+      exit(1);
+  }
+
 
   uint64_t rounds = ROUNDS;
 
@@ -137,55 +168,64 @@ int main(){
            DUMMY_BUFFER_PAGES, DUMMY_BUFFER_SIZE);
 
           int pmu_ready = (pmu_setup() == 0);
-          int pmu_running = 0;
           if (!pmu_ready) {
               printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
           }
 
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
 
-#if ENABLE_DUMMY_ACCESSES
-            dummyAccesses();
-#endif
-
+// #if ENABLE_DUMMY_ACCESSES
+//             dummyAccesses();
+// #endif
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
 
+#if ENABLE_DUMMY_ACCESSES && !ENABLE_CPP_RCTX
+            occupy_store_prefetcher_entries();
+#endif
+            mfence();
+            
+            int pmu_running = 0;
+            if (pmu_ready) {
+                pmu_running = (pmu_start() == 0);
+                if (!pmu_running) {
+                    printf("# PMU unavailable: counter group could not be started\n");
+                    pmu_ready = 0;
+                }
+            }
             // reset prefetcher state
 #if ENABLE_CPP_RCTX
             cpp_rctx();
 #endif
-
+    
             // begin to trainer the store stride prefetch
-            if (pmu_ready && atkRound == 0) {
-                pmu_running = (pmu_start() == 0);
-                if (!pmu_running) {
-                    printf("# PMU unavailable: counter group could not be started\n");
-                }
-            }
-
             for(int step = 0; step < train_step-1; step++){
                 stride_access(array2 + (step * stride));
                 // mfence();
-                // nops();
+                nops();
             }
+
+#if ENABLE_SCHED_YIELD
+            sched_yield();
+#endif
+
 #if !NO_TRIGGER
             if (train_step > 0) {
                 stride_access(array2 + ((train_step - 1) * stride));
-                // mfence();
-                // nops();
+                nops();
             }
 #endif
-            if (pmu_running && atkRound + 1 == rounds) {
-                // Allow the final prefetch requests to complete before reading PMU counters.
-                // struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 1000};
-                // nanosleep(&prefetch_wait, NULL);
-                pmu_stop_and_print(rounds);
-                pmu_running = 0;
+            //wait
+            nops();
+            struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 100};
+            nanosleep(&prefetch_wait, NULL);
+
+            if (pmu_running) {
+                pmu_stop_and_accumulate();
             }
 
-            mfence();
+            // mfence();
 
 #if SINGLE_PROBE
             int probe_pos = SINGLE_PROBE_POSITION;
@@ -195,12 +235,15 @@ int main(){
             probe_addr = array2 + (probe_pos * LINE_SIZE);
 
             time1 = timestamp();
-            mStore_inline((void*)probe_addr);
+            mLoad_inline((void*)probe_addr);
             time2 = timestamp() - time1;
 
             latency_sum[probe_pos] += time2;
             probe_count[probe_pos]++;
             // printf("%llu\n", (unsigned long long)time2);
+          }
+          if (pmu_ready) {
+              pmu_print_accumulated(rounds);
           }
           pmu_cleanup();
 #if SINGLE_PROBE

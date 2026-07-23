@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""Plot the X925 degree sweeps for strides 1 and 3 as heatmaps."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+
+
+plt.rcParams["ps.fonttype"] = 42
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+STRIDES = (1, 3)
+MAX_STEP = 20
+PROBE_POSITIONS = 40
+PAGE_SIZE = 4096
+
+
+def dataset_path(stride: int) -> Path:
+    return SCRIPT_DIR / (
+        "X925-core6-degree-sweep-store-"
+        f"stride{stride}-maxstep{MAX_STEP}-probe{PROBE_POSITIONS}.txt"
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--vmax",
+        type=float,
+        default=200,
+        help="heatmap color maximum (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--vmin",
+        type=float,
+        default=20,
+        help="heatmap color minimum (default: %(default)s)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=SCRIPT_DIR / "degree-heatmap.png",
+        help=(
+            "output base path; matching .png and .eps files are both written "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument("--dpi", type=int, default=300, help="output DPI")
+    parser.add_argument(
+        "--show", action="store_true", help="also display the plot interactively"
+    )
+    return parser.parse_args()
+
+
+def load_heatmap(path: Path, expected_stride: int) -> tuple[np.ndarray, np.ndarray]:
+    """Load latency and accessed-cell matrices indexed by access and probe."""
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"missing stride={expected_stride} input: {path}\n"
+            "Place the corresponding degree-sweep output in this directory."
+        )
+
+    latency = np.full((MAX_STEP, PROBE_POSITIONS), np.nan)
+    accessed = np.zeros((MAX_STEP, PROBE_POSITIONS), dtype=bool)
+    inferred_stride = None
+
+    with path.open(encoding="utf-8") as data_file:
+        for line_number, line in enumerate(data_file, start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+
+            fields = stripped.split()
+            if len(fields) != 5:
+                raise ValueError(f"{path}:{line_number}: expected 5 columns")
+
+            train_step, probe_pos, offset_bytes = map(int, fields[:3])
+            role = fields[3]
+            avg_ticks = float(fields[4])
+
+            if probe_pos > 0:
+                row_stride = offset_bytes // (probe_pos * 64)
+                if offset_bytes != probe_pos * row_stride * 64:
+                    raise ValueError(
+                        f"{path}:{line_number}: offset is not cache-line aligned"
+                    )
+                if inferred_stride is None:
+                    inferred_stride = row_stride
+                elif inferred_stride != row_stride:
+                    raise ValueError(f"{path}:{line_number}: inconsistent stride")
+
+            if 1 <= train_step <= MAX_STEP and 0 <= probe_pos < PROBE_POSITIONS:
+                row = train_step - 1
+                latency[row, probe_pos] = avg_ticks
+                accessed[row, probe_pos] = role == "accessed"
+
+    if inferred_stride != expected_stride:
+        raise ValueError(
+            f"{path}: data has stride={inferred_stride}, expected {expected_stride}"
+        )
+    if not np.isfinite(latency).any():
+        raise ValueError(f"{path}: no plottable data found")
+
+    return latency, accessed
+
+
+def draw_page_boundaries(axis: plt.Axes, stride: int) -> None:
+    stride_bytes = stride * 64
+    max_extent = PROBE_POSITIONS * stride_bytes
+    positions = {
+        (boundary + stride_bytes - 1) // stride_bytes
+        for boundary in range(PAGE_SIZE, max_extent, PAGE_SIZE)
+    }
+    for position in sorted(positions):
+        if 0 < position < PROBE_POSITIONS:
+            axis.axvline(
+                x=position,
+                color="red",
+                linewidth=2.0,
+                alpha=0.95,
+                zorder=20,
+            )
+
+
+def main() -> None:
+    args = parse_args()
+    if args.vmax <= args.vmin:
+        raise ValueError(f"vmax ({args.vmax}) must be greater than vmin ({args.vmin})")
+
+    heatmaps = [load_heatmap(dataset_path(stride), stride) for stride in STRIDES]
+
+    fig, axes = plt.subplots(1, len(STRIDES), figsize=(24, 8.3), sharey=True)
+    colorbar_axis = fig.add_axes((0.925, 0.13, 0.012, 0.76))
+    probe_labels = np.arange(1, PROBE_POSITIONS + 1)
+    access_labels = np.arange(1, MAX_STEP + 1)
+
+    for index, (axis, stride, (latency, accessed)) in enumerate(
+        zip(axes, STRIDES, heatmaps)
+    ):
+        show_colorbar = index == len(STRIDES) - 1
+        masked_latency = np.ma.masked_where(accessed | np.isnan(latency), latency)
+        accessed_overlay = np.where(accessed, 1.0, np.nan)
+
+        sns.heatmap(
+            masked_latency,
+            cmap="RdYlBu_r",
+            annot=False,
+            ax=axis,
+            vmin=args.vmin,
+            vmax=args.vmax,
+            cbar=show_colorbar,
+            cbar_ax=colorbar_axis if show_colorbar else None,
+            cbar_kws={"pad": 0.01},
+            linewidths=0.06,
+            linecolor="#BDBDBD",
+            xticklabels=probe_labels,
+            yticklabels=access_labels,
+        )
+        sns.heatmap(
+            accessed_overlay,
+            cmap=sns.color_palette(["#BDBDBD"], as_cmap=True),
+            annot=False,
+            ax=axis,
+            cbar=False,
+            xticklabels=probe_labels,
+            yticklabels=access_labels,
+        )
+
+        axis.set_title(f"Stride = {stride}", loc="center", pad=10, fontsize=40)
+        axis.set_xlabel("Probe position", fontsize=34)
+        axis.set_ylabel("Access count" if index == 0 else "", fontsize=34)
+        even_probe_labels = np.arange(2, PROBE_POSITIONS + 1, 2)
+        axis.set_xticks(even_probe_labels - 0.5)
+        axis.set_xticklabels(even_probe_labels, fontsize=22, rotation=90)
+        even_access_labels = np.arange(2, MAX_STEP + 1, 2)
+        axis.set_yticks(even_access_labels - 0.5)
+        axis.set_yticklabels(even_access_labels, fontsize=28, rotation=0)
+        axis.tick_params(axis="x", labelsize=22)
+        axis.tick_params(axis="y", labelsize=28)
+        draw_page_boundaries(axis, stride)
+
+    colorbar = axes[-1].collections[0].colorbar
+    colorbar.set_label("Average latency (ticks)", fontsize=34)
+    colorbar.ax.tick_params(labelsize=28)
+    if colorbar.solids is not None:
+        colorbar.solids.set_rasterized(False)
+    for axis in axes:
+        for collection in axis.collections:
+            collection.set_rasterized(False)
+    fig.subplots_adjust(
+        left=0.075, right=0.90, bottom=0.22, top=0.86, wspace=0.025
+    )
+
+    output_base = (
+        args.output.with_suffix("")
+        if args.output.suffix.lower() in {".png", ".eps"}
+        else args.output
+    )
+    png_output = output_base.with_suffix(".png")
+    eps_output = output_base.with_suffix(".eps")
+    output_base.parent.mkdir(parents=True, exist_ok=True)
+
+    fig.savefig(png_output, dpi=args.dpi)
+    fig.savefig(
+        eps_output,
+        bbox_inches="tight",
+        pad_inches=0.05,
+        papertype="a0",
+    )
+    print(f"Saved {png_output}")
+    print(f"Saved {eps_output}")
+
+    if args.show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+if __name__ == "__main__":
+    main()

@@ -187,15 +187,15 @@ int main(){
   shuffle_ints(train_step_order, MAX_STEP);
 
 
-  for(int stride_idx = 0; stride_idx < MAX_STRIDE_LINES; stride_idx++){
-  // for(int stride_idx = 4; stride_idx < 5; stride_idx++){
+  // for(int stride_idx = 0; stride_idx < MAX_STRIDE_LINES; stride_idx++){
+  for(int stride_idx = 4; stride_idx < 5; stride_idx++){
     //   int stride_lines = stride_order[stride_idx];
-    int stride_lines = stride_idx + 1;
+    int stride_lines = stride_idx + 1;//stride = 5
       int stride = stride_lines * LINE_SIZE;
-      for(int train_step_idx = 0; train_step_idx < MAX_STEP; train_step_idx++){
-      //  for(int train_step_idx = 5; train_step_idx < 6; train_step_idx++){
+      // for(int train_step_idx = 0; train_step_idx < MAX_STEP; train_step_idx++){
+       for(int train_step_idx = 5; train_step_idx < 6; train_step_idx++){
         //   int train_step = train_step_order[train_step_idx];
-          int train_step = train_step_idx + 1;
+          int train_step = train_step_idx + 1;//trian=6
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
             reset_prefetcher_context();
             uint64_t probe_offset = (uint64_t)train_step * (uint64_t)stride;

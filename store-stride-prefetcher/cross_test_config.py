@@ -7,7 +7,7 @@ ARCH_CONFIG = {
             "trigger_core": 7,
         },
         "accesses": {
-            "store": 6,
+            "store": 5,
             "load": 1,
         },
     },
@@ -19,7 +19,7 @@ ARCH_CONFIG = {
             "trigger_core": 10,
         },
         "accesses": {
-            "store": 5,
+            "store": 6,
             "load": 5,
         },
     },

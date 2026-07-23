@@ -633,10 +633,7 @@ def plot_pmu_metric_line(values_by_pages, arch, core, train_step,
     )
     ax.set_xlabel("Other pages")
     ax.set_ylabel(f"{metric} per round")
-    if min(xs) == max(xs):
-        ax.set_xlim(xs[0] - 0.5, xs[0] + 0.5)
-    else:
-        ax.set_xlim(min(xs), max(xs))
+    ax.set_xlim(min(xs), max(xs))
     ax.set_ylim(bottom=0)
     ax.grid(alpha=0.25)
     tick_step = max(1, (max(xs) - min(xs)) // 16)
@@ -708,9 +705,9 @@ def main():
             line_points = []
             page_counts = list(other_page_counts())
             rows_by_pages = None
-            pmu_values_by_pages = {}
+            l1d_hwprf_by_pages = {}
             if not args.plot_only:
-                rows_by_pages, pmu_values_by_pages = run_one(
+                rows_by_pages, l1d_hwprf_by_pages = run_one(
                     arch, core, train_step, max(page_counts)
                 )
 
@@ -737,8 +734,8 @@ def main():
             if args.other_pages_sweep and not args.no_plot:
                 plot_other_pages_line(line_points, arch, core, train_step)
             if not args.plot_only and not args.no_plot:
-                plot_pmu_metric_line(
-                    pmu_values_by_pages, arch, core, train_step,
+                plot_l1d_hwprf_line(
+                    l1d_hwprf_by_pages, arch, core, train_step,
                     max(page_counts),
                 )
 
