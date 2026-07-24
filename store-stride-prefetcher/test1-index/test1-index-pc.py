@@ -16,6 +16,8 @@ from cross_test_config import (
     apply_single_core_defaults,
     apply_threshold_defaults,
     arch_choices,
+    default_timer_for_arch,
+    timer_define_for_arch,
 )
 
 
@@ -27,7 +29,7 @@ DEFAULT_BASE_PC = "0x500000120"
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_MIN_DIFF_BIT = 3
 DEFAULT_MAX_DIFF_BIT = 47
-DEFAULT_ROUNDS = 40000
+DEFAULT_ROUNDS = 400
 DEFAULT_PROBE_POSITIONS = 100
 RESULT_DIR = os.path.join(ROOT_DIR, "res", "index-pc")
 PLOT_DIR = os.path.join(ROOT_DIR, "res", "barplots")
@@ -40,30 +42,34 @@ def compile_test(args):
         "-std=gnu11",
         "-O0",
         "-static",
-        "-march=armv8.5-a+predres",
         f"-DARCH_NAME=\"{args.arch}\"",
         f"-DSTRIDE_LINES={args.stride}",
         f"-DSTORE_TRIGGER_ACCESS={args.accesses}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DSTRIDE_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
         f"-DSTRIDE_ACCESS_LOAD={1 if args.access == 'load' else 0}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
         "-o",
         OUT,
         SRC,
         UTIL_SRC,
     ]
+    timer_define = timer_define_for_arch(args.arch, args.timer)
+    if timer_define is not None:
+        compile_cmd.insert(-4, timer_define)
+    if args.arch == "X925":
+        compile_cmd.insert(5, "-march=armv8.5-a+predres")
     return subprocess.run(compile_cmd)
 
 
-def run_test(args):
+def run_test(args, diff_bit):
     run_cmd = [
         "taskset",
         "-c",
         str(args.core),
         OUT,
         args.base_pc,
-        str(args.min_diff_bit),
-        str(args.max_diff_bit),
+        str(diff_bit),
         str(args.rounds),
     ]
     return subprocess.run(run_cmd, capture_output=True, text=True)
@@ -214,6 +220,9 @@ def main():
                         help=f"Number of cache-line positions to probe. Default: {DEFAULT_PROBE_POSITIONS}")
     parser.add_argument("--threshold-ns", type=int, default=None,
                         help="Latency threshold for prefetched=yes. Default comes from --arch.")
+    parser.add_argument("--timer", choices=["gettime", "rdtsc", "cntvct", "pmccntr"],
+                        default=None,
+                        help="Timestamp source. Default comes from cross_test_config.py.")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"))
     parser.add_argument("--output", default=None)
     parser.add_argument("--raw-output", default=None)
@@ -232,6 +241,8 @@ def main():
     else:
         apply_access_defaults(args)
     apply_threshold_defaults(args)
+    if args.timer is None:
+        args.timer = default_timer_for_arch(args.arch)
 
     if args.core < 0:
         parser.error("--core must be >= 0")
@@ -265,43 +276,58 @@ def main():
             print("Compile failed", file=sys.stderr)
             return res.returncode
 
-    run = run_test(args)
-    if run.stdout:
-        for line in run.stdout.splitlines():
-            if not line.startswith("# probe_detail"):
-                print(line)
-    if run.stderr:
-        print(run.stderr, end="", file=sys.stderr)
-    if run.returncode != 0:
-        print("Execution failed", file=sys.stderr)
-        return run.returncode
+    all_rows = []
+    raw_outputs = []
+    have_baseline = False
+
+    for diff_bit in range(args.min_diff_bit, args.max_diff_bit + 1):
+        run = run_test(args, diff_bit)
+        if run.stdout:
+            print(f"# ---- diff_bit={diff_bit} ----")
+            for line in run.stdout.splitlines():
+                if not line.startswith("# probe_detail"):
+                    print(line)
+        if run.stderr:
+            print(run.stderr, end="", file=sys.stderr)
+        if run.returncode != 0:
+            print(f"Execution failed for diff_bit={diff_bit}", file=sys.stderr)
+            return run.returncode
+
+        raw_outputs.append(f"# ---- diff_bit={diff_bit} ----\n{run.stdout}")
+
+        try:
+            rows = parse_result(run.stdout)
+        except ValueError as exc:
+            print(f"Parse failed for diff_bit={diff_bit}: {exc}", file=sys.stderr)
+            return 1
+
+        for row in rows:
+            if row["case"].startswith("bit_"):
+                all_rows.append(row)
+            elif not have_baseline:
+                all_rows.append(row)
+        have_baseline = True
 
     raw_result_path = raw_path(args)
     ensure_parent(raw_result_path)
     with open(raw_result_path, "w") as f:
-        f.write(run.stdout)
+        f.write("\n".join(raw_outputs))
 
-    try:
-        rows = parse_result(run.stdout)
-    except ValueError as exc:
-        print(f"Parse failed: {exc}", file=sys.stderr)
-        return 1
-
-    classify_rows(rows, args.threshold_ns)
+    classify_rows(all_rows, args.threshold_ns)
 
     tsv_result_path = output_path(args)
-    write_tsv(tsv_result_path, rows)
+    write_tsv(tsv_result_path, all_rows)
     print(f"Saved raw output to {raw_result_path}")
     print(f"Saved TSV to {tsv_result_path}")
 
     if not args.no_plot:
         plot_title = (
-            f"{args.arch} core {args.core}: {args.access} PC collision latency "
+            f"{args.arch} core {args.core}: {args.access} dynamic trigger-PC-bit latency "
             f"(accesses={args.accesses}, base_pc={args.base_pc})"
         )
         plot_result(
             plot_path(args),
-            rows,
+            all_rows,
             plot_title,
             args.threshold_ns,
             vmin=args.plot_vmin,

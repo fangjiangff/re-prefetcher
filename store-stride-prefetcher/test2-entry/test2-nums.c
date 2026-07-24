@@ -42,6 +42,50 @@
 #define NO_TRIGGER 0
 #endif
 
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
+#ifndef TRAIN_ACCESS_LOAD
+#define TRAIN_ACCESS_LOAD 0
+#endif
+
+#ifndef OTHER_PAGES_ACCESS_LOAD
+#define OTHER_PAGES_ACCESS_LOAD TRAIN_ACCESS_LOAD
+#endif
+
+#if TRAIN_ACCESS_LOAD
+#define ACCESS_NAME "load"
+#ifdef __x86_64__
+#define ACCESS_INSN_NAME "movb load"
+#else
+#define ACCESS_INSN_NAME "ldrb"
+#endif
+#else
+#define ACCESS_NAME "store"
+#ifdef __x86_64__
+#define ACCESS_INSN_NAME "movb store"
+#else
+#define ACCESS_INSN_NAME "strb"
+#endif
+#endif
+
+#if OTHER_PAGES_ACCESS_LOAD
+#define OTHER_PAGES_ACCESS_NAME "load"
+#ifdef __x86_64__
+#define OTHER_PAGES_ACCESS_INSN_NAME "movb load"
+#else
+#define OTHER_PAGES_ACCESS_INSN_NAME "ldrb"
+#endif
+#else
+#define OTHER_PAGES_ACCESS_NAME "store"
+#ifdef __x86_64__
+#define OTHER_PAGES_ACCESS_INSN_NAME "movb store"
+#else
+#define OTHER_PAGES_ACCESS_INSN_NAME "strb"
+#endif
+#endif
+
 static uint8_t* prefetcher_fill_buffer;
 
 #ifndef DUMMY_BUFFER_PAGES
@@ -264,22 +308,20 @@ static int allocate_other_pages(void) {
 
 static void print_test_header(int stride, int train_step, int active_pages,
                               uint64_t rounds) {
-    printf("# %s store-stride other-page-count prefetch latency map\n",
+    printf("# %s %s-stride other-page-count prefetch latency map\n",
 #ifdef __x86_64__
-           "x86_64"
+           "x86_64",
 #elif defined(__aarch64__)
-           "arm64"
+           "arm64",
 #else
-           "unknown"
+           "unknown",
 #endif
+           ACCESS_NAME
     );
-    printf("# access mode: store (%s), same noinline PC for victim train and trigger\n",
-#ifdef __x86_64__
-           "movb store"
-#else
-           "strb"
-#endif
-    );
+    printf("# victim access mode: %s (%s), same inline access for victim train and trigger\n",
+           ACCESS_NAME, ACCESS_INSN_NAME);
+    printf("# other-pages access mode: %s (%s)\n",
+           OTHER_PAGES_ACCESS_NAME, OTHER_PAGES_ACCESS_INSN_NAME);
     printf("# stride_bytes=%d train_step=%d other_pages=%d rounds=%llu probe_positions=%d\n",
            stride, train_step, active_pages, (unsigned long long)rounds,
            PROBE_POSITIONS);
@@ -306,6 +348,22 @@ static void flush_other_pages(int active_pages) {
 #endif
 }
 
+static inline __attribute__((always_inline)) void stride_access_inline(void *addr) {
+#if TRAIN_ACCESS_LOAD
+    mLoad_inline(addr);
+#else
+    mStore_inline(addr);
+#endif
+}
+
+static inline __attribute__((always_inline)) void other_page_access_inline(void *addr) {
+#if OTHER_PAGES_ACCESS_LOAD
+    mLoad_inline(addr);
+#else
+    mStore_inline(addr);
+#endif
+}
+
 // static void train_other_pages_range(int stride, int train_step,
 //                                     int first_page, int end_page) {
 static void train_other_pages_range(int stride, int train_step,
@@ -315,8 +373,8 @@ static void train_other_pages_range(int stride, int train_step,
     for (int page = 0; page < activte_pages; page++) {
         uint8_t *base = other_pages[page];
         for (int step = 0; step < 1; step++) {
-            mStore_inline(base + 3 * LINE_SIZE +
-                          ((uint64_t)step * (uint64_t)stride));
+            other_page_access_inline(base + 3 * LINE_SIZE +
+                                     ((uint64_t)step * (uint64_t)stride));
             nops();
         }
     }
@@ -333,20 +391,6 @@ static void train_other_pages_range(int stride, int train_step,
 //         asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
 //      }
 // }
-
-static void occupy_store_prefetcher_entries(void)
-{
-    for (size_t page = 0; page < DUMMY_BUFFER_PAGES; page++) {
-        uint8_t *page_base = prefetcher_fill_buffer + page * PAGE_SIZE;
-
-        for (size_t line = 0; line < 6; line++)
-            mStore_inline(page_base + line * LINE_SIZE);
-    }
-
-    mfence();
-}
-
-
 
 int main(void) {
     register uint64_t time1, time2;
@@ -417,7 +461,8 @@ int main(void) {
             // mfence();
             // dummyAccesses();
 
-            occupy_store_prefetcher_entries();
+            occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+                                            DUMMY_BUFFER_PAGES, 6);
             flush_victim_lines();
             flush_other_pages(active_pages);
             // mfence();
@@ -437,7 +482,9 @@ int main(void) {
                     pmu_ready = 0;
                 }
             }
+#if ENABLE_CPP_RCTX
             cpp_rctx();
+#endif
 
             
 // #if OTHER_PAGES_N > 11
@@ -450,7 +497,7 @@ int main(void) {
             // mStore_inline(array2 + (1 * (uint64_t)stride));
             // nops(); 
             for(int step = 0; step < train_step - 1; step++){
-                mStore_inline(array2 + (step * stride));
+                stride_access_inline(array2 + (step * stride));
                 // mfence();
                 nops();
             }
@@ -460,10 +507,10 @@ int main(void) {
 
 #if !NO_TRIGGER  
             // mStore_inline(array2 + (2 * (uint64_t)stride));
-            mStore_inline(array2 + ((train_step - 1) * stride));
+            stride_access_inline(array2 + ((train_step - 1) * stride));
             nops();
 #endif
-
+        
         struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 100};
         nanosleep(&prefetch_wait, NULL);
 
@@ -480,7 +527,7 @@ int main(void) {
             //                       (uint64_t)stride);
 
             time1 = timestamp();
-            mStore_inline((void *)probe_addr);
+            stride_access_inline((void *)probe_addr);
             time2 = timestamp() - time1;
 
             latency2_sum += time2;

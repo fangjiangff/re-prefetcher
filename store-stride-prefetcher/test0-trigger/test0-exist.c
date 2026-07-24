@@ -28,9 +28,12 @@
 #define ENABLE_CPP_RCTX 0
 #endif
 
-/* test0-exist.py enables ENABLE_CPP_RCTX only for Cortex-X925. */
+/* test0-exist.py passes explicit PMU_CORE_* flags for known Arm cores. */
 #ifndef PMU_CORE_X925
 #define PMU_CORE_X925 ENABLE_CPP_RCTX
+#endif
+#ifndef PMU_CORE_A55
+#define PMU_CORE_A55 0
 #endif
 #include "../pmu.h"
 
@@ -60,7 +63,7 @@
 #endif
 
 #ifndef DUMMY_BUFFER_PAGES
-#define DUMMY_BUFFER_PAGES 10
+#define DUMMY_BUFFER_PAGES 64
 #endif
 
 #ifndef ENABLE_DUMMY_ACCESSES
@@ -68,7 +71,7 @@
 #endif
 
 #ifndef ENABLE_SCHED_YIELD
-#define ENABLE_SCHED_YIELD 0
+#define ENABLE_SCHED_YIELD 2
 #endif
 
 #if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
@@ -99,24 +102,6 @@ void dummyAccesses(void){
         asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
      }
 }
-
-/*
- * Cortex-A725 cannot issue CPP RCTX from EL0. Touch independent pages with
- * store streams instead, so that they compete for the store-prefetcher
- * entries used by the measured stream.
- */
-static void occupy_store_prefetcher_entries(void)
-{
-    for (size_t page = 0; page < DUMMY_BUFFER_PAGES; page++) {
-        uint8_t *page_base = prefetcher_fill_buffer + page * PAGE_SIZE;
-
-        for (size_t line = 0; line < 6; line++)
-            mStore_inline(page_base + line * LINE_SIZE);
-    }
-
-    mfence();
-}
-
 
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
 #if TRAIN_ACCESS_PREFETCH
@@ -161,10 +146,12 @@ int main(){
       return 1;
     }
 
-    printf("# ENABLE_CPP_RCTX=%d ENABLE_DUMMY_ACCESSES=%d "
+    printf("# ENABLE_CPP_RCTX=%d PMU_CORE_X925=%d PMU_CORE_A55=%d "
+           "ENABLE_DUMMY_ACCESSES=%d "
            "DUMMY_BUFFER_PAGES=%d "
            "DUMMY_BUFFER_SIZE=%u\n",
-           ENABLE_CPP_RCTX, ENABLE_DUMMY_ACCESSES,
+           ENABLE_CPP_RCTX, PMU_CORE_X925, PMU_CORE_A55,
+           ENABLE_DUMMY_ACCESSES,
            DUMMY_BUFFER_PAGES, DUMMY_BUFFER_SIZE);
 
           int pmu_ready = (pmu_setup() == 0);
@@ -177,13 +164,14 @@ int main(){
 // #if ENABLE_DUMMY_ACCESSES
 //             dummyAccesses();
 // #endif
+// #if ENABLE_DUMMY_ACCESSES && !ENABLE_CPP_RCTX
+            occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+                                            DUMMY_BUFFER_PAGES, 1);
+// #endif
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
 
-#if ENABLE_DUMMY_ACCESSES && !ENABLE_CPP_RCTX
-            occupy_store_prefetcher_entries();
-#endif
             mfence();
             
             int pmu_running = 0;
@@ -202,17 +190,21 @@ int main(){
             // begin to trainer the store stride prefetch
             for(int step = 0; step < train_step-1; step++){
                 stride_access(array2 + (step * stride));
+                // mLoad_inline(array2 + (step * stride));
                 // mfence();
                 nops();
             }
 
 #if ENABLE_SCHED_YIELD
+        for(int i=0;i<10;i++){
             sched_yield();
+        }        
 #endif
 
 #if !NO_TRIGGER
             if (train_step > 0) {
                 stride_access(array2 + ((train_step - 1) * stride));
+                // mLoad_inline(array2 + ((train_step - 1) * stride));
                 nops();
             }
 #endif
@@ -235,7 +227,7 @@ int main(){
             probe_addr = array2 + (probe_pos * LINE_SIZE);
 
             time1 = timestamp();
-            mLoad_inline((void*)probe_addr);
+            mStore_inline((void*)probe_addr);
             time2 = timestamp() - time1;
 
             latency_sum[probe_pos] += time2;

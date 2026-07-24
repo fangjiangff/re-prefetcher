@@ -23,6 +23,10 @@
 #define ACCESS_SEQUENCE_LEN 3
 #endif
 
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
 #ifdef ACCESS_TYPE_SEQUENCE
 #define HAS_ACCESS_TYPE_SEQUENCE 1
 #else
@@ -41,17 +45,23 @@
 #define DUMMY_BUFFER_PAGES 10
 #endif
 
+#ifndef ENABLE_DUMMY_ACCESSES
+#define ENABLE_DUMMY_ACCESSES 1
+#endif
+
 #if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
 #error "Only one train access mode can be enabled"
 #endif
 
 #define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
+#define PREFETCHER_FILL_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 static const int access_sequence[ACCESS_SEQUENCE_LEN] = { ACCESS_SEQUENCE };
 #if HAS_ACCESS_TYPE_SEQUENCE
 static const char access_type_sequence[ACCESS_SEQUENCE_LEN] = { ACCESS_TYPE_SEQUENCE };
 #endif
 static uint8_t *dummy_buffer;
+static uint8_t *prefetcher_fill_buffer;
 
 uint8_t array2[Items * LINE_SIZE] __attribute__((aligned(4096)));
 uint8_t array1[100 * LINE_SIZE] = {0};
@@ -75,13 +85,12 @@ void dummyAccesses(void){
     }
 }
 
-
 static inline __attribute__((always_inline)) void policy_access(void *addr, char type) {
 #if HAS_ACCESS_TYPE_SEQUENCE
     if (type == 'l') {
         mLoad_noinline(addr);
     } else {
-        mStore_noinline(addr);
+        mStore_inline(addr);
     }
 #else
     (void)type;
@@ -90,7 +99,7 @@ static inline __attribute__((always_inline)) void policy_access(void *addr, char
 #elif TRAIN_ACCESS_LOAD
     mLoad_noinline(addr);
 #else
-    mStore_noinline(addr);
+    mStore_inline(addr);
 #endif
 #endif
 }
@@ -144,6 +153,10 @@ static void print_header(uint64_t rounds) {
     printf("# rounds=%llu probe_positions=%d\n",
            (unsigned long long)rounds, PROBE_POSITIONS);
     printf("# timer: %s %s\n", TIMESTAMP_SOURCE_NAME, TIMESTAMP_UNIT_NAME);
+    printf("# ENABLE_CPP_RCTX=%d ENABLE_DUMMY_ACCESSES=%d "
+           "DUMMY_BUFFER_PAGES=%d DUMMY_BUFFER_SIZE=%u\n",
+           ENABLE_CPP_RCTX, ENABLE_DUMMY_ACCESSES,
+           DUMMY_BUFFER_PAGES, DUMMY_BUFFER_SIZE);
     printf("# position\toffset_bytes\tavg_%s\tprobes\n", TIMESTAMP_UNIT_NAME);
 }
 
@@ -191,28 +204,44 @@ int main(void) {
         return 1;
     }
 
+    prefetcher_fill_buffer = (uint8_t *)mmap(NULL, PREFETCHER_FILL_BUFFER_SIZE,
+                                             PROT_READ | PROT_WRITE,
+                                             MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
+                                             0, 0);
+    if (prefetcher_fill_buffer == MAP_FAILED) {
+        fprintf(stderr, "failed to map prefetcher fill buffer\n");
+        return 1;
+    }
+
     print_header(rounds);
 
     for (uint64_t atkRound = 0; atkRound < rounds; atkRound++) {
-        
-        cpp_rctx();
-        mfence();
-        dummyAccesses();//for dummy accesses , reset the prefetcher state
-        mfence();
-        
         for (uint64_t offset = 0; offset < Items * LINE_SIZE; offset += LINE_SIZE) {
             flush(&array2[offset]);
         }
+
+#if ENABLE_DUMMY_ACCESSES && !ENABLE_CPP_RCTX
+        occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+                                        DUMMY_BUFFER_PAGES, 6);
+#endif
         mfence();
+
+#if ENABLE_CPP_RCTX
+        cpp_rctx();
+#endif
 
         for (int i = 0; i < ACCESS_SEQUENCE_LEN; i++) {
 #if HAS_ACCESS_TYPE_SEQUENCE
             policy_access(array2 + access_sequence[i] * LINE_SIZE,
                           access_type_sequence[i]);
+            nops();
 #else
             policy_access(array2 + access_sequence[i] * LINE_SIZE, 0);
+            nops();
 #endif
         }
+
+        nops();
 
         // delay_after_accesses();
 

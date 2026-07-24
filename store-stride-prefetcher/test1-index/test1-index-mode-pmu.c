@@ -47,21 +47,23 @@
 #define ENABLE_CPP_RCTX 0
 #endif
 
+#ifndef PMU_WINDOW_NAME
+#define PMU_WINDOW_NAME "train-trigger-per-round"
+#endif
+
+#ifndef PMU_CORE_X925
+#define PMU_CORE_X925 ENABLE_CPP_RCTX
+#endif
+
+#ifndef PMU_CORE_A55
+#define PMU_CORE_A55 0
+#endif
+
+#include "../pmu.h"
+
 #ifndef TRAIN_ACCESS_LOAD
 #define TRAIN_ACCESS_LOAD 0
 #endif
-
-#ifndef MFD_CLOEXEC
-#define MFD_CLOEXEC 0x0001U
-#endif
-
-#ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE 0x100000
-#endif
-
-#define TRIGGER_NONE 0
-#define TRIGGER_NOINLINE 1
-#define TRIGGER_INLINE 2
 
 #define TEST_T0_NO_TRIGGER 0
 #define TEST_T0 1
@@ -76,10 +78,23 @@
 #define SELECTED_TEST TEST_T0
 #endif
 
+#ifndef MFD_CLOEXEC
+#define MFD_CLOEXEC 0x0001U
+#endif
+
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+
+#define TRIGGER_NONE 0
+#define TRIGGER_NOINLINE 1
+#define TRIGGER_INLINE 2
+
 uint8_t array2[ITEMS * LINE_SIZE] __attribute__((aligned(4096)));
 uint8_t array1[100 * LINE_SIZE] = {0};
 
 static uint8_t *dummy_buffer;
+static int pmu_ready;
 
 static void die(const char *message) {
     perror(message);
@@ -295,6 +310,24 @@ static void wait_after_trigger_access(void) {
     nanosleep(&prefetch_wait, NULL);
 }
 
+static int start_train_trigger_pmu(void) {
+    if (!pmu_ready) {
+        return 0;
+    }
+    if (pmu_start() == 0) {
+        return 1;
+    }
+    printf("# PMU unavailable: counter group could not be started\n");
+    pmu_ready = 0;
+    return 0;
+}
+
+static void stop_train_trigger_pmu(int pmu_running) {
+    if (pmu_running) {
+        pmu_stop_and_accumulate();
+    }
+}
+
 static uint64_t run_case(uint8_t *train_base,
                          uint8_t *trigger_base,
                          uint8_t *flush_base_a,
@@ -324,8 +357,10 @@ static uint64_t run_case(uint8_t *train_base,
             flush_lines(flush_base_b);
         }
 
+        int pmu_running = start_train_trigger_pmu();
         train_noinline(train_base, stride);
         trigger_access(trigger_base, stride, trigger_mode);
+        stop_train_trigger_pmu(pmu_running);
 
         // delay_after_trigger();
         wait_after_trigger_access();
@@ -356,6 +391,17 @@ static void t3_child_loop(uint8_t *base,
         exit(1);
     }
 
+#if SELECTED_TEST == TEST_T3
+    pmu_cleanup();
+    printf("# PMU note: T3 PMU is split across parent-train and child-trigger windows\n");
+    pmu_ready = (pmu_setup() == 0);
+    if (!pmu_ready) {
+        printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
+    } else {
+        pmu_reset_accumulated();
+    }
+#endif
+
     warm_lines(base);
     write_exact(to_parent, &ready, sizeof(ready));
 
@@ -367,6 +413,12 @@ static void t3_child_loop(uint8_t *base,
 
         read_exact(from_parent, &cmd, sizeof(cmd));
         if (cmd == 'Q') {
+#if SELECTED_TEST == TEST_T3
+            if (pmu_ready) {
+                pmu_print_accumulated(ROUNDS);
+            }
+            pmu_cleanup();
+#endif
             return;
         }
         if (cmd != 'T') {
@@ -375,7 +427,9 @@ static void t3_child_loop(uint8_t *base,
         }
 
         flush_lines(base);
+        int pmu_running = start_train_trigger_pmu();
         trigger_access(base, stride, trigger_mode);
+        stop_train_trigger_pmu(pmu_running);
         // delay_after_trigger();
         wait_after_trigger_access();
 
@@ -443,7 +497,9 @@ static uint64_t run_same_va_different_pa_case(uint8_t *parent_base,
         occupy_store_prefetcher_entries(dummy_buffer,
                                         DUMMY_BUFFER_SIZE / PAGE_SIZE, 6);
         flush_lines(parent_base);
+        int pmu_running = start_train_trigger_pmu();
         train_noinline(parent_base, stride);
+        stop_train_trigger_pmu(pmu_running);
 
         write_exact(parent_to_child[1], &cmd, sizeof(cmd));
         write_exact(parent_to_child[1], &probe_pos, sizeof(probe_pos));
@@ -515,13 +571,17 @@ static uint64_t run_same_process_remap_case(uint8_t *reserved_base,
         flush_lines(trigger_keeper);
 
         active = map_shared_at(fixed_va, train_fd);
+        int pmu_running = start_train_trigger_pmu();
         train_noinline(active, stride);
+        stop_train_trigger_pmu(pmu_running);
         if (munmap(active, SHARED_BYTES) != 0) {
             die("munmap T5 train mapping");
         }
 
         active = map_shared_at(fixed_va, trigger_fd);
+        pmu_running = start_train_trigger_pmu();
         trigger_access(active, stride, trigger_mode);
+        stop_train_trigger_pmu(pmu_running);
         // delay_after_trigger();
 
         wait_after_trigger_access();
@@ -639,6 +699,14 @@ int main(void) {
     printf("# T6 uses the same-process remap with an inline trigger: different PC, same VA, different PA\n");
     printf("id\tdescription\tPC\tVA\tPA\tavg_%s\n", TIMESTAMP_UNIT_NAME);
 
+    pmu_ready = (pmu_setup() == 0);
+    if (!pmu_ready) {
+        printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
+    } else {
+        pmu_reset_accumulated();
+    }
+    fflush(stdout);
+
     switch (SELECTED_TEST) {
     case TEST_T0_NO_TRIGGER:
         test_id = "T0_no_trigger";
@@ -682,7 +750,6 @@ int main(void) {
         pc = "same";
         va = "same";
         pa = "different";
-        fflush(stdout);
         latency = run_same_va_different_pa_case(t3_parent_va,
                                                 TRIGGER_NOINLINE, stride);
         break;
@@ -717,11 +784,16 @@ int main(void) {
         break;
     default:
         fprintf(stderr, "unknown SELECTED_TEST=%d\n", SELECTED_TEST);
+        pmu_cleanup();
         close(shared_fd);
         return 1;
     }
 
     print_result(test_id, description, pc, va, pa, latency);
+    if (pmu_ready) {
+        pmu_print_accumulated(ROUNDS);
+    }
+    pmu_cleanup();
 
     close(shared_fd);
     return 0;

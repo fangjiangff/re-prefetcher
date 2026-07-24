@@ -11,6 +11,8 @@ if ROOT_DIR not in sys.path:
 from cross_test_config import (
     apply_single_core_defaults,
     apply_threshold_defaults,
+    apply_timer_default,
+    default_timer_for_arch,
     arch_choices,
     is_x86_arch,
     timer_define_for_arch,
@@ -39,9 +41,9 @@ def parse_args():
                         help="Override CPU core used by taskset. Default is selected from --arch.")
     parser.add_argument("--rounds", type=int, default=4000,
                         help="Rounds per stride/access-count point. Default: 100")
-    parser.add_argument("--max-stride", type=int, default=4096,
-                        help="Maximum stride in bytes. Default: 4096(= 64 * 64)")
-    parser.add_argument("--max-step", type=int, default=40,
+    parser.add_argument("--max-stride", type=int, default=2048,
+                        help="Maximum stride in bytes. Default: 1024(= 32 * 64)")
+    parser.add_argument("--max-step", type=int, default=20,
                         help="Maximum access count. Default: 10")
     parser.add_argument("--access", choices=["store", "load", "prefetch"],
                         default="store",
@@ -51,11 +53,9 @@ def parse_args():
     parser.add_argument("--hit-threshold-ns", dest="threshold_ns", type=int, default=None,
                         help="Latency <= this value is treated as prefetched. "
                              "Default is selected from --arch.")
-    parser.add_argument("--timer", choices=["gettime", "rdtsc"],
-                        default="gettime",
-                        help=("x86 timestamp source. gettime uses "
-                              "clock_gettime; rdtsc uses rdtscp. "
-                              "Default: gettime"))
+    parser.add_argument("--timer", choices=["gettime", "rdtsc", "cntvct", "pmccntr"],
+                        default=None,
+                        help="Timestamp source. Default is selected from --arch.")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
                         help="Compiler command. Default: $CC or gcc")
     parser.add_argument("--output", default=None,
@@ -72,9 +72,15 @@ def parse_args():
 
     apply_single_core_defaults(args)
     apply_threshold_defaults(args)
+    apply_timer_default(args)
 
     if args.core < 0:
         parser.error("--core must be >= 0")
+    supported_timers = {"gettime", "rdtsc"} if is_x86_arch(args.arch) else {
+        "gettime", "cntvct", "pmccntr"
+    }
+    if args.timer not in supported_timers:
+        parser.error(f"--timer {args.timer} is not supported for {args.arch}")
     if args.rounds < 1:
         parser.error("--rounds must be >= 1")
     if args.max_stride < 64 or args.max_stride % 64 != 0:
@@ -89,7 +95,7 @@ def parse_args():
 
 def result_name(args):
     timer_suffix = ""
-    if is_x86_arch(args.arch) and args.timer != "gettime":
+    if args.timer != default_timer_for_arch(args.arch):
         timer_suffix = f"-timer{args.timer}"
     return (
         f"{args.arch}-core{args.core}-trigger-sweep"

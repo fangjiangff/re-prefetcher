@@ -16,6 +16,8 @@ from cross_test_config import (
     apply_single_core_defaults,
     apply_threshold_defaults,
     arch_choices,
+    default_timer_for_arch,
+    timer_define_for_arch,
 )
 
 
@@ -41,7 +43,6 @@ def compile_test(args):
         "-std=gnu11",
         "-O0",
         "-static",
-        "-march=armv8.5-a+predres",
         f"-DARCH_NAME=\"{args.arch}\"",
         f"-DVA1_BASE={args.va1_base}",
         f"-DSTRIDE_LINES={args.stride}",
@@ -50,11 +51,17 @@ def compile_test(args):
         f"-DMAX_DIFF_BIT={args.max_diff_bit}",
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
         "-o",
         OUT,
         SRC,
         UTIL_SRC,
     ]
+    timer_define = timer_define_for_arch(args.arch, args.timer)
+    if timer_define is not None:
+        compile_cmd.insert(-4, timer_define)
+    if args.arch == "X925":
+        compile_cmd.insert(5, "-march=armv8.5-a+predres")
     return subprocess.run(compile_cmd)
 
 
@@ -214,6 +221,9 @@ def main():
                         help=f"Number of cache-line positions to probe. Default: {DEFAULT_PROBE_POSITIONS}")
     parser.add_argument("--threshold-ns", type=int, default=None,
                         help="Latency threshold for prefetched=yes. Default comes from --arch.")
+    parser.add_argument("--timer", choices=["gettime", "rdtsc", "cntvct", "pmccntr"],
+                        default=None,
+                        help="Timestamp source. Default comes from cross_test_config.py.")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"))
     parser.add_argument("--output", default=None)
     parser.add_argument("--raw-output", default=None)
@@ -228,6 +238,8 @@ def main():
     apply_single_core_defaults(args)
     apply_access_defaults(args)
     apply_threshold_defaults(args)
+    if args.timer is None:
+        args.timer = default_timer_for_arch(args.arch)
 
     va1_base = parse_int_literal(args.va1_base)
     if args.core < 0:

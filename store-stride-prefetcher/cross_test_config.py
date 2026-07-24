@@ -1,6 +1,7 @@
 ARCH_CONFIG = {
     "X925": {
         "core": 6,
+        "timer": "cntvct",
         "threshold_ns": 80,
         "cross_core": {
             "train_core": 6,
@@ -13,6 +14,7 @@ ARCH_CONFIG = {
     },
     "A725": {
         "core": 4,
+        "timer": "cntvct",
         "threshold_ns": 120,
         "cross_core": {
             "train_core": 4,
@@ -37,14 +39,15 @@ ARCH_CONFIG = {
     },
     "A55": {
         "core": 1,
+        "timer": "gettime",
         "threshold_ns": 120,
         "cross_core": {
             "train_core": 1,
             "trigger_core": 0,
         },
         "accesses": {
-            "store": 4,
-            "load": 4,
+            "store": 5,
+            "load": 5,
         },
     },
     "A76": {
@@ -94,18 +97,36 @@ def is_x86_arch(arch):
     return arch in {"x86", "Zen4"}
 
 
+def default_timer_for_arch(arch):
+    configured_timer = ARCH_CONFIG[arch].get("timer")
+    if configured_timer is not None:
+        return configured_timer
+    return "gettime" if is_x86_arch(arch) else "cntvct"
+
+
 def timer_define_for_arch(arch, timer):
-    if not is_x86_arch(arch):
-        return None
+    if timer == "gettime":
+        return "-DGETTIME=1"
     if timer == "rdtsc":
         return "-DRDTSC=1"
-    return "-DGETTIME=1"
+    if timer == "cntvct":
+        return "-DCNTVCT=1"
+    if timer == "pmccntr":
+        return "-DPMCCNTR=1"
+    return None
 
 
 def timer_unit_for_arch(arch, timer):
-    if is_x86_arch(arch) and timer == "rdtsc":
+    if timer in {"rdtsc", "pmccntr"}:
         return "cycles"
+    if timer == "cntvct":
+        return "ticks"
     return "ns"
+
+
+def apply_timer_default(args):
+    if args.timer is None:
+        args.timer = default_timer_for_arch(args.arch)
 
 
 def apply_single_core_defaults(args):

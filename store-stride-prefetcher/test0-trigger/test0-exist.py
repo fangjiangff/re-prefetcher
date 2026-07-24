@@ -68,7 +68,7 @@ def parse_args():
                         default=None,
                         help=("Timestamp source. x86 supports gettime/rdtsc; "
                               "AArch64 supports gettime/cntvct/pmccntr. "
-                              "Default: gettime on x86, cntvct on AArch64."))
+                              "Default is selected from --arch."))
     parser.add_argument("--access", choices=["store", "load", "prefetch"],
                         default="store",
                         help=("Stride instruction to test. "
@@ -80,8 +80,8 @@ def parse_args():
     parser.add_argument("--dummy-order", choices=["sequential", "permuted"],
                         default="sequential",
                         help="Address order used by dummyAccesses. Default: sequential")
-    parser.add_argument("--dummy-buffer-pages", type=int, default=10,
-                        help="Number of pages in dummy_buffer. Default: 10")
+    parser.add_argument("--dummy-buffer-pages", type=int, default=64,
+                        help="Number of pages in dummy_buffer. Default: 64")
     parser.add_argument("--dummy-sweep", action="store_true",
                         help="Sweep dummy access/order/page-count configurations.")
     parser.add_argument("--dummy-sweep-accesses", default="load,store,prefetch",
@@ -92,6 +92,11 @@ def parse_args():
                         help="Comma-separated dummy page counts for --dummy-sweep.")
     parser.add_argument("--no-trigger", action="store_true",
                         help="Skip the final same-PC trigger access after training.")
+    parser.add_argument("--context-switch", action="store_true",
+                        help="Call sched_yield at the post-training context-switch point.")
+    parser.add_argument("--pmu-device", default=None,
+                        help=("Override PMU device name passed as PMU_DEVICE. "
+                              "Example: armv8_pmuv3_0"))
     parser.add_argument("--plot-only", action="store_true",
                         help="Only read existing TSV results and print summaries.")
     parser.add_argument("--no-plot", action="store_true",
@@ -242,6 +247,9 @@ def is_x86_arch(arch):
 def timer_for_arch(arch):
     if args.timer is not None:
         return args.timer
+    configured_timer = ARCH_CONFIG[arch].get("timer")
+    if configured_timer is not None:
+        return configured_timer
     if is_x86_arch(arch):
         return "gettime"
     return "cntvct"
@@ -285,8 +293,16 @@ def arch_cflags_for(arch):
     return ["-march=armv8.5-a+predres"]
 
 
+def pmu_defines_for_arch(arch):
+    return [
+        f"-DPMU_CORE_X925={1 if arch == 'X925' else 0}",
+        f"-DPMU_CORE_A55={1 if arch == 'A55' else 0}",
+    ]
+
+
 def micro_arch_name(arch, core, train_step):
     trigger_suffix = "-no-trigger" if args.no_trigger else ""
+    switch_suffix = "-ctxswitch" if args.context_switch else ""
     dummy_suffix = ""
     timer = timer_for_arch(arch)
     timer_suffix = ""
@@ -305,7 +321,7 @@ def micro_arch_name(arch, core, train_step):
     return (
         f"{arch}-core{core}-stride{args.stride}"
         f"-train{train_step}-{args.access}"
-        f"{timer_suffix}{probe_mode_suffix(train_step)}{trigger_suffix}"
+        f"{timer_suffix}{probe_mode_suffix(train_step)}{trigger_suffix}{switch_suffix}"
         f"{dummy_suffix}"
     )
 
@@ -429,11 +445,13 @@ def compile_test(train_step, arch):
         f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
         f"-DDUMMY_BUFFER_PAGES={args.dummy_buffer_pages}",
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
+        f"-DENABLE_SCHED_YIELD={1 if args.context_switch else 0}",
         "-o",
         OUT,
         SRC,
         UTIL_SRC,
     ]
+    compile_cmd[1:1] = pmu_defines_for_arch(arch)
     timer_define = timer_define_for(arch)
     if timer_define is not None:
         compile_cmd.insert(-4, timer_define)
@@ -443,17 +461,22 @@ def compile_test(train_step, arch):
 
 
 def run_binary(core):
+    env = os.environ.copy()
+    if args.pmu_device is not None:
+        env["PMU_DEVICE"] = args.pmu_device
     return subprocess.run(
         ["taskset", "-c", str(core), OUT],
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
 def print_pmu_output(output):
     """Print only PMU comment lines from the captured program output."""
     for line in output.splitlines():
-        if line.lstrip().startswith("# PMU"):
+        stripped = line.lstrip()
+        if stripped.startswith("# PMU") or stripped.startswith("PMU:"):
             print(line)
 
 def run_one(arch, core, train_step):
@@ -471,6 +494,7 @@ def run_one(arch, core, train_step):
         f"dummy_access={args.dummy_access}, "
         f"dummy_order={args.dummy_order}, "
         f"dummy_buffer_pages={args.dummy_buffer_pages}, "
+        f"context_switch={args.context_switch}, "
     )
 
     if compile_test(train_step, arch) != 0:
@@ -487,6 +511,7 @@ def run_one(arch, core, train_step):
         return []
 
     print_pmu_output(run.stdout)
+    print_pmu_output(run.stderr)
 
     raw_path = raw_path_for(arch, core, train_step)
     with open(raw_path, "w") as f:

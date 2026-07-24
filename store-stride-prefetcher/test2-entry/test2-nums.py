@@ -8,7 +8,13 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from cross_test_config import ARCH_CONFIG, arch_choices
+from cross_test_config import (
+    ARCH_CONFIG,
+    arch_choices,
+    default_timer_for_arch,
+    timer_define_for_arch,
+    timer_unit_for_arch,
+)
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,7 +31,7 @@ DEFAULT_OTHER_PAGES_MIN = 0
 MAX_TOTAL_PAGES = 128
 MAX_OTHER_PAGES = MAX_TOTAL_PAGES - 1
 DEFAULT_OTHER_PAGES_MAX = MAX_OTHER_PAGES
-DEFAULT_ROUNDS = 40000
+DEFAULT_ROUNDS = 400
 DEFAULT_PROBE_POSITIONS = 100
 GREEN = "\033[32m"
 RED = "\033[31m"
@@ -54,6 +60,12 @@ def parse_args():
                         help=f"Stride in cache lines. Default: {DEFAULT_STRIDE_LINES}")
     parser.add_argument("--train-step", type=int, default=DEFAULT_TRAIN_STEP,
                         help=f"Train-step for single-run mode. Default: {DEFAULT_TRAIN_STEP}")
+    parser.add_argument("--access", choices=["store", "load"], default="store",
+                        help="Stride instruction to test. Default: store")
+    parser.add_argument("--other-pages-access", choices=["same", "different", "both"],
+                        default="both",
+                        help=("Access type for other-page training. same uses --access; "
+                              "different uses the opposite access. Default: both, run as two C invocations."))
     parser.add_argument("--batch", action="store_true",
                         help="Sweep train-step-min..train-step-max instead of a single train-step.")
     parser.add_argument("--train-step-min", type=int, default=DEFAULT_TRAIN_STEP_MIN,
@@ -75,8 +87,9 @@ def parse_args():
                         help=f"Positions to probe. Default: {DEFAULT_PROBE_POSITIONS}")
     parser.add_argument("--hit-threshold-ns", type=int, default=None,
                         help="Predicted line is treated as prefetched when avg_ns <= this value. Default is selected from --arch.")
-    parser.add_argument("--timer", choices=["gettime", "rdtsc"], default="gettime",
-                        help="x86 timestamp source. Default: gettime")
+    parser.add_argument("--timer", choices=["gettime", "rdtsc", "cntvct", "pmccntr"],
+                        default=None,
+                        help="Timestamp source. Default comes from cross_test_config.py.")
     parser.add_argument("--no-trigger", action="store_true",
                         help="Skip the final same-PC victim trigger access after training.")
     parser.add_argument("--context-switch", action="store_true",
@@ -131,6 +144,8 @@ def parse_args():
         parser.error("--hit-threshold-ns must be >= 1")
     if args.context_switch_yields < 1:
         parser.error("--context-switch-yields must be >= 1")
+    if args.arch is not None and args.timer is None:
+        args.timer = default_timer_for_arch(args.arch)
     max_train_step = args.train_step_max if args.batch else args.train_step
     if max_train_step * args.stride >= args.probe_positions:
         parser.error("predicted position train_step * stride must be inside probe positions")
@@ -197,80 +212,103 @@ def is_x86_arch(arch):
 
 
 def timer_unit_for(arch):
-    if is_x86_arch(arch) and args.timer == "rdtsc":
-        return "cycles"
-    return "ns"
+    timer = args.timer if args.timer is not None else default_timer_for_arch(arch)
+    return timer_unit_for_arch(arch, timer)
 
 
 def timer_define_for(arch):
-    if not is_x86_arch(arch):
-        return None
-    if args.timer == "rdtsc":
-        return "-DRDTSC=1"
-    return "-DGETTIME=1"
+    timer = args.timer if args.timer is not None else default_timer_for_arch(arch)
+    return timer_define_for_arch(arch, timer)
 
 
 def arch_cflags_for(arch):
     if is_x86_arch(arch):
         return []
-    return ["-march=armv8.5-a+predres"]
+    if arch == "X925":
+        return ["-march=armv8.5-a+predres"]
+    return []
 
 
-def micro_arch_name(arch, core, train_step, other_pages):
+def other_pages_access_types():
+    if args.other_pages_access == "both":
+        return ["same", "different"]
+    return [args.other_pages_access]
+
+
+def other_pages_access_name(other_pages_type):
+    if other_pages_type == "same":
+        return args.access
+    return "load" if args.access == "store" else "store"
+
+
+def other_pages_access_load(other_pages_type):
+    return 1 if other_pages_access_name(other_pages_type) == "load" else 0
+
+
+def micro_arch_name(arch, core, train_step, other_pages, other_pages_type):
     trigger_suffix = "-no-trigger" if args.no_trigger else ""
     switch_suffix = (
         f"-ctxswitch{args.context_switch_yields}"
         if args.context_switch else ""
     )
     timer_suffix = ""
-    if is_x86_arch(arch) and args.timer != "gettime":
-        timer_suffix = f"-timer{args.timer}"
+    selected_timer = args.timer if args.timer is not None else default_timer_for_arch(arch)
+    if selected_timer != default_timer_for_arch(arch):
+        timer_suffix = f"-timer{selected_timer}"
     return (
         f"{arch}-core{core}-stride{args.stride}"
-        f"-train{train_step}-other{other_pages}-store"
+        f"-train{train_step}-other{other_pages}-{args.access}"
+        f"-otherpages{other_pages_type}"
         f"{timer_suffix}{trigger_suffix}{switch_suffix}"
     )
 
 
-def tsv_path_for(arch, core, train_step, other_pages):
-    return os.path.join(result_dir, f"{micro_arch_name(arch, core, train_step, other_pages)}.tsv")
+def tsv_path_for(arch, core, train_step, other_pages, other_pages_type):
+    return os.path.join(result_dir, f"{micro_arch_name(arch, core, train_step, other_pages, other_pages_type)}.tsv")
 
 
-def raw_path_for(arch, core, train_step, other_pages):
-    return os.path.join(raw_dir, f"{micro_arch_name(arch, core, train_step, other_pages)}.txt")
+def raw_path_for(arch, core, train_step, other_pages, other_pages_type):
+    return os.path.join(raw_dir, f"{micro_arch_name(arch, core, train_step, other_pages, other_pages_type)}.txt")
 
 
-def dump_path_for(arch, core, train_step, other_pages):
-    return os.path.join(dump_dir, f"{micro_arch_name(arch, core, train_step, other_pages)}.dump")
+def dump_path_for(arch, core, train_step, other_pages, other_pages_type):
+    return os.path.join(dump_dir, f"{micro_arch_name(arch, core, train_step, other_pages, other_pages_type)}.dump")
 
 
-def plot_path_for(arch, core, train_step, other_pages):
-    return os.path.join(plot_dir, f"{micro_arch_name(arch, core, train_step, other_pages)}.png")
+def plot_path_for(arch, core, train_step, other_pages, other_pages_type):
+    return os.path.join(plot_dir, f"{micro_arch_name(arch, core, train_step, other_pages, other_pages_type)}.png")
 
 
-def line_plot_path_for(arch, core, train_step):
+def line_plot_path_for(arch, core, train_step, other_pages_type):
     trigger_suffix = "-no-trigger" if args.no_trigger else ""
     switch_suffix = (
         f"-ctxswitch{args.context_switch_yields}"
         if args.context_switch else ""
     )
     timer_suffix = ""
-    if is_x86_arch(arch) and args.timer != "gettime":
-        timer_suffix = f"-timer{args.timer}"
+    selected_timer = args.timer if args.timer is not None else default_timer_for_arch(arch)
+    if selected_timer != default_timer_for_arch(arch):
+        timer_suffix = f"-timer{selected_timer}"
     name = (
         f"{arch}-core{core}-stride{args.stride}"
         f"-train{train_step}-other{args.other_pages_min}-{args.other_pages_max}"
-        f"-store{timer_suffix}{trigger_suffix}{switch_suffix}-predicted-line.png"
+        f"-{args.access}-otherpages{other_pages_type}"
+        f"{timer_suffix}{trigger_suffix}{switch_suffix}-predicted-line.png"
     )
     return os.path.join(line_plot_dir, name)
 
 def pmu_metric_for(arch):
-    return "l2d_cache_hwprf" if arch == "X925" else "l1d_cache_hwprf"
+    if arch == "X925":
+        return "l2d_cache_hwprf"
+    if arch == "A55":
+        return "l1d_cache_refill_prefetch"
+    return "l1d_cache_hwprf"
 
 
-def pmu_line_plot_path_for(arch, core, train_step, max_other_pages, metric):
+def pmu_line_plot_path_for(arch, core, train_step, max_other_pages, metric,
+                           other_pages_type):
     name = (
-        f"{micro_arch_name(arch, core, train_step, max_other_pages)}"
+        f"{micro_arch_name(arch, core, train_step, max_other_pages, other_pages_type)}"
         f"-pages0-{max_other_pages}-{metric}.png"
     )
     return os.path.join(line_plot_dir, name)
@@ -415,7 +453,7 @@ def read_tsv(path):
     return rows
 
 
-def compile_test(train_step, other_pages, arch):
+def compile_test(train_step, other_pages, arch, other_pages_type):
     compile_cmd = [
         args.cc,
         "-std=gnu11",
@@ -427,7 +465,11 @@ def compile_test(train_step, other_pages, arch):
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
+        f"-DENABLE_CPP_RCTX={1 if arch == 'X925' else 0}",
+        f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
+        f"-DOTHER_PAGES_ACCESS_LOAD={other_pages_access_load(other_pages_type)}",
         f"-DPMU_CORE_X925={1 if arch == 'X925' else 0}",
+        f"-DPMU_CORE_A55={1 if arch == 'A55' else 0}",
         f"-DCONTEXT_SWITCH_BEFORE_TRIGGER={1 if args.context_switch else 0}",
         f"-DCONTEXT_SWITCH_YIELDS={args.context_switch_yields}",
         "-o",
@@ -442,11 +484,11 @@ def compile_test(train_step, other_pages, arch):
     return subprocess.run(compile_cmd).returncode
 
 
-def write_dump(arch, core, train_step, other_pages):
+def write_dump(arch, core, train_step, other_pages, other_pages_type):
     if args.no_dump:
         return
 
-    path = dump_path_for(arch, core, train_step, other_pages)
+    path = dump_path_for(arch, core, train_step, other_pages, other_pages_type)
     run = subprocess.run([args.objdump, "-d", OUT], capture_output=True, text=True)
     if run.returncode != 0:
         print(f"Warning: failed to generate dump file '{path}'")
@@ -476,25 +518,26 @@ def print_pmu_output(output):
                 print(stripped)
 
 
-def run_one(arch, core, train_step, max_other_pages):
+def run_one(arch, core, train_step, max_other_pages, other_pages_type):
     threshold_ns = threshold_ns_for(arch)
     threshold_unit = timer_unit_for(arch)
     print("=" * 60)
     print(
-        f"access=store, arch={arch}, core={core}, "
+        f"access={args.access}, other_pages_access={other_pages_type}"
+        f"({other_pages_access_name(other_pages_type)}), arch={arch}, core={core}, "
         f"stride={args.stride} lines, train_step={train_step}, "
         f"other_pages=0..{max_other_pages}, "
         f"predicted_position={predicted_position(train_step)}, "
         f"rounds={args.rounds}, threshold={threshold_ns} {threshold_unit}, "
-        f"timer={args.timer if is_x86_arch(arch) else 'arch-default'}, "
+        f"timer={args.timer if args.timer is not None else default_timer_for_arch(arch)}, "
         f"context_switch={args.context_switch}, "
         f"context_switch_yields={args.context_switch_yields}"
     )
 
-    if compile_test(train_step, max_other_pages, arch) != 0:
+    if compile_test(train_step, max_other_pages, arch, other_pages_type) != 0:
         print("Compile failed")
         return {}, {}
-    write_dump(arch, core, train_step, max_other_pages)
+    write_dump(arch, core, train_step, max_other_pages, other_pages_type)
 
     run = run_binary(core)
     if run.returncode != 0:
@@ -508,7 +551,7 @@ def run_one(arch, core, train_step, max_other_pages):
     print_page_mapping_info(run.stdout)
     print_pmu_output(run.stdout)
 
-    raw_path = raw_path_for(arch, core, train_step, max_other_pages)
+    raw_path = raw_path_for(arch, core, train_step, max_other_pages, other_pages_type)
     with open(raw_path, "w") as f:
         f.write(run.stdout)
     rows_by_pages = parse_output_by_other_pages(
@@ -524,7 +567,7 @@ def run_one(arch, core, train_step, max_other_pages):
     for other_pages, rows in rows_by_pages.items():
         if rows:
             write_tsv(rows, tsv_path_for(
-                arch, core, train_step, other_pages
+                arch, core, train_step, other_pages, other_pages_type
             ))
     return rows_by_pages, pmu_values_by_pages
 
@@ -543,13 +586,15 @@ def colored_yes_no(value):
     return f"{color}{text}{RESET}"
 
 
-def print_predicted_result(arch, core, train_step, other_pages, rows):
+def print_predicted_result(arch, core, train_step, other_pages, rows,
+                           other_pages_type):
     threshold_ns = threshold_ns_for(arch)
     threshold_unit = timer_unit_for(arch)
     row = predicted_row(rows, train_step)
     if row is None:
         print(
             f"{arch} core={core} train_step={train_step} other_pages={other_pages}: "
+            f"other_pages_access={other_pages_type}({other_pages_access_name(other_pages_type)}) "
             f"predicted_position={predicted_position(train_step)} missing"
         )
         return
@@ -557,6 +602,7 @@ def print_predicted_result(arch, core, train_step, other_pages, rows):
     prefetched = row["probes"] > 0 and row["avg_ns"] <= threshold_ns
     print(
         f"{arch} core={core} train_step={train_step} other_pages={other_pages}: "
+        f"other_pages_access={other_pages_type}({other_pages_access_name(other_pages_type)}) "
         f"predicted_position={row['position']} "
         f"avg_{threshold_unit}={row['avg_ns']} "
         f"prefetched={colored_yes_no(prefetched)} "
@@ -564,7 +610,7 @@ def print_predicted_result(arch, core, train_step, other_pages, rows):
     )
 
 
-def plot_other_pages_line(points, arch, core, train_step):
+def plot_other_pages_line(points, arch, core, train_step, other_pages_type):
     if not points:
         return
     threshold_ns = threshold_ns_for(arch)
@@ -597,20 +643,21 @@ def plot_other_pages_line(points, arch, core, train_step):
     ax.set_xticks(range(min(xs), max(xs) + 1, tick_step))
     fig.suptitle(
         f"{arch} core {core}, stride={args.stride}, "
+        f"other_pages_access={other_pages_type}({other_pages_access_name(other_pages_type)}), "
         f"predicted_position={predicted_position(train_step)}, "
         f"threshold={threshold_ns} {threshold_unit}",
         x=0.01,
         ha="left",
     )
     fig.tight_layout(rect=(0, 0, 1, 0.94))
-    path = line_plot_path_for(arch, core, train_step)
+    path = line_plot_path_for(arch, core, train_step, other_pages_type)
     fig.savefig(path, dpi=300)
     plt.close(fig)
     print(f"Saved line chart to {path}")
 
 
 def plot_pmu_metric_line(values_by_pages, arch, core, train_step,
-                         max_other_pages):
+                         max_other_pages, other_pages_type):
     metric = pmu_metric_for(arch)
     if not values_by_pages:
         print(f"Skipping {metric} line plot: no PMU values were recorded.")
@@ -642,19 +689,21 @@ def plot_pmu_metric_line(values_by_pages, arch, core, train_step,
     tick_step = max(1, (max(xs) - min(xs)) // 16)
     ax.set_xticks(range(min(xs), max(xs) + 1, tick_step))
     fig.suptitle(
-        f"{arch} core {core}, stride={args.stride}, pages=0..{max_other_pages}",
+        f"{arch} core {core}, stride={args.stride}, pages=0..{max_other_pages}, "
+        f"other_pages_access={other_pages_type}({other_pages_access_name(other_pages_type)})",
         x=0.01, ha="left",
     )
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     path = pmu_line_plot_path_for(
-        arch, core, train_step, max_other_pages, metric
+        arch, core, train_step, max_other_pages, metric, other_pages_type
     )
     fig.savefig(path, dpi=300)
     plt.close(fig)
     print(f"Saved {metric} line chart to {path}")
 
 
-def plot_bar_chart(rows, arch, core, train_step, other_pages):
+def plot_bar_chart(rows, arch, core, train_step, other_pages,
+                   other_pages_type):
     threshold_ns = threshold_ns_for(arch)
     threshold_unit = timer_unit_for(arch)
     try:
@@ -674,8 +723,8 @@ def plot_bar_chart(rows, arch, core, train_step, other_pages):
     ax.bar(positions, values, color=colors, width=0.85, edgecolor="black", linewidth=0.25)
     ax.axhline(threshold_ns, color="black", linestyle="--", linewidth=0.9)
     ax.axvline(predicted_position(train_step), color="#0072B2", linestyle=":", linewidth=1.0)
-    ax.set_title(f"store stride, train-step={train_step}, other-pages={other_pages}", loc="left", pad=4)
-    ax.set_ylabel(f"Average store {threshold_unit}")
+    ax.set_title(f"{args.access} stride, train-step={train_step}, other-pages={other_pages}", loc="left", pad=4)
+    ax.set_ylabel(f"Average {args.access} {threshold_unit}")
     ax.set_xlabel("Probe cache-line index")
     ax.set_ylim(0, max(300, max(values) * 1.05 if values else 300))
     ax.set_xlim(-1, max(positions) + 1 if positions else args.probe_positions)
@@ -690,12 +739,13 @@ def plot_bar_chart(rows, arch, core, train_step, other_pages):
     ax.legend(handles=legend_items, loc="upper right", frameon=False, ncol=3)
     fig.suptitle(
         f"{arch} core {core}, stride={args.stride}, other_pages={other_pages}, "
+        f"other_pages_access={other_pages_type}({other_pages_access_name(other_pages_type)}), "
         f"predicted_position={predicted_position(train_step)}, threshold={threshold_ns} {threshold_unit}",
         x=0.01,
         ha="left",
     )
     fig.tight_layout(rect=(0, 0, 1, 0.94))
-    path = plot_path_for(arch, core, train_step, other_pages)
+    path = plot_path_for(arch, core, train_step, other_pages, other_pages_type)
     fig.savefig(path, dpi=300)
     plt.close(fig)
     print(f"Saved bar chart to {path}")
@@ -705,42 +755,56 @@ def main():
     ensure_dirs()
     for arch, core in targets():
         for train_step in train_steps():
-            line_points = []
-            page_counts = list(other_page_counts())
-            rows_by_pages = None
-            pmu_values_by_pages = {}
-            if not args.plot_only:
-                rows_by_pages, pmu_values_by_pages = run_one(
-                    arch, core, train_step, max(page_counts)
-                )
+            for other_pages_type in other_pages_access_types():
+                line_points = []
+                page_counts = list(other_page_counts())
+                rows_by_pages = None
+                pmu_values_by_pages = {}
+                if not args.plot_only:
+                    rows_by_pages, pmu_values_by_pages = run_one(
+                        arch, core, train_step, max(page_counts),
+                        other_pages_type,
+                    )
 
-            for other_pages in page_counts:
-                if args.plot_only:
-                    path = tsv_path_for(arch, core, train_step, other_pages)
-                    if not os.path.exists(path):
-                        print(f"Error: TSV result '{path}' not found.")
-                        continue
-                    rows = read_tsv(path)
-                else:
-                    rows = rows_by_pages.get(other_pages, [])
-                if rows:
-                    print_predicted_result(arch, core, train_step, other_pages, rows)
-                    row = predicted_row(rows, train_step)
-                    if row is not None:
-                        line_points.append({
-                            "other_pages": other_pages,
-                            "avg_ns": row["avg_ns"],
-                            "probes": row["probes"],
-                        })
-                    if not args.no_plot and not args.other_pages_sweep:
-                        plot_bar_chart(rows, arch, core, train_step, other_pages)
-            if args.other_pages_sweep and not args.no_plot:
-                plot_other_pages_line(line_points, arch, core, train_step)
-            if not args.plot_only and not args.no_plot:
-                plot_pmu_metric_line(
-                    pmu_values_by_pages, arch, core, train_step,
-                    max(page_counts),
-                )
+                for other_pages in page_counts:
+                    if args.plot_only:
+                        path = tsv_path_for(
+                            arch, core, train_step, other_pages,
+                            other_pages_type,
+                        )
+                        if not os.path.exists(path):
+                            print(f"Error: TSV result '{path}' not found.")
+                            continue
+                        rows = read_tsv(path)
+                    else:
+                        rows = rows_by_pages.get(other_pages, [])
+                    if rows:
+                        print_predicted_result(
+                            arch, core, train_step, other_pages, rows,
+                            other_pages_type,
+                        )
+                        row = predicted_row(rows, train_step)
+                        if row is not None:
+                            line_points.append({
+                                "other_pages": other_pages,
+                                "avg_ns": row["avg_ns"],
+                                "probes": row["probes"],
+                            })
+                        if not args.no_plot and not args.other_pages_sweep:
+                            plot_bar_chart(
+                                rows, arch, core, train_step, other_pages,
+                                other_pages_type,
+                            )
+                if args.other_pages_sweep and not args.no_plot:
+                    plot_other_pages_line(
+                        line_points, arch, core, train_step,
+                        other_pages_type,
+                    )
+                if not args.plot_only and not args.no_plot:
+                    plot_pmu_metric_line(
+                        pmu_values_by_pages, arch, core, train_step,
+                        max(page_counts), other_pages_type,
+                    )
 
 
 

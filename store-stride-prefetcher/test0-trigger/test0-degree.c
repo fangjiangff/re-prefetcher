@@ -29,6 +29,10 @@
 #define TRAIN_ACCESS_PREFETCH 0
 #endif
 
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
 #if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
 #error "Only one train access mode can be enabled"
 #endif
@@ -44,7 +48,8 @@ long long int latency_sum[MAX_STEP + 1][PROBES] = {{0}};
 
 uint8_t array1[100*LINE_SIZE]={0};
 
-#define DUMMY_BUFFER_SIZE (PAGE_SIZE * 10)
+#define DUMMY_BUFFER_PAGES 10
+#define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 static uint8_t* dummy_buffer;
 
@@ -68,16 +73,9 @@ static inline __attribute__((always_inline)) void stride_access(void *addr) {
 }
 
 static void delay_after_trigger(void) {
-    uint64_t dummy = 0;
-
-    for (int k = 0; k < 100; k++) {
-        dummy += array1[k * LINE_SIZE];
-    }
-    for (int i = 0; i < 100; i++) {
-        nop();
-    }
-
-    (void)dummy;
+    nops();
+    struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 100};
+    nanosleep(&prefetch_wait, NULL);
 }
 
 
@@ -146,7 +144,9 @@ int main(){
         for(int pos = 0; pos < PROBES; pos++){//test one position
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
             
+#if ENABLE_CPP_RCTX
             cpp_rctx();
+#endif
             mfence();
             dummyAccesses();//for dummy accesses , reset the prefetcher state
             mfence();
@@ -154,6 +154,7 @@ int main(){
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
+            occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
               
               for(int step = 0; step < train_step -1; step++){
                   stride_access(array2 + (step * stride));
@@ -161,7 +162,7 @@ int main(){
               // trigger.
               stride_access(array2 + ((train_step -1) * stride));
               
-              // delay_after_trigger();
+              delay_after_trigger();
               
               probe_addr = array2 + (pos*stride);
               

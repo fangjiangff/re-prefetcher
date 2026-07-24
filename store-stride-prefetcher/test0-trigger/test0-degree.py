@@ -11,6 +11,8 @@ if ROOT_DIR not in sys.path:
 from cross_test_config import (
     apply_single_core_defaults,
     apply_threshold_defaults,
+    apply_timer_default,
+    default_timer_for_arch,
     arch_choices,
     is_x86_arch,
     timer_define_for_arch,
@@ -59,11 +61,9 @@ def parse_args():
     parser.add_argument("--hit-threshold-ns", dest="threshold_ns", type=int, default=80,
                         help="Candidate latency <= this value is treated as prefetched. "
                              "Default is selected from --arch.")
-    parser.add_argument("--timer", choices=["gettime", "rdtsc"],
-                        default="gettime",
-                        help=("x86 timestamp source. gettime uses "
-                              "clock_gettime; rdtsc uses rdtscp. "
-                              "Default: gettime"))
+    parser.add_argument("--timer", choices=["gettime", "rdtsc", "cntvct", "pmccntr"],
+                        default=None,
+                        help="Timestamp source. Default is selected from --arch.")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
                         help="Compiler command. Default: $CC or gcc")
     parser.add_argument("--output", default=None,
@@ -80,9 +80,15 @@ def parse_args():
 
     apply_single_core_defaults(args)
     apply_threshold_defaults(args)
+    apply_timer_default(args)
 
     if args.core < 0:
         parser.error("--core must be >= 0")
+    supported_timers = {"gettime", "rdtsc"} if is_x86_arch(args.arch) else {
+        "gettime", "cntvct", "pmccntr"
+    }
+    if args.timer not in supported_timers:
+        parser.error(f"--timer {args.timer} is not supported for {args.arch}")
     if args.stride < 1:
         parser.error("--stride must be >= 1")
     if args.max_step < 1:
@@ -99,7 +105,7 @@ def parse_args():
 
 def result_name(args):
     timer_suffix = ""
-    if is_x86_arch(args.arch) and args.timer != "gettime":
+    if args.timer != default_timer_for_arch(args.arch):
         timer_suffix = f"-timer{args.timer}"
     return (
         f"{args.arch}-core{args.core}-degree-sweep"
@@ -125,6 +131,14 @@ def ensure_parent(path):
         os.makedirs(parent, exist_ok=True)
 
 
+def arch_cflags_for(arch):
+    if is_x86_arch(arch):
+        return []
+    if arch == "X925":
+        return ["-march=armv8.5-a+predres"]
+    return []
+
+
 def compile_test(args):
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     compile_cmd = [
@@ -132,13 +146,13 @@ def compile_test(args):
         "-std=gnu11",
         "-O0",
         "-static",
-        "-march=armv8.5-a+predres",
         f"-DTEST_STRIDE={args.stride * 64}",
         f"-DMAX_STEP={args.max_step}",
         f"-DPROBES={args.probe_positions}",
         f"-DROUNDS={args.rounds}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
         "-o",
         OUT,
         SRC,
@@ -147,6 +161,7 @@ def compile_test(args):
     timer_define = timer_define_for_arch(args.arch, args.timer)
     if timer_define is not None:
         compile_cmd.insert(-4, timer_define)
+    compile_cmd[1:1] = arch_cflags_for(args.arch)
     return subprocess.run(compile_cmd)
 
 

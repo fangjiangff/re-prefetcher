@@ -42,6 +42,10 @@
 #define DUMMY_BUFFER_PAGES 10
 #endif
 
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
 #define ALIAS_SIZE PAGE_SIZE
 #define STRIDE_BYTES (STRIDE_LINES * LINE_SIZE)
 #define TRAIN_ONLY_ACCESSES (STORE_ACCESSES - 1)
@@ -137,6 +141,12 @@ __attribute__((noinline)) static void run_trigger(uint8_t *va2) {
     nops();
 }
 
+static void wait_after_trigger_access(void) {
+    nops();
+    struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 100};
+    nanosleep(&prefetch_wait, NULL);
+}
+
 static void run_case(const char *result_name,
                      const char *detail_name,
                      uint8_t *va1,
@@ -150,18 +160,22 @@ static void run_case(const char *result_name,
     for (uint64_t round = 0; round < rounds; round++) {
         int probe_pos = (int)(round % PROBE_POSITIONS);
 
+#if ENABLE_CPP_RCTX
         cpp_rctx();
+#endif
         // dummy_accesses();
         mfence();
         dummyAccesses();
         flush_aliases(va1, va2);
         mfence();
+        occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
 
         if (enable_trainer) {
             run_trainer(va1);
         }
         if (enable_trigger) {
             run_trigger(va2);
+            wait_after_trigger_access();
         }
 
         latency_sum[probe_pos] += probe_latency(va2 + probe_pos * LINE_SIZE);

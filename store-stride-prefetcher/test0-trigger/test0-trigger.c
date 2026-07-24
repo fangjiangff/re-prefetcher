@@ -33,6 +33,14 @@
 #define TRAIN_ACCESS_PREFETCH 0
 #endif
 
+#ifndef DUMMY_BUFFER_PAGES
+#define DUMMY_BUFFER_PAGES 10
+#endif
+
+#ifndef ENABLE_DUMMY_ACCESSES
+#define ENABLE_DUMMY_ACCESSES 1
+#endif
+
 #if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
 #error "Only one train access mode can be enabled"
 #endif
@@ -56,9 +64,11 @@ long long int latency_sum[MAX_STRIDE_LINES + 1][MAX_STEP + 1] = {{0}};
 
 uint8_t array1[100*LINE_SIZE]={0};
 
-#define DUMMY_BUFFER_SIZE (PAGE_SIZE * 10)
+#define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
+#define PREFETCHER_FILL_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 static uint8_t* dummy_buffer;
+static uint8_t* prefetcher_fill_buffer;
 
 static uint32_t shuffle_state = 0x9e3779b9u;
 
@@ -88,19 +98,13 @@ void dummyAccesses(void){
      }
 }
 
-static inline void reset_prefetcher_context(void) {
-#if ENABLE_CPP_RCTX
-    cpp_rctx();
-#endif
-}
-
 static inline __attribute__((always_inline)) void stride_access(void *addr) {
 #if TRAIN_ACCESS_PREFETCH
     mPrefetch_noinline(addr);
 #elif TRAIN_ACCESS_LOAD
     mLoad_noinline(addr);
 #else
-    mStore_noinline(addr);
+    mStore_inline(addr);
 #endif
 }
 
@@ -130,6 +134,12 @@ int main(){
   dummy_buffer = (uint8_t*)mmap(NULL, DUMMY_BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
   if(dummy_buffer == MAP_FAILED) {
       printf("failed to map memory to access!\n");
+      exit(1);
+  }
+
+  prefetcher_fill_buffer = (uint8_t*)mmap(NULL, PREFETCHER_FILL_BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
+  if(prefetcher_fill_buffer == MAP_FAILED) {
+      printf("failed to map prefetcher fill buffer!\n");
       exit(1);
   }
 
@@ -170,7 +180,10 @@ int main(){
 #endif
   );
   printf("# timer: %s %s\n", TIMESTAMP_SOURCE_NAME, TIMESTAMP_UNIT_NAME);
-  printf("# ENABLE_CPP_RCTX=%d\n", ENABLE_CPP_RCTX);
+  printf("# ENABLE_CPP_RCTX=%d ENABLE_DUMMY_ACCESSES=%d "
+         "DUMMY_BUFFER_PAGES=%d DUMMY_BUFFER_SIZE=%u\n",
+         ENABLE_CPP_RCTX, ENABLE_DUMMY_ACCESSES,
+         DUMMY_BUFFER_PAGES, DUMMY_BUFFER_SIZE);
   printf("# stride_lines train_step avg_%s\n", TIMESTAMP_UNIT_NAME);
 
   int stride_order[MAX_STRIDE_LINES];
@@ -187,26 +200,32 @@ int main(){
   shuffle_ints(train_step_order, MAX_STEP);
 
 
-  // for(int stride_idx = 0; stride_idx < MAX_STRIDE_LINES; stride_idx++){
-  for(int stride_idx = 4; stride_idx < 5; stride_idx++){
-    //   int stride_lines = stride_order[stride_idx];
+  for(int stride_idx = 0; stride_idx < MAX_STRIDE_LINES; stride_idx++){
+  // for(int stride_idx = 4; stride_idx < 5; stride_idx++){
+      // int stride_lines = stride_order[stride_idx];
     int stride_lines = stride_idx + 1;//stride = 5
       int stride = stride_lines * LINE_SIZE;
-      // for(int train_step_idx = 0; train_step_idx < MAX_STEP; train_step_idx++){
-       for(int train_step_idx = 5; train_step_idx < 6; train_step_idx++){
+      for(int train_step_idx = 0; train_step_idx < MAX_STEP; train_step_idx++){
+      //  for(int train_step_idx = 5; train_step_idx < 6; train_step_idx++){
         //   int train_step = train_step_order[train_step_idx];
           int train_step = train_step_idx + 1;//trian=6
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
-            reset_prefetcher_context();
             uint64_t probe_offset = (uint64_t)train_step * (uint64_t)stride;
 
-            mfence();
-            dummyAccesses();
-            
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
+
+// #if ENABLE_DUMMY_ACCESSES && !ENABLE_CPP_RCTX
+            occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+                                            DUMMY_BUFFER_PAGES, 6);
+// #endif
             mfence();
+
+            // reset prefetcher state
+#if ENABLE_CPP_RCTX
+            cpp_rctx();
+#endif
             
               // for(int repeat = 0; repeat < 5; repeat ++) {
               for(int step = 0; step < train_step -1; step++){
@@ -220,6 +239,10 @@ int main(){
               nops();
               // mfence();
               
+              nops();
+              struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 100};
+              nanosleep(&prefetch_wait, NULL);
+
             //   delay_after_trigger();
               //probe
               

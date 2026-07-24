@@ -78,6 +78,10 @@ typedef void (*store_gadget_f)(void *);
 #define STRIDE_ACCESS_LOAD 0
 #endif
 
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
 #if STRIDE_ACCESS_PREFETCH && STRIDE_ACCESS_LOAD
 #error "Only one stride access mode can be enabled"
 #endif
@@ -204,6 +208,26 @@ static void flush_array2(void) {
     mfence();
 }
 
+static inline __attribute__((always_inline)) void stride_access_body(void *addr) {
+#if STRIDE_ACCESS_PREFETCH
+    mPrefetch_noinline(addr);
+#elif STRIDE_ACCESS_LOAD
+    mLoad_noinline(addr);
+#else
+    mStore_inline(addr);
+#endif
+}
+
+__attribute__((noinline)) static void train_pc_access(void *addr) {
+    stride_access_body(addr);
+    nops();
+}
+
+__attribute__((noinline)) static void trigger_pc_access(void *addr) {
+    stride_access_body(addr);
+    nops();
+}
+
 void dummyAccesses(void){
     // printf("dummySize %d\n", DUMMY_BUFFER_SIZE);
   // dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
@@ -224,19 +248,9 @@ void dummyAccesses(void){
 
 
 static void delay_after_trigger(void) {
-    /*
-     * 用真实 load + nop 给硬件预取请求一点完成时间。
-     * 用 maccess 防止编译器把 array1 访问优化掉。
-     */
-    for (int k = 0; k < 100; k++) {
-        maccess(&array1[k * LINE_SIZE]);
-    }
-
-    for (int i = 0; i < 100; i++) {
-        nop();
-    }
-
-    // mfence();
+    nops();
+    struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 100};
+    nanosleep(&prefetch_wait, NULL);
 }
 
 static uint64_t probe_latency(uint8_t *addr) {
@@ -268,9 +282,13 @@ static uint64_t run_one_round(store_gadget_f train_store,
     // dummy_accesses();
     mfence();
     dummyAccesses();
+#if ENABLE_CPP_RCTX
     cpp_rctx();
+#endif
+occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
     flush_array2();
     mfence();
+    
 
     /*
      * 第 1..STORE_TRIGGER_ACCESS-1 次 access: training
@@ -365,20 +383,18 @@ static void print_unmapped_case_results(const char *case_name) {
 
 static void print_usage(const char *prog) {
     fprintf(stderr,
-            "usage: %s [base_access_pc min_diff_bit max_diff_bit rounds]\n"
-            "default: access=%s base_access_pc=0x%lx min_diff_bit=%d max_diff_bit=%d rounds=%d\n",
+            "usage: %s [base_access_pc diff_bit rounds]\n"
+            "default: access=%s base_access_pc=0x%lx diff_bit=%d rounds=%d\n",
             prog,
             STRIDE_ACCESS_NAME,
             (unsigned long)DEFAULT_BASE_STORE_PC,
             DEFAULT_MIN_DIFF_BIT,
-            DEFAULT_MAX_DIFF_BIT,
             DEFAULT_ROUNDS);
 }
 
 int main(int argc, char **argv) {
     uintptr_t base_pc = DEFAULT_BASE_STORE_PC;
-    int min_diff_bit = DEFAULT_MIN_DIFF_BIT;
-    int max_diff_bit = DEFAULT_MAX_DIFF_BIT;
+    int diff_bit = DEFAULT_MIN_DIFF_BIT;
     int rounds = DEFAULT_ROUNDS;
     int stride = DEFAULT_STRIDE;
 
@@ -391,21 +407,19 @@ int main(int argc, char **argv) {
     page_size = (size_t)detected_page_size;
     dummy_buffer_size = page_size * DUMMY_BUFFER_PAGES;
 
-    if (argc != 1 && argc != 5) {
+    if (argc != 1 && argc != 4) {
         print_usage(argv[0]);
         return 1;
     }
 
-    if (argc == 5) {
+    if (argc == 4) {
         base_pc = strtoull(argv[1], NULL, 0);
-        min_diff_bit = atoi(argv[2]);
-        max_diff_bit = atoi(argv[3]);
-        rounds = atoi(argv[4]);
+        diff_bit = atoi(argv[2]);
+        rounds = atoi(argv[3]);
     }
 
-    if (min_diff_bit < 3 ||
-        max_diff_bit >= 48 ||
-        min_diff_bit > max_diff_bit ||
+    if (diff_bit < 3 ||
+        diff_bit >= 48 ||
         rounds <= 0 ||
         STORE_TRIGGER_ACCESS < 2 ||
         STRIDE_LINES <= 0) {
@@ -474,6 +488,12 @@ int main(int argc, char **argv) {
            rounds,
            (unsigned long)page_size,
            (unsigned long)base_pc);
+    uintptr_t trigger_pc = base_pc ^ (1ull << diff_bit);
+
+    printf("# PC model: dynamic mmap gadgets; trainer_pc=0x%016lx trigger_pc=0x%016lx diff_bit=%d\n",
+           (unsigned long)base_pc,
+           (unsigned long)trigger_pc,
+           diff_bit);
 
     printf("# accesses=%d train_only_accesses=%d trigger_accesses=1 probe_positions=%d\n",
            STORE_TRIGGER_ACCESS,
@@ -495,22 +515,18 @@ int main(int argc, char **argv) {
     print_case_results("no_trigger", train_store, train_store, 1, 0, stride, rounds);
     print_case_results("trigger_only", train_store, train_store, 0, 1, stride, rounds);
     print_case_results("same_pc", train_store, train_store, 1, 1, stride, rounds);
-    print_case_results("load_trigger", train_store, mLoad_noinline, 1, 1, stride, rounds);
 
-    for (int diff_bit = min_diff_bit; diff_bit <= max_diff_bit; diff_bit++) {
-        uintptr_t trigger_pc = base_pc ^ (1ull << diff_bit);
-        store_gadget_f trigger_store = map_store_gadget(trigger_pc);
-        char case_name[32];
+    store_gadget_f trigger_store = map_store_gadget(trigger_pc);
+    char case_name[32];
 
-        snprintf(case_name, sizeof(case_name), "bit_%d", diff_bit);
-        if (!trigger_store) {
-            print_unmapped_case_results(case_name);
-            continue;
-        }
-
-        print_case_results(case_name, train_store, trigger_store, 1, 1,
-                           stride, rounds);
+    snprintf(case_name, sizeof(case_name), "bit_%d", diff_bit);
+    if (!trigger_store) {
+        print_unmapped_case_results(case_name);
+        return 0;
     }
+
+    print_case_results(case_name, train_store, trigger_store, 1, 1,
+                       stride, rounds);
 
     return 0;
 }

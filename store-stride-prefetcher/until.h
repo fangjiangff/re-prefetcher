@@ -211,6 +211,20 @@ static inline __attribute__((always_inline)) void maccess(void *addr) {
     mLoad_inline(addr);
 }
 
+static inline __attribute__((always_inline))
+void occupy_store_prefetcher_entries(uint8_t *buffer, size_t pages,
+                                     size_t lines_per_page) {
+    for (size_t page = 0; page < pages; page++) {
+        uint8_t *page_base = buffer + page * PAGE_SIZE;
+
+        for (size_t line = 0; line < lines_per_page; line++) {
+            mStore_inline(page_base + line * LINE_SIZE);
+        }
+    }
+
+    mfence();
+}
+
 static inline __attribute__((always_inline)) void dummyAccess(void *buffer,
                                                              size_t size) {
     uint8_t *dummy_buffer = (uint8_t *)buffer;

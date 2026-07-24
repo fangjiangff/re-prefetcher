@@ -7,6 +7,10 @@
 #define PMU_CORE_X925 0
 #endif
 
+#ifndef PMU_CORE_A55
+#define PMU_CORE_A55 0
+#endif
+
 #ifndef PMU_WINDOW_NAME
 #define PMU_WINDOW_NAME "training-only-per-round"
 #endif
@@ -38,11 +42,18 @@ struct pmu_read_value {
     uint64_t time_running;
 };
 
+#define PMU_COUNTER(counter_name, counter_event) \
+    {counter_name, counter_event, -1, 0, 0, 0}
+
+#if PMU_CORE_X925 && PMU_CORE_A55
+#error "Only one PMU_CORE_* target can be selected"
+#endif
+
 #if PMU_CORE_X925
 static struct pmu_counter pmu_counters[] = {
     // for hardware prefetcher
-    {"l1d_cache_hwprf", 0x8154, -1},//Level 1 data cache hardware prefetch
-    {"l2d_cache_hwprf", 0x8155, -1},// Level 2 data cache hardware prefetch
+    PMU_COUNTER("l1d_cache_hwprf", 0x8154),//Level 1 data cache hardware prefetch
+    PMU_COUNTER("l2d_cache_hwprf", 0x8155),// Level 2 data cache hardware prefetch
 
         // for store
     // {"st_retired", 0x0007, -1},
@@ -85,17 +96,24 @@ static struct pmu_counter pmu_counters[] = {
     // {"ll_cache_miss_rd", 0x0037, -1},
     // {"stall_backend_membound", 0x8164, -1},
 };
+#elif PMU_CORE_A55
+/* Cortex-A55 exposes prefetch-related cache refill events as 0xC0..0xC2. */
+static struct pmu_counter pmu_counters[] = {
+    PMU_COUNTER("l1d_cache_refill_prefetch", 0x00c2),// L1D linefill from prefetcher
+    PMU_COUNTER("l2d_cache_refill_prefetch", 0x00c1),// L2/cluster linefill from prefetcher
+    PMU_COUNTER("l3d_cache_refill_prefetch", 0x00c0),// L3 linefill from hardware prefetcher
+};
 #else
 /* A725 exposes combined hardware/software L2 prefetch events. */
 static struct pmu_counter pmu_counters[] = {
     // The counter counts each fetch triggered by L1 prefetchers
-    {"l1d_cache_hwprf", 0x8154, -1},//L1 数据预取器触发的 fetch 数；判断预取器是否启动
+    PMU_COUNTER("l1d_cache_hwprf", 0x8154),//L1 数据预取器触发的 fetch 数；判断预取器是否启动
     // The counter counts each refill triggered by L1 prefetchers
-    {"l1d_cache_refill_hwprf", 0x81bc, -1},// Level 1 data cache refill, hardware prefetch
+    PMU_COUNTER("l1d_cache_refill_hwprf", 0x81bc),// Level 1 data cache refill, hardware prefetch
     // The counter counts each fetch counted by either L2D_CACHE_HWPRF or L2D_CACHE_PRFM
-    {"l2d_cache_prf", 0x8285, -1},//L2 预取命中？
+    PMU_COUNTER("l2d_cache_prf", 0x8285),//L2 预取命中？
     //The counter counts each refill counted by either L2D_CACHE_REFILL_HWPRF or L2D_CACHE_REFILL_PRFM.
-    {"l2d_cache_refill_prf", 0x828d, -1},//preload/prefetch 引起的 L2 refill；同时包含硬件预取和软件 PRFM
+    PMU_COUNTER("l2d_cache_refill_prf", 0x828d),//preload/prefetch 引起的 L2 refill；同时包含硬件预取和软件 PRFM
     // {"l1d_cache_refill", 0x0003, -1},
     // {"l2d_cache_refill", 0x0017, -1},
     // {"ll_cache_refill", 0x829a, -1},
@@ -117,6 +135,16 @@ static struct pmu_counter pmu_counters[] = {
 
 #define PMU_COUNTER_COUNT \
     ((int)(sizeof(pmu_counters) / sizeof(pmu_counters[0])))
+
+static const char *pmu_core_name(void) {
+#if PMU_CORE_X925
+    return "Cortex-X925";
+#elif PMU_CORE_A55
+    return "Cortex-A55";
+#else
+    return "Cortex-A725";
+#endif
+}
 
 static long pmu_perf_event_open(struct perf_event_attr *attr, pid_t pid,
                                 int cpu, int group_fd, unsigned long flags) {
@@ -277,8 +305,8 @@ static int pmu_setup(void) {
     }
 
     printf("# PMU device=%s core=%s events=%d/%d window=%s\n",
-           pmu_name, PMU_CORE_X925 ? "Cortex-X925" : "Cortex-A725",
-           opened, PMU_COUNTER_COUNT, PMU_WINDOW_NAME);
+           pmu_name, pmu_core_name(), opened, PMU_COUNTER_COUNT,
+           PMU_WINDOW_NAME);
     return 0;
 }
 

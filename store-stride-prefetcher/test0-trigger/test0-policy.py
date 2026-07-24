@@ -8,7 +8,14 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from cross_test_config import ARCH_CONFIG, arch_choices
+from cross_test_config import (
+    ARCH_CONFIG,
+    arch_choices,
+    default_timer_for_arch,
+    is_x86_arch,
+    timer_define_for_arch,
+    timer_unit_for_arch,
+)
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -85,6 +92,20 @@ def access_type_at(index):
     return args.access[0]
 
 
+def requested_arches_for_args(parsed_args):
+    if parsed_args.arches is not None:
+        return parse_csv_list(parsed_args.arches)
+    if parsed_args.arch is not None:
+        return [parsed_args.arch]
+    return list(arch_choices())
+
+
+def timer_for_arch_value(parsed_args, arch):
+    if parsed_args.timer is not None:
+        return parsed_args.timer
+    return default_timer_for_arch(arch)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Run a policy access sequence and report likely prefetched cache lines."
@@ -107,8 +128,9 @@ def parse_args():
                         help=f"Probe cache lines 0..N-1. Default: {DEFAULT_PROBE_POSITIONS}")
     parser.add_argument("--hit-threshold-ns", type=int, default=None,
                         help="Line is reported as possible-prefetched when avg latency <= this value. Default is selected from --arch.")
-    parser.add_argument("--timer", choices=["gettime", "rdtsc"], default="gettime",
-                        help="x86 timestamp source. Default: gettime")
+    parser.add_argument("--timer", choices=["gettime", "rdtsc", "cntvct", "pmccntr"],
+                        default=None,
+                        help="Timestamp source. Default is selected from --arch.")
     parser.add_argument("--access", choices=["store", "load", "prefetch"], default="store",
                         help="Instruction used for the whole policy sequence when --type is omitted. Default: store")
     parser.add_argument("--type", type=parse_type_sequence, default=None,
@@ -152,6 +174,13 @@ def parse_args():
         parser.error("--dummy-buffer-pages must be >= 1")
     if args.hit_threshold_ns is not None and args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
+    for arch in requested_arches_for_args(args):
+        supported_timers = {"gettime", "rdtsc"} if is_x86_arch(arch) else {
+            "gettime", "cntvct", "pmccntr"
+        }
+        timer = timer_for_arch_value(args, arch)
+        if timer not in supported_timers:
+            parser.error(f"--timer {timer} is not supported for {arch}")
     return args
 
 
@@ -191,22 +220,22 @@ def targets():
     return list(zip(arches, cores))
 
 
-def is_x86_arch(arch):
-    return arch in {"x86", "Zen4"}
+def timer_for_arch(arch):
+    return timer_for_arch_value(args, arch)
 
 
 def timer_unit_for(arch):
-    if is_x86_arch(arch) and args.timer == "rdtsc":
-        return "cycles"
-    return "ns"
+    return timer_unit_for_arch(arch, timer_for_arch(arch))
 
 
 def timer_define_for(arch):
-    if not is_x86_arch(arch):
-        return None
-    if args.timer == "rdtsc":
-        return "-DRDTSC=1"
-    return "-DGETTIME=1"
+    return timer_define_for_arch(arch, timer_for_arch(arch))
+
+
+def arch_cflags_for(arch):
+    if is_x86_arch(arch):
+        return []
+    return ["-march=armv8.5-a+predres"]
 
 
 def threshold_for(arch):
@@ -217,8 +246,9 @@ def threshold_for(arch):
 
 def result_name(arch, core):
     timer_suffix = ""
-    if is_x86_arch(arch) and args.timer != "gettime":
-        timer_suffix = f"-timer{args.timer}"
+    timer = timer_for_arch(arch)
+    if timer != default_timer_for_arch(arch):
+        timer_suffix = f"-timer{timer}"
     dummy_suffix = "" if args.dummy_buffer_pages == 10 else f"-dummypages{args.dummy_buffer_pages}"
     type_suffix = f"-{access_label()}"
     return (
@@ -324,11 +354,11 @@ def compile_test(arch):
         "-std=gnu11",
         "-O0",
         "-static",
-         "-march=armv8.5-a+predres",
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DACCESS_SEQUENCE={sequence_macro}",
         f"-DACCESS_SEQUENCE_LEN={len(args.sequence)}",
+        f"-DENABLE_CPP_RCTX={1 if arch == 'X925' else 0}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
         f"-DDUMMY_BUFFER_PAGES={args.dummy_buffer_pages}",
@@ -342,6 +372,7 @@ def compile_test(arch):
     timer_define = timer_define_for(arch)
     if timer_define is not None:
         compile_cmd.insert(-4, timer_define)
+    compile_cmd[1:1] = arch_cflags_for(arch)
     return subprocess.run(compile_cmd).returncode
 
 
@@ -463,7 +494,7 @@ def run_one(arch, core):
         f"sequence={args.sequence}, rounds={args.rounds}, "
         f"probe_positions={args.probe_positions}, "
         f"threshold={threshold} {unit}, "
-        f"timer={args.timer if is_x86_arch(arch) else 'arch-default'}"
+        f"timer={timer_for_arch(arch)}"
     )
     if compile_test(arch) != 0:
         print("Compile failed")
