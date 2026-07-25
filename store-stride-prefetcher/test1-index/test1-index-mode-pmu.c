@@ -344,7 +344,7 @@ static uint64_t run_case(uint8_t *train_base,
     }
 
     for (uint64_t round = 0; round < ROUNDS; round++) {
-        reset_prefetcher_context();
+       
         int probe_pos;
         volatile uint8_t *probe_addr;
 
@@ -358,6 +358,7 @@ static uint64_t run_case(uint8_t *train_base,
         }
 
         int pmu_running = start_train_trigger_pmu();
+        reset_prefetcher_context();
         train_noinline(train_base, stride);
         trigger_access(trigger_base, stride, trigger_mode);
         stop_train_trigger_pmu(pmu_running);

@@ -48,12 +48,17 @@ PMU_DISPLAY_NAMES = {
     "l2d_cache_refill_prefetch": "l2d_p",
     "l3d_cache_refill_prefetch": "l3d_p",
 }
-L1D_PREFETCH_COUNTER = "l1d_cache_refill_prefetch"
+L1D_PREFETCH_COUNTER_BY_ARCH = {
+    "X925": "l1d_cache_hwprf",
+    "A725": "l1d_cache_hwprf",
+    "A55": "l1d_cache_refill_prefetch",
+}
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run test1 index-mode PMU measurements one test at a time."
+        description="Run test1 index-mode PMU measurements one test at a time.",
+        allow_abbrev=False,
     )
     parser.add_argument("--arch", required=True, choices=arch_choices())
     parser.add_argument("--core", type=int, default=None,
@@ -196,7 +201,7 @@ def parse_output(output):
     return row, counters, notes
 
 
-def print_summary(results, threshold, timer_unit):
+def print_summary(results, threshold, timer_unit, arch):
     counter_names = sorted({name for result in results for name in result["pmu"]})
     print_test_descriptions()
     print()
@@ -204,7 +209,7 @@ def print_summary(results, threshold, timer_unit):
     columns.extend(PMU_DISPLAY_NAMES.get(name, name) for name in counter_names)
     print("\t".join(columns))
     for result in results:
-        prefetched = is_prefetched(result, threshold)
+        prefetched = is_prefetched(result, threshold, arch)
         verdict = "yes" if prefetched else "no"
         color = GREEN if prefetched else RED
         values = [
@@ -224,18 +229,23 @@ def print_summary(results, threshold, timer_unit):
         for note in notes:
             print(note)
 
-    print_inference(results, threshold)
+    print_inference(results, threshold, arch)
 
 
-def is_prefetched(result, threshold):
-    return result["latency"] < threshold or result["pmu"].get(L1D_PREFETCH_COUNTER, 0.0) >= 1.0
+def is_prefetched(result, threshold, arch):
+    counter_name = L1D_PREFETCH_COUNTER_BY_ARCH.get(arch)
+    pmu_prefetched = (
+        counter_name is not None
+        and result["pmu"].get(counter_name, 0.0) >= 1.0
+    )
+    return result["latency"] < threshold or pmu_prefetched
 
 
-def is_prefetched_by_id(rows_by_id, test_id, threshold):
-    return is_prefetched(rows_by_id[test_id], threshold)
+def is_prefetched_by_id(rows_by_id, test_id, threshold, arch):
+    return is_prefetched(rows_by_id[test_id], threshold, arch)
 
 
-def print_inference(results, threshold):
+def print_inference(results, threshold, arch):
     rows_by_id = {result["id"]: result for result in results}
     required = ("T0_no_trigger", "T0", "T1", "T2", "T3", "T4", "T5", "T6")
     missing = [test_id for test_id in required if test_id not in rows_by_id]
@@ -245,14 +255,14 @@ def print_inference(results, threshold):
         print("  skip PC/VA/PA index inference: missing " + ", ".join(missing))
         return
 
-    t0_no_trigger = is_prefetched_by_id(rows_by_id, "T0_no_trigger", threshold)
-    t0 = is_prefetched_by_id(rows_by_id, "T0", threshold)
-    t1 = is_prefetched_by_id(rows_by_id, "T1", threshold)
-    t2 = is_prefetched_by_id(rows_by_id, "T2", threshold)
-    t3 = is_prefetched_by_id(rows_by_id, "T3", threshold)
-    t4 = is_prefetched_by_id(rows_by_id, "T4", threshold)
-    t5 = is_prefetched_by_id(rows_by_id, "T5", threshold)
-    t6 = is_prefetched_by_id(rows_by_id, "T6", threshold)
+    t0_no_trigger = is_prefetched_by_id(rows_by_id, "T0_no_trigger", threshold, arch)
+    t0 = is_prefetched_by_id(rows_by_id, "T0", threshold, arch)
+    t1 = is_prefetched_by_id(rows_by_id, "T1", threshold, arch)
+    t2 = is_prefetched_by_id(rows_by_id, "T2", threshold, arch)
+    t3 = is_prefetched_by_id(rows_by_id, "T3", threshold, arch)
+    t4 = is_prefetched_by_id(rows_by_id, "T4", threshold, arch)
+    t5 = is_prefetched_by_id(rows_by_id, "T5", threshold, arch)
+    t6 = is_prefetched_by_id(rows_by_id, "T6", threshold, arch)
 
     if t0_no_trigger or not t0:
         print("  T0 sanity failed: expected T0_no_trigger=no and T0=yes.")
@@ -348,7 +358,7 @@ def main():
         row["notes"] = notes
         results.append(row)
 
-    print_summary(results, args.threshold_ns, timer_unit)
+    print_summary(results, args.threshold_ns, timer_unit, args.arch)
     return 0
 
 
