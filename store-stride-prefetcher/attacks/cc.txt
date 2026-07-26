@@ -1,0 +1,27 @@
+Run date: 2026-07-26 10:23:09 UTC
++ python3 /home/jiangfang/workspace/re-prefetcher/store-stride-prefetcher/attacks/covert-channel-poc.py --arch X925 --rounds 10000
+============================================================
+access=store, arch=X925, core=6, stride=5 lines, train_step=3, rounds=10000
+# PMU device=armv8_pmuv3_1 core=Cortex-X925 events=2/2 window=training-only-per-round scope=thread
+# Execution time 0.040938 s
+[32m# accuracy=97.86% (9786/10000)[0m
+[32m# bandwidth=238.55 Kib/s[0m
++ python3 /home/jiangfang/workspace/re-prefetcher/store-stride-prefetcher/attacks/covert-channel-poc.py --arch X925 --access load --train-step 20 --rounds 10000
+============================================================
+access=load, arch=X925, core=6, stride=5 lines, train_step=20, rounds=10000
+# PMU device=armv8_pmuv3_1 core=Cortex-X925 events=2/2 window=training-only-per-round scope=thread
+# Execution time 0.095109 s
+[32m# accuracy=99.23% (9923/10000)[0m
+[32m# bandwidth=102.68 Kib/s[0m
++ python3 /home/jiangfang/workspace/re-prefetcher/store-stride-prefetcher/attacks/covert-channel-cache.py --arch X925 --rounds 10000
+============================================================
+access=store, arch=X925, core=6, stride=5 lines, train_step=3, rounds=10000
+# Execution time 0.540996 s
+[32m# accuracy=99.36% (9936/10000)[0m
+[32m# bandwidth=18.05 Kib/s[0m
++ python3 /home/jiangfang/workspace/re-prefetcher/store-stride-prefetcher/attacks/covert-channel-cache.py --arch X925 --access load --train-step 20 --rounds 10000
+============================================================
+access=load, arch=X925, core=6, stride=5 lines, train_step=20, rounds=10000
+# Execution time 0.562505 s
+[32m# accuracy=96.06% (9606/10000)[0m
+[32m# bandwidth=17.36 Kib/s[0m
