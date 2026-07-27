@@ -15,9 +15,14 @@
 #include "../until.h"
 
 #define ITEMS 10240
-#define DUMMY_BUFFER_SIZE (PAGE_SIZE * 10)
 #define SHARED_BYTES (ITEMS * LINE_SIZE)
 #define FIXED_T3_VA 0x600000000ULL
+
+#ifndef DUMMY_BUFFER_PAGES
+#define DUMMY_BUFFER_PAGES 64
+#endif
+
+#define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 #ifndef STRIDE_BYTES
 #define STRIDE_BYTES 64
@@ -71,8 +76,6 @@
 #define TEST_T2 3
 #define TEST_T3 4
 #define TEST_T4 5
-#define TEST_T5 6
-#define TEST_T6 7
 
 #ifndef SELECTED_TEST
 #define SELECTED_TEST TEST_T0
@@ -94,6 +97,7 @@ uint8_t array2[ITEMS * LINE_SIZE] __attribute__((aligned(4096)));
 uint8_t array1[100 * LINE_SIZE] = {0};
 
 static uint8_t *dummy_buffer;
+static uint8_t *prefetcher_fill_buffer;
 static int pmu_ready;
 
 static void die(const char *message) {
@@ -202,24 +206,6 @@ static uint8_t *map_shared_anywhere(int fd) {
     }
     return mapping;
 }
-
-static uint8_t *map_shared_at(uintptr_t addr, int fd) {
-    void *mapping = mmap((void *)addr, SHARED_BYTES,
-                         PROT_READ | PROT_WRITE,
-                         MAP_SHARED | MAP_FIXED_NOREPLACE | MAP_POPULATE,
-                         fd, 0);
-
-    if (mapping == MAP_FAILED) {
-        die("mmap fixed shared");
-    }
-    if ((uintptr_t)mapping != addr) {
-        fprintf(stderr, "wrong fixed mapping: expected 0x%016lx got %p\n",
-                (unsigned long)addr, mapping);
-        exit(1);
-    }
-    return mapping;
-}
-
 
 static uint8_t *map_anon_at(uintptr_t addr) {
     void *mapping = mmap((void *)addr, SHARED_BYTES, PROT_READ | PROT_WRITE,
@@ -348,23 +334,30 @@ static uint64_t run_case(uint8_t *train_base,
         int probe_pos;
         volatile uint8_t *probe_addr;
 
-        // dummyAccesses();
-        occupy_store_prefetcher_entries(dummy_buffer,
-                                        DUMMY_BUFFER_SIZE / PAGE_SIZE, 6);
-
+        dummyAccesses();
+        occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+                                        DUMMY_BUFFER_PAGES, 1);
+        // occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+        //                                 10, 6);
         flush_lines(flush_base_a);
         if (flush_base_b != NULL && flush_base_b != flush_base_a) {
             flush_lines(flush_base_b);
         }
+        mfence();
+      
 
         int pmu_running = start_train_trigger_pmu();
         reset_prefetcher_context();
+        
         train_noinline(train_base, stride);
         trigger_access(trigger_base, stride, trigger_mode);
+
+           // delay_after_trigger();
+        wait_after_trigger_access();
+
         stop_train_trigger_pmu(pmu_running);
 
-        // delay_after_trigger();
-        wait_after_trigger_access();
+     
 
         probe_pos = (round) % PROBE_POSITIONS;
         probe_addr = trigger_base + ((uint64_t)probe_pos * LINE_SIZE);
@@ -392,17 +385,8 @@ static void t3_child_loop(uint8_t *base,
         exit(1);
     }
 
-#if SELECTED_TEST == TEST_T3
+    /* The parent owns the per-CPU PMU window used by T3. */
     pmu_cleanup();
-    printf("# PMU note: T3 PMU is split across parent-train and child-trigger windows\n");
-    pmu_ready = (pmu_setup() == 0);
-    if (!pmu_ready) {
-        printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
-    } else {
-        pmu_reset_accumulated();
-    }
-#endif
-
     warm_lines(base);
     write_exact(to_parent, &ready, sizeof(ready));
 
@@ -414,25 +398,28 @@ static void t3_child_loop(uint8_t *base,
 
         read_exact(from_parent, &cmd, sizeof(cmd));
         if (cmd == 'Q') {
-#if SELECTED_TEST == TEST_T3
-            if (pmu_ready) {
-                pmu_print_accumulated(ROUNDS);
-            }
-            pmu_cleanup();
-#endif
             return;
+        }
+        if (cmd == 'F') {
+            uint8_t flushed = 'F';
+
+            flush_lines(base);
+            mfence();
+            write_exact(to_parent, &flushed, sizeof(flushed));
+            continue;
         }
         if (cmd != 'T') {
             fprintf(stderr, "unexpected T3 child command: %u\n", cmd);
             exit(1);
         }
 
-        flush_lines(base);
-        int pmu_running = start_train_trigger_pmu();
         trigger_access(base, stride, trigger_mode);
-        stop_train_trigger_pmu(pmu_running);
-        // delay_after_trigger();
         wait_after_trigger_access();
+
+        {
+            uint8_t triggered = 'D';
+            write_exact(to_parent, &triggered, sizeof(triggered));
+        }
 
         read_exact(from_parent, &probe_pos, sizeof(probe_pos));
         probe_addr = base + ((uint64_t)probe_pos * LINE_SIZE);
@@ -488,21 +475,48 @@ static uint64_t run_same_va_different_pa_case(uint8_t *parent_base,
         exit(1);
     }
 
+    pmu_cleanup();
+    printf("# PMU note: T3 uses one per-CPU window across parent train and child trigger\n");
+    pmu_ready = (pmu_setup_cpu(CPU_ID) == 0);
+    if (!pmu_ready) {
+        printf("# PMU unavailable: per-CPU access failed; check perf_event permissions or PMU_DEVICE\n");
+    } else {
+        pmu_reset_accumulated();
+    }
+
     for (uint64_t round = 0; round < ROUNDS; round++) {
-        reset_prefetcher_context();
-        uint8_t cmd = 'T';
+        uint8_t cmd = 'F';
+        uint8_t child_status;
         int probe_pos = (int)((round * 73) % PROBE_POSITIONS);
         uint64_t latency;
 
-        // dummyAccesses();
-        occupy_store_prefetcher_entries(dummy_buffer,
-                                        DUMMY_BUFFER_SIZE / PAGE_SIZE, 6);
+        /* Flush the child PA before opening the continuous PMU window. */
+        write_exact(parent_to_child[1], &cmd, sizeof(cmd));
+        read_exact(child_to_parent[0], &child_status, sizeof(child_status));
+        if (child_status != 'F') {
+            fprintf(stderr, "T3 child failed to flush trigger mapping\n");
+            exit(1);
+        }
+
+        dummyAccesses();
+        occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+                                        DUMMY_BUFFER_PAGES, 1);
         flush_lines(parent_base);
+        mfence();
+
         int pmu_running = start_train_trigger_pmu();
+        reset_prefetcher_context();
         train_noinline(parent_base, stride);
+
+        cmd = 'T';
+        write_exact(parent_to_child[1], &cmd, sizeof(cmd));
+        read_exact(child_to_parent[0], &child_status, sizeof(child_status));
+        if (child_status != 'D') {
+            fprintf(stderr, "T3 child failed to complete trigger and wait\n");
+            exit(1);
+        }
         stop_train_trigger_pmu(pmu_running);
 
-        write_exact(parent_to_child[1], &cmd, sizeof(cmd));
         write_exact(parent_to_child[1], &probe_pos, sizeof(probe_pos));
         read_exact(child_to_parent[0], &latency, sizeof(latency));
 
@@ -525,85 +539,6 @@ static uint64_t run_same_va_different_pa_case(uint8_t *parent_base,
         waitpid(pid, &status, 0);
     }
 
-    return latency_sum[predicted_position] / probe_count[predicted_position];
-}
-
-static uint64_t run_same_process_remap_case(uint8_t *reserved_base,
-                                            int trigger_mode,
-                                            int stride) {
-    uintptr_t fixed_va = (uintptr_t)reserved_base;
-    int predicted_position = (TRAIN_STEP * stride) / LINE_SIZE;
-    int train_fd;
-    int trigger_fd;
-    uint8_t *train_keeper;
-    uint8_t *trigger_keeper;
-    uint64_t latency_sum[PROBE_POSITIONS] = {0};
-    uint64_t probe_count[PROBE_POSITIONS] = {0};
-
-    if (predicted_position < 0 || predicted_position >= PROBE_POSITIONS) {
-        fprintf(stderr, "T5 predicted position exceeds PROBE_POSITIONS\n");
-        exit(1);
-    }
-
-    train_fd = create_memfd_object();
-    trigger_fd = create_memfd_object();
-    train_keeper = map_shared_anywhere(train_fd);
-    trigger_keeper = map_shared_anywhere(trigger_fd);
-    memset(train_keeper, -1, SHARED_BYTES);
-    memset(trigger_keeper, -1, SHARED_BYTES);
-    warm_lines(train_keeper);
-    warm_lines(trigger_keeper);
-
-    if (munmap(reserved_base, SHARED_BYTES) != 0) {
-        die("munmap T5 reserved VA");
-    }
-
-    for (uint64_t round = 0; round < ROUNDS; round++) {
-        reset_prefetcher_context();
-        int probe_pos = (int)((round * 73) % PROBE_POSITIONS);
-        uint8_t *active;
-        volatile uint8_t *probe_addr;
-
-        // dummyAccesses();
-        occupy_store_prefetcher_entries(dummy_buffer,
-                                        DUMMY_BUFFER_SIZE / PAGE_SIZE, 6);
-
-        flush_lines(train_keeper);
-        flush_lines(trigger_keeper);
-
-        active = map_shared_at(fixed_va, train_fd);
-        int pmu_running = start_train_trigger_pmu();
-        train_noinline(active, stride);
-        stop_train_trigger_pmu(pmu_running);
-        if (munmap(active, SHARED_BYTES) != 0) {
-            die("munmap T5 train mapping");
-        }
-
-        active = map_shared_at(fixed_va, trigger_fd);
-        pmu_running = start_train_trigger_pmu();
-        trigger_access(active, stride, trigger_mode);
-        stop_train_trigger_pmu(pmu_running);
-        // delay_after_trigger();
-
-        wait_after_trigger_access();
-
-        probe_addr = active + ((uint64_t)probe_pos * LINE_SIZE);
-        latency_sum[probe_pos] += probe_latency(probe_addr);
-        probe_count[probe_pos]++;
-        if (munmap(active, SHARED_BYTES) != 0) {
-            die("munmap T5 trigger mapping");
-        }
-    }
-
-    munmap(trigger_keeper, SHARED_BYTES);
-    munmap(train_keeper, SHARED_BYTES);
-    close(trigger_fd);
-    close(train_fd);
-
-    if (probe_count[predicted_position] == 0) {
-        fprintf(stderr, "T5 predicted position was not probed\n");
-        exit(1);
-    }
     return latency_sum[predicted_position] / probe_count[predicted_position];
 }
 
@@ -665,6 +600,14 @@ int main(void) {
         die("mmap dummy_buffer");
     }
 
+    prefetcher_fill_buffer = mmap(NULL, DUMMY_BUFFER_SIZE,
+                                  PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
+                                  -1, 0);
+    if (prefetcher_fill_buffer == MAP_FAILED) {
+        die("mmap prefetcher_fill_buffer");
+    }
+
     warm_lines(array2);
     warm_lines(shared_a);
     warm_lines(shared_b);
@@ -677,9 +620,9 @@ int main(void) {
 
     printf("# arm64 store-stride index-mode test based on test0-exist\n");
     printf("# SELECTED_TEST=%d\n", SELECTED_TEST);
-    printf("# TRAIN_STEP=%d STRIDE_BYTES=%d ROUNDS=%d PROBE_POSITIONS=%d REPEAT=%d CPU_ID=%d ENABLE_CPP_RCTX=%d TRAIN_ACCESS_LOAD=%d\n",
+    printf("# TRAIN_STEP=%d STRIDE_BYTES=%d ROUNDS=%d PROBE_POSITIONS=%d REPEAT=%d CPU_ID=%d ENABLE_CPP_RCTX=%d TRAIN_ACCESS_LOAD=%d DUMMY_BUFFER_PAGES=%d\n",
            TRAIN_STEP, STRIDE_BYTES, ROUNDS, PROBE_POSITIONS, REPEAT, CPU_ID,
-           ENABLE_CPP_RCTX, TRAIN_ACCESS_LOAD);
+           ENABLE_CPP_RCTX, TRAIN_ACCESS_LOAD, DUMMY_BUFFER_PAGES);
     printf("# train: m%s_noinline offsets 0..%d * stride\n",
 #if TRAIN_ACCESS_LOAD
            "Load",
@@ -696,16 +639,19 @@ int main(void) {
     printf("# T3 uses parent/child anonymous mappings at one fixed VA: same VA, different PA, cross-process\n");
     printf("# T3_va=%p\n", t3_parent_va);
     printf("# T4 uses two mappings of one shared object and an inline trigger: different PC/VA, same PA\n");
-    printf("# T5 remaps one fixed VA between two resident memfd objects: same PC/VA, different PA, same process\n");
-    printf("# T6 uses the same-process remap with an inline trigger: different PC, same VA, different PA\n");
     printf("id\tdescription\tPC\tVA\tPA\tavg_%s\n", TIMESTAMP_UNIT_NAME);
 
+#if SELECTED_TEST == TEST_T3
+    /* T3 opens one per-CPU event after the child is ready. */
+    pmu_ready = 0;
+#else
     pmu_ready = (pmu_setup() == 0);
     if (!pmu_ready) {
         printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
     } else {
         pmu_reset_accumulated();
     }
+#endif
     fflush(stdout);
 
     switch (SELECTED_TEST) {
@@ -762,26 +708,6 @@ int main(void) {
         pa = "same";
         latency = run_case(shared_a, shared_b, shared_a, shared_b,
                            TRIGGER_INLINE, stride);
-        break;
-    case TEST_T5:
-        test_id = "T5";
-        description = "same_process_same_pc_va_different_pa";
-        pc = "same";
-        va = "same";
-        pa = "different";
-        latency = run_same_process_remap_case(t3_parent_va,
-                                              TRIGGER_NOINLINE, stride);
-        t3_parent_va = NULL;
-        break;
-    case TEST_T6:
-        test_id = "T6";
-        description = "same_process_different_pc_same_va_different_pa";
-        pc = "different";
-        va = "same";
-        pa = "different";
-        latency = run_same_process_remap_case(t3_parent_va,
-                                              TRIGGER_INLINE, stride);
-        t3_parent_va = NULL;
         break;
     default:
         fprintf(stderr, "unknown SELECTED_TEST=%d\n", SELECTED_TEST);

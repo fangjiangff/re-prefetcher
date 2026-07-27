@@ -18,7 +18,7 @@ OUT = os.path.join(ROOT_DIR, "bin", "test0-exist")
 
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_TRAIN_STEP = 3
-DEFAULT_ROUNDS = 40000
+DEFAULT_ROUNDS = 400
 DEFAULT_PROBE_POSITIONS = 100
 GREEN = "\033[32m"
 RED = "\033[31m"
@@ -436,6 +436,7 @@ def compile_test(train_step, arch):
         f"-DSTRIDE_BYTES={args.stride * 64}",
         f"-DTRAIN_STEP={train_step}",
         f"-DROUNDS={args.rounds}",
+        "-DENABLE_PROBE=1",
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DSINGLE_PROBE={1 if args.probe_mode == 'single' else 0}",
         f"-DSINGLE_PROBE_POSITION={single_probe_position(train_step)}",

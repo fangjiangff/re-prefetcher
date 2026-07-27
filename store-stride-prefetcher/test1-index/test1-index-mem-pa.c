@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 #include "../until.h"
 
@@ -40,6 +41,32 @@
 
 #ifndef DUMMY_BUFFER_PAGES
 #define DUMMY_BUFFER_PAGES 10
+#endif
+
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
+#ifndef ENABLE_PMU
+#define ENABLE_PMU 0
+#endif
+
+#ifndef ENABLE_PROBE
+#define ENABLE_PROBE 1
+#endif
+
+#if ENABLE_PMU
+#ifndef PMU_WINDOW_NAME
+#define PMU_WINDOW_NAME "train-trigger-wait-per-round"
+#endif
+#ifndef PMU_CORE_X925
+#define PMU_CORE_X925 ENABLE_CPP_RCTX
+#endif
+#ifndef PMU_CORE_A55
+#define PMU_CORE_A55 0
+#endif
+#include "../pmu.h"
+static int index_mem_pa_pmu_ready;
 #endif
 
 #define ALIAS_SIZE PAGE_SIZE
@@ -145,7 +172,13 @@ __attribute__((noinline)) static void run_trigger(uint8_t *va2) {
     nops();
 }
 
-static void run_case(const char *result_name,
+static void wait_after_trigger_access(void) {
+    nops();
+    struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 100};
+    nanosleep(&prefetch_wait, NULL);
+}
+
+static void run_case_old(const char *result_name,
                      const char *detail_name,
                      uint8_t *va1,
                      uint8_t *va2,
@@ -197,6 +230,101 @@ static void run_case(const char *result_name,
                                            (uint64_t)probe_count[PREDICTED_POS]);
     }
     printf("%s\t%lu\n", result_name, predicted_avg_ns);
+}
+
+static void run_case(const char *result_name,
+                     const char *detail_name,
+                     uint8_t *va1,
+                     uint8_t *va2,
+                     uint64_t rounds,
+                     int enable_trainer,
+                     int enable_trigger) {
+#if ENABLE_PROBE
+    uint64_t latency_sum[PROBE_POSITIONS] = {0};
+    int probe_count[PROBE_POSITIONS] = {0};
+#else
+    (void)detail_name;
+#endif
+
+#if ENABLE_PMU
+    if (index_mem_pa_pmu_ready) {
+        pmu_reset_accumulated();
+    }
+#endif
+
+    for (uint64_t round = 0; round < rounds; round++) {
+        dummyAccesses();
+        occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
+        flush_pages(va1, va2);
+        mfence();
+
+#if ENABLE_PMU
+        int pmu_running = 0;
+        if (index_mem_pa_pmu_ready) {
+            pmu_running = (pmu_start() == 0);
+            if (!pmu_running) {
+                printf("# PMU unavailable: counter group could not be started\n");
+                index_mem_pa_pmu_ready = 0;
+            }
+        }
+#endif
+
+#if ENABLE_CPP_RCTX
+        cpp_rctx();
+#endif
+
+        if (enable_trainer) {
+            run_trainer(va1);
+        }
+        if (enable_trigger) {
+            run_trigger(va2);
+        }
+        wait_after_trigger_access();
+
+#if ENABLE_PMU
+        if (pmu_running) {
+            pmu_stop_and_accumulate();
+        }
+#endif
+
+#if ENABLE_PROBE
+        int probe_pos = (int)(round % PROBE_POSITIONS);
+        latency_sum[probe_pos] += probe_latency(va2 + probe_pos * LINE_SIZE);
+        probe_count[probe_pos]++;
+#endif
+    }
+
+#if ENABLE_PROBE
+    for (int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
+        unsigned long avg_ns = 0;
+        if (probe_count[probe_pos] > 0) {
+            avg_ns = (unsigned long)(latency_sum[probe_pos] /
+                                     (uint64_t)probe_count[probe_pos]);
+        }
+        printf("# probe_detail\t%s\t%d\t%d\t%lu\t%d\n",
+               detail_name,
+               probe_pos,
+               probe_pos * LINE_SIZE,
+               avg_ns,
+               probe_count[probe_pos]);
+    }
+
+    unsigned long predicted_avg_ns = 0;
+    if (PREDICTED_POS < PROBE_POSITIONS && probe_count[PREDICTED_POS] > 0) {
+        predicted_avg_ns = (unsigned long)(latency_sum[PREDICTED_POS] /
+                                           (uint64_t)probe_count[PREDICTED_POS]);
+    }
+    printf("%s\t%lu\n", result_name, predicted_avg_ns);
+#else
+    printf("%s\t-1\n", result_name);
+#endif
+
+#if ENABLE_PMU
+    printf("# PMU_CASE %s\n", result_name);
+    if (index_mem_pa_pmu_ready) {
+        pmu_print_accumulated(rounds);
+    }
+#endif
 }
 
 static int compare_page_pa(const void *left, const void *right) {
@@ -370,6 +498,11 @@ int main(void) {
         fprintf(stderr, "PA diff bit range must be within [12, 62]\n");
         return 1;
     }
+    if ((TRIGGER_POS + 1) * LINE_SIZE > ALIAS_SIZE) {
+        fprintf(stderr, "trigger position exceeds one page\n");
+        return 1;
+    }
+#if ENABLE_PROBE
     if (PREDICTED_POS >= PROBE_POSITIONS) {
         fprintf(stderr,
                 "predicted probe position %d must be inside PROBE_POSITIONS=%d\n",
@@ -381,6 +514,7 @@ int main(void) {
         fprintf(stderr, "predicted probe position exceeds one page\n");
         return 1;
     }
+#endif
 
     dummy_buffer = mmap(NULL, DUMMY_BUFFER_SIZE, PROT_READ | PROT_WRITE,
                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
@@ -407,6 +541,11 @@ int main(void) {
            ROUNDS,
            PROBE_POSITIONS);
     printf("# pair condition: PA1 ^ PA2 == (1 << diff_bit), with identical page offset\n");
+    printf("# ENABLE_PMU=%d ENABLE_PROBE=%d ENABLE_CPP_RCTX=%d\n",
+           ENABLE_PMU, ENABLE_PROBE, ENABLE_CPP_RCTX);
+#if !ENABLE_PROBE
+    printf("# probe disabled: no cache-line probe accesses or latency details\n");
+#endif
     printf("# trainer: PA1 + [0..%d]*%d*LINE_SIZE, trigger: PA2 + %d*LINE_SIZE, final: PA2 + %d*LINE_SIZE\n",
            TRAIN_ONLY_ACCESSES - 1,
            STRIDE_LINES,
@@ -429,11 +568,21 @@ int main(void) {
     }
     printf("# valid_pages=%d\n", valid_pages);
 
+#if ENABLE_PMU
+    index_mem_pa_pmu_ready = (pmu_setup() == 0);
+    if (!index_mem_pa_pmu_ready) {
+        printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
+    }
+#endif
+
     run_same_pa_baselines(ROUNDS);
     for (int bit = MIN_DIFF_BIT; bit <= MAX_DIFF_BIT; bit++) {
         run_bit(bit, ROUNDS);
     }
 
+#if ENABLE_PMU
+    pmu_cleanup();
+#endif
     if (pagemap_fd >= 0) {
         close(pagemap_fd);
     }

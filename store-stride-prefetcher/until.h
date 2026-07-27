@@ -218,7 +218,11 @@ void occupy_store_prefetcher_entries(uint8_t *buffer, size_t pages,
         uint8_t *page_base = buffer + page * PAGE_SIZE;
 
         for (size_t line = 0; line < lines_per_page; line++) {
+#if defined(TRAIN_ACCESS_LOAD) && TRAIN_ACCESS_LOAD
+            mLoad_inline(page_base + line * LINE_SIZE);
+#else
             mStore_inline(page_base + line * LINE_SIZE);
+#endif
         }
     }
 

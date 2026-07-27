@@ -50,6 +50,10 @@
 #define SINGLE_PROBE_POSITION (TRAIN_STEP * (STRIDE_BYTES / LINE_SIZE))
 #endif
 
+#ifndef ENABLE_PROBE
+#define ENABLE_PROBE 1
+#endif
+
 #if SINGLE_PROBE && (SINGLE_PROBE_POSITION < 0 || SINGLE_PROBE_POSITION >= PROBE_POSITIONS)
 #error "SINGLE_PROBE_POSITION must be inside PROBE_POSITIONS"
 #endif
@@ -161,19 +165,22 @@ int main(){
 
           for(uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
 
-// #if ENABLE_DUMMY_ACCESSES
-//             dummyAccesses();
-// #endif
+#if ENABLE_DUMMY_ACCESSES
+            dummyAccesses();
+#endif
 // #if ENABLE_DUMMY_ACCESSES && !ENABLE_CPP_RCTX
             occupy_store_prefetcher_entries(prefetcher_fill_buffer,
                                             DUMMY_BUFFER_PAGES, 1);
+            //  occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+            //                                 10, 6);
 // #endif
             for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
                   flush(&array2[offset]);
             }
 
             mfence();
-            
+
+   
             int pmu_running = 0;
             if (pmu_ready) {
                 pmu_running = (pmu_start() == 0);
@@ -185,7 +192,7 @@ int main(){
             // reset prefetcher state
 #if ENABLE_CPP_RCTX
             cpp_rctx();
-#endif
+#endif        
     
             // begin to trainer the store stride prefetch
             for(int step = 0; step < train_step-1; step++){
@@ -206,11 +213,12 @@ int main(){
                 stride_access(array2 + ((train_step - 1) * stride));
                 // mLoad_inline(array2 + ((train_step - 1) * stride));
                 nops();
+                // mfence();
             }
 #endif
             //wait
             nops();
-            struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 100};
+            struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 1000};
             nanosleep(&prefetch_wait, NULL);
 
             if (pmu_running) {
@@ -219,6 +227,7 @@ int main(){
 
             // mfence();
 
+#if ENABLE_PROBE
 #if SINGLE_PROBE
             int probe_pos = SINGLE_PROBE_POSITION;
 #else
@@ -232,12 +241,13 @@ int main(){
 
             latency_sum[probe_pos] += time2;
             probe_count[probe_pos]++;
-            // printf("%llu\n", (unsigned long long)time2);
+#endif
           }
           if (pmu_ready) {
               pmu_print_accumulated(rounds);
           }
           pmu_cleanup();
+#if ENABLE_PROBE
 #if SINGLE_PROBE
           int first_probe_pos = SINGLE_PROBE_POSITION;
           int last_probe_pos = SINGLE_PROBE_POSITION + 1;
@@ -256,6 +266,7 @@ int main(){
                      avg_ns,
                      probe_count[probe_pos]);
           }
+#endif
     //   }
       printf("\n");
 //   }

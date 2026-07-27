@@ -21,6 +21,10 @@
 #define ROUNDS 4000
 #endif
 
+#ifndef DUMMY_BUFFER_PAGES
+#define DUMMY_BUFFER_PAGES 64
+#endif
+
 #ifndef PROBE_POSITIONS
 #define PROBE_POSITIONS 100
 #endif
@@ -128,6 +132,18 @@ static void start_trigger_thread(pthread_t *thread, int train_step, int stride) 
     }
 }
 
+#define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
+#define PREFETCHER_FILL_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
+
+static uint8_t* dummy_buffer;
+static uint8_t* prefetcher_fill_buffer;
+
+void dummyAccesses(void){
+    for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+     }
+}
+
 static void request_thread_trigger(void) {
     pthread_mutex_lock(&trigger_mutex);
     trigger_state = 1;
@@ -166,6 +182,20 @@ int main(int argc, char **argv) {
         perror("mlock array2");
     }
 
+    dummy_buffer = (uint8_t*)mmap(NULL, DUMMY_BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
+    if(dummy_buffer == MAP_FAILED) {
+        printf("failed to map memory to access!\n");
+        exit(1);
+    }
+    // mfence();
+
+    prefetcher_fill_buffer = (uint8_t*)mmap(NULL, PREFETCHER_FILL_BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
+    if(prefetcher_fill_buffer == MAP_FAILED) {
+        printf("failed to map prefetcher fill buffer!\n");
+        exit(1);
+    }
+
+
     uint64_t rounds = ROUNDS;
     int stride = STRIDE_BYTES;
     int train_step = TRAIN_STEP;
@@ -180,11 +210,20 @@ int main(int argc, char **argv) {
     }
 
     for (uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
-        cpp_rctx();
+
+
+
+    dummyAccesses();
+
+// #if ENABLE_DUMMY_ACCESSES && !ENABLE_CPP_RCTX
+        occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+                                            DUMMY_BUFFER_PAGES, 1);
 
         for (uint64_t offset = 0; offset < Items * LINE_SIZE; offset += LINE_SIZE) {
             flush(&array2[offset]);
         }
+        mfence();
+        cpp_rctx();
 
         for (int step = 0; step < train_step - 1; step++) {
             train_access(array2 + (step * stride));
@@ -199,7 +238,11 @@ int main(int argc, char **argv) {
         } else {
             trigger_access(train_step, stride);
         }
+        nops();
 #endif
+
+        struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 100};
+        nanosleep(&prefetch_wait, NULL);
 
         int probe_pos = (atkRound * 13) % PROBE_POSITIONS;
         probe_addr = array2 + (probe_pos * LINE_SIZE);

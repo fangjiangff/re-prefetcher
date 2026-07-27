@@ -1,6 +1,7 @@
 import argparse
 import csv
 import os
+import re
 import subprocess
 import sys
 import math
@@ -29,10 +30,14 @@ DEFAULT_BUDDY_MB = 64
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_MIN_DIFF_BIT = 12
 DEFAULT_MAX_DIFF_BIT = 47
-DEFAULT_ROUNDS = 40000
+DEFAULT_ROUNDS = 400
 DEFAULT_PROBE_POSITIONS = 64
 RESULT_DIR = os.path.join(ROOT_DIR, "res", "index-mem-pa-xor")
 PLOT_DIR = os.path.join(ROOT_DIR, "res", "barplots")
+PMU_COUNTER_NAME = "l2d_cache_hwprf"
+PMU_RE = re.compile(
+    r"^# PMU\s+(\S+)\s+.*\bper_round=([0-9]+(?:\.[0-9]+)?)"
+)
 
 
 def compile_test(args):
@@ -51,6 +56,11 @@ def compile_test(args):
         f"-DMAX_DIFF_BIT={args.max_diff_bit}",
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
+        f"-DENABLE_PMU={args.enable_pmu}",
+        f"-DENABLE_PROBE={args.enable_probe}",
+        f"-DPMU_CORE_X925={1 if args.arch == 'X925' else 0}",
+        f"-DPMU_CORE_A55={1 if args.arch == 'A55' else 0}",
         "-o",
         OUT,
         SRC,
@@ -61,7 +71,10 @@ def compile_test(args):
 
 def run_test(args):
     run_cmd = ["taskset", "-c", str(args.core), OUT]
-    return subprocess.run(run_cmd, capture_output=True, text=True)
+    env = os.environ.copy()
+    if args.pmu_device:
+        env["PMU_DEVICE"] = args.pmu_device
+    return subprocess.run(run_cmd, capture_output=True, text=True, env=env)
 
 
 def micro_arch_name(args):
@@ -69,6 +82,7 @@ def micro_arch_name(args):
         f"{args.arch}-core{args.core}-index-mem-pa-xor"
         f"-stride{args.stride}-accesses{args.accesses}"
         f"-probe{args.probe_positions}"
+        f"-pmu{args.enable_pmu}-probe-enabled{args.enable_probe}"
         f"-bits{args.min_diff_bit}-{args.max_diff_bit}"
         f"-buddy{args.buddy_mb}MB"
     )
@@ -92,6 +106,14 @@ def plot_path(args):
     return os.path.join(PLOT_DIR, f"{micro_arch_name(args)}.png")
 
 
+def pmu_plot_path(args):
+    if args.pmu_plot_output:
+        return args.pmu_plot_output
+    return os.path.join(
+        PLOT_DIR, f"{micro_arch_name(args)}-{PMU_COUNTER_NAME}.png"
+    )
+
+
 def ensure_parent(path):
     parent = os.path.dirname(path)
     if parent:
@@ -109,27 +131,45 @@ def require_sudo():
 
 def parse_result(output):
     rows = []
+    rows_by_case = {}
+    current_pmu_case = None
 
     for line in output.splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        if not stripped:
+            continue
+        if stripped.startswith("# PMU_CASE "):
+            current_pmu_case = stripped.split(None, 2)[2]
+            continue
+        match = PMU_RE.match(stripped)
+        if match:
+            if current_pmu_case not in rows_by_case:
+                raise ValueError(
+                    f"PMU counter appears before result for {current_pmu_case}"
+                )
+            rows_by_case[current_pmu_case]["pmu"][match.group(1)] = float(
+                match.group(2)
+            )
+            continue
+        if stripped.startswith("#"):
             continue
 
         parts = stripped.split()
         if not parts or parts[0] == "case":
             continue
-
         if len(parts) != 2:
             raise ValueError(f"unexpected result row: {line}")
 
-        rows.append({
+        row = {
             "case": parts[0],
             "latency_ns": int(parts[1]),
-        })
+            "pmu": {},
+        }
+        rows.append(row)
+        rows_by_case[row["case"]] = row
 
     if not rows:
         raise ValueError("no result data found")
-
     return rows
 
 
@@ -145,24 +185,43 @@ def classify_rows(rows, threshold_ns):
 
 
 def write_tsv(path, rows):
+    counter_names = sorted({name for row in rows for name in row["pmu"]})
+    fieldnames = [
+        "case",
+        "latency_ns",
+        "prefetched",
+        "threshold_ns",
+    ] + counter_names
     ensure_parent(path)
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=["case", "latency_ns", "prefetched", "threshold_ns"],
-            delimiter="\t",
-        )
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter="\t")
         writer.writeheader()
-        writer.writerows(rows)
+        for row in rows:
+            flat = {
+                "case": row["case"],
+                "latency_ns": row["latency_ns"],
+                "prefetched": row["prefetched"],
+                "threshold_ns": row["threshold_ns"],
+            }
+            flat.update(row["pmu"])
+            writer.writerow(flat)
 
 
 def read_tsv(path):
     with open(path, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         rows = []
-        for row in reader:
-            row["latency_ns"] = int(row["latency_ns"])
-            row["threshold_ns"] = int(row["threshold_ns"])
+        for flat in reader:
+            row = {
+                "case": flat["case"],
+                "latency_ns": int(flat["latency_ns"]),
+                "prefetched": flat["prefetched"],
+                "threshold_ns": int(flat["threshold_ns"]),
+                "pmu": {},
+            }
+            for name, value in flat.items():
+                if name not in {"case", "latency_ns", "prefetched", "threshold_ns"} and value:
+                    row["pmu"][name] = float(value)
             rows.append(row)
     if not rows:
         raise ValueError("no TSV rows found")
@@ -320,6 +379,119 @@ def plot_result(path, rows, title, threshold_ns, vmin=None, vmax=None):
     return [paths["single"], paths["pairwise"], paths["targeted"]]
 
 
+def plot_pmu_line(path, rows, title, xlabel):
+    ensure_parent(path)
+    labels = [row["case"] for row in rows]
+    values = [
+        row["pmu"].get(PMU_COUNTER_NAME, math.nan)
+        for row in rows
+    ]
+    valid_values = [value for value in values if not math.isnan(value)]
+    vmax = max(valid_values) * 1.12 if valid_values else 1.0
+    if vmax <= 0:
+        vmax = 1.0
+
+    width = max(10.5, min(42.0, 0.24 * len(rows) + 3.0))
+    fig, ax = plt.subplots(figsize=(width, 5.2))
+    ax.plot(
+        range(len(rows)),
+        values,
+        color="#0072B2",
+        marker="o",
+        linewidth=1.5,
+        markersize=3.5,
+    )
+    ax.set_title(title, loc="left", pad=8)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(f"{PMU_COUNTER_NAME} / round")
+    ax.set_xticks(range(len(rows)))
+    ax.set_xticklabels(labels, rotation=65, ha="right", fontsize=7)
+    ax.set_ylim(0, vmax)
+    ax.grid(axis="y", alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(path, dpi=300)
+    plt.close(fig)
+
+
+def plot_pmu_pairwise_heatmap(path, rows, title, bit_min=13, bit_max=33):
+    ensure_parent(path)
+    bits = list(range(bit_min, bit_max + 1))
+    index = {bit: pos for pos, bit in enumerate(bits)}
+    matrix = [[math.nan for _ in bits] for _ in bits]
+
+    for row in rows:
+        parsed = parse_pairwise_case(row["case"])
+        value = row["pmu"].get(PMU_COUNTER_NAME)
+        if not parsed or value is None:
+            continue
+        bit_a, bit_b = parsed
+        if bit_a not in index or bit_b not in index:
+            continue
+        upper = index[min(bit_a, bit_b)]
+        lower = index[max(bit_a, bit_b)]
+        matrix[lower][upper] = value
+
+    values = [value for line in matrix for value in line if not math.isnan(value)]
+    vmax = max(values) * 1.05 if values else 1.0
+    if vmax <= 0:
+        vmax = 1.0
+    fig, ax = plt.subplots(figsize=(9.5, 8.5))
+    cmap = plt.get_cmap("viridis_r").copy()
+    cmap.set_bad(color="#E6E8EB")
+    image = ax.imshow(matrix, cmap=cmap, vmin=0, vmax=vmax)
+    ax.set_title(title + " (lower triangle)", loc="left", pad=10, fontsize=16)
+    ax.set_xlabel("PA bit", fontsize=14)
+    ax.set_ylabel("PA bit", fontsize=14)
+    ax.set_xticks(range(len(bits)))
+    ax.set_yticks(range(len(bits)))
+    ax.set_xticklabels(bits, rotation=90, fontsize=11)
+    ax.set_yticklabels(bits, fontsize=11)
+    ax.tick_params(axis="both", which="major", length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    cbar = fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label(f"{PMU_COUNTER_NAME} / round", fontsize=13)
+    cbar.ax.tick_params(labelsize=11)
+    fig.tight_layout()
+    fig.savefig(path, dpi=300)
+    plt.close(fig)
+
+
+def plot_pmu_result(path, rows, title):
+    if not any(PMU_COUNTER_NAME in row["pmu"] for row in rows):
+        raise ValueError(f"PMU counter {PMU_COUNTER_NAME} is unavailable")
+
+    paths = split_plot_paths(path)
+    baseline_rows = [row for row in rows if row["case"].startswith("same_pa_")]
+    single_rows = [
+        row for row in rows if parse_single_bit_case(row["case"]) is not None
+    ]
+    single_rows.sort(key=lambda row: parse_single_bit_case(row["case"]))
+    pairwise_rows = [
+        row for row in rows if parse_pairwise_case(row["case"]) is not None
+    ]
+    targeted_rows = [row for row in rows if is_targeted_case(row["case"])]
+
+    plot_pmu_line(
+        paths["single"],
+        baseline_rows + single_rows,
+        f"{title}: single-bit controls",
+        "baseline / flipped PA bit",
+    )
+    plot_pmu_pairwise_heatmap(
+        paths["pairwise"],
+        pairwise_rows,
+        f"{title}: pairwise PA bit flips (13..33)",
+    )
+    plot_pmu_line(
+        paths["targeted"],
+        targeted_rows,
+        f"{title}: triple and pairpair targeted masks",
+        "targeted mask case",
+    )
+    return [paths["single"], paths["pairwise"], paths["targeted"]]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Test whether PA bit xor masks preserve store-stride prefetcher indexing."
@@ -340,12 +512,20 @@ def main():
     parser.add_argument("--probe-positions", type=int,
                         default=DEFAULT_PROBE_POSITIONS,
                         help=f"Number of cache-line positions to probe. Default: {DEFAULT_PROBE_POSITIONS}")
+    parser.add_argument("--enable-pmu", type=int, choices=[0, 1], default=0,
+                        help="Compile with -DENABLE_PMU. Default: 0")
+    parser.add_argument("--enable-probe", type=int, choices=[0, 1], default=None,
+                        help="Compile with -DENABLE_PROBE. Default: 0 when "
+                             "PMU is enabled, otherwise 1.")
+    parser.add_argument("--pmu-device", default=None,
+                        help="Override PMU_DEVICE for pmu.h raw-event fallback.")
     parser.add_argument("--threshold-ns", type=int, default=None,
                         help="Latency threshold for prefetched=yes. Default comes from --arch.")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"))
     parser.add_argument("--output", default=None)
     parser.add_argument("--raw-output", default=None)
     parser.add_argument("--plot-output", default=None)
+    parser.add_argument("--pmu-plot-output", default=None)
     parser.add_argument("--input-tsv", default=None,
                         help="Read an existing TSV and only regenerate plots.")
     parser.add_argument("--plot-vmin", type=float, default=None)
@@ -354,6 +534,8 @@ def main():
     parser.add_argument("--no-compile", action="store_true")
     args = parser.parse_args()
     args.access = "store"
+    if args.enable_probe is None:
+        args.enable_probe = 0 if args.enable_pmu else 1
 
     if args.input_tsv:
         apply_single_core_defaults(args)
@@ -367,16 +549,29 @@ def main():
         if threshold_ns < 1:
             parser.error("--threshold-ns must be provided when TSV has no valid threshold")
         plot_title = f"{args.arch}: PA xor-index contribution"
-        paths = plot_result(
-            plot_path(args),
-            rows,
-            plot_title,
-            threshold_ns,
-            vmin=args.plot_vmin,
-            vmax=args.plot_vmax,
-        )
-        for path in paths:
-            print(f"Saved plot to {path}")
+        if not args.no_plot and args.enable_pmu:
+            try:
+                paths = plot_pmu_result(
+                    pmu_plot_path(args),
+                    rows,
+                    f"{plot_title}: {PMU_COUNTER_NAME}",
+                )
+            except ValueError as exc:
+                print(f"PMU plot failed: {exc}", file=sys.stderr)
+                return 1
+            for path in paths:
+                print(f"Saved PMU plot to {path}")
+        if not args.no_plot and args.enable_probe:
+            paths = plot_result(
+                plot_path(args),
+                rows,
+                plot_title,
+                threshold_ns,
+                vmin=args.plot_vmin,
+                vmax=args.plot_vmax,
+            )
+            for path in paths:
+                print(f"Saved plot to {path}")
         return 0
 
     sudo_error = require_sudo()
@@ -405,10 +600,12 @@ def main():
         parser.error("--probe-positions must be >= 1")
     predicted_pos = args.accesses * args.stride
     trigger_pos = (args.accesses - 1) * args.stride
-    if predicted_pos >= args.probe_positions:
+    if (trigger_pos + 1) * 64 > 4096:
+        parser.error("trigger position must fit inside one 4 KiB page")
+    if args.enable_probe and predicted_pos >= args.probe_positions:
         parser.error("predicted position accesses * stride must be inside probe positions")
-    if (predicted_pos + 1) * 64 > 4096:
-        parser.error("predicted position must fit inside one 4 KiB alias page")
+    if args.enable_probe and (predicted_pos + 1) * 64 > 4096:
+        parser.error("predicted position must fit inside one 4 KiB page")
     if args.threshold_ns < 1:
         parser.error("--threshold-ns must be >= 1")
 
@@ -417,7 +614,8 @@ def main():
         f"stride={args.stride}, accesses={args.accesses}, "
         f"train_pos=0..{trigger_pos - args.stride}, "
         f"trigger_pos={trigger_pos}, predicted_pos={predicted_pos}, "
-        f"rounds={args.rounds}, "
+        f"rounds={args.rounds}, enable_pmu={args.enable_pmu}, "
+        f"enable_probe={args.enable_probe}, "
         f"probe_positions={args.probe_positions}, threshold={args.threshold_ns} ns"
     )
 
@@ -456,7 +654,21 @@ def main():
     print(f"Saved raw output to {raw_result_path}")
     print(f"Saved TSV to {tsv_result_path}")
 
-    if not args.no_plot:
+    if not args.no_plot and args.enable_pmu:
+        pmu_title = (
+            f"{args.arch} core {args.core}: PA xor-index {PMU_COUNTER_NAME} "
+            f"(stride={args.stride}, accesses={args.accesses}, "
+            f"buddy={args.buddy_mb}MB)"
+        )
+        try:
+            pmu_paths = plot_pmu_result(pmu_plot_path(args), rows, pmu_title)
+        except ValueError as exc:
+            print(f"PMU plot failed: {exc}", file=sys.stderr)
+            return 1
+        for path in pmu_paths:
+            print(f"Saved PMU plot to {path}")
+
+    if not args.no_plot and args.enable_probe:
         plot_title = (
             f"{args.arch} core {args.core}: PA xor-index contribution "
             f"(stride={args.stride}, accesses={args.accesses}, "

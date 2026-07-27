@@ -1,6 +1,7 @@
 import argparse
 import csv
 import os
+import re
 import subprocess
 import sys
 
@@ -33,6 +34,12 @@ DEFAULT_ROUNDS = 400
 DEFAULT_PROBE_POSITIONS = 100
 RESULT_DIR = os.path.join(ROOT_DIR, "res", "index-pc")
 PLOT_DIR = os.path.join(ROOT_DIR, "res", "barplots")
+PMU_PLOT_DIR = os.path.join(ROOT_DIR, "res", "lineplots")
+VALIDATION_EVENT = "l2d_cache_hwprf"
+VALIDATION_THRESHOLD = 0.5
+PMU_RE = re.compile(
+    r"^# PMU\s+(\S+)\s+.*\bper_round=([0-9]+(?:\.[0-9]+)?)"
+)
 
 
 def compile_test(args):
@@ -49,6 +56,10 @@ def compile_test(args):
         f"-DSTRIDE_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
         f"-DSTRIDE_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
+        f"-DENABLE_PMU={args.enable_pmu}",
+        f"-DENABLE_PROBE={args.enable_probe}",
+        f"-DPMU_CORE_X925={1 if args.arch == 'X925' else 0}",
+        f"-DPMU_CORE_A55={1 if args.arch == 'A55' else 0}",
         "-o",
         OUT,
         SRC,
@@ -72,7 +83,10 @@ def run_test(args, diff_bit):
         str(diff_bit),
         str(args.rounds),
     ]
-    return subprocess.run(run_cmd, capture_output=True, text=True)
+    env = os.environ.copy()
+    if args.pmu_device:
+        env["PMU_DEVICE"] = args.pmu_device
+    return subprocess.run(run_cmd, capture_output=True, text=True, env=env)
 
 
 def micro_arch_name(args):
@@ -81,6 +95,7 @@ def micro_arch_name(args):
         f"-stride{args.stride}-accesses{args.accesses}"
         f"-{args.access}"
         f"-probe{args.probe_positions}"
+        f"-pmu{args.enable_pmu}-probe-enabled{args.enable_probe}"
         f"-bits{args.min_diff_bit}-{args.max_diff_bit}"
     )
 
@@ -103,6 +118,14 @@ def plot_path(args):
     return os.path.join(PLOT_DIR, f"{micro_arch_name(args)}.png")
 
 
+def pmu_plot_path(args):
+    if args.pmu_plot_output:
+        return args.pmu_plot_output
+    return os.path.join(
+        PMU_PLOT_DIR, f"{micro_arch_name(args)}-pmu-counters.png"
+    )
+
+
 def ensure_parent(path):
     parent = os.path.dirname(path)
     if parent:
@@ -111,53 +134,96 @@ def ensure_parent(path):
 
 def parse_result(output):
     rows = []
+    rows_by_case = {}
+    current_pmu_case = None
 
     for line in output.splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        if not stripped:
+            continue
+        if stripped.startswith("# PMU_CASE "):
+            current_pmu_case = stripped.split(None, 2)[2]
+            continue
+        match = PMU_RE.match(stripped)
+        if match:
+            if current_pmu_case not in rows_by_case:
+                raise ValueError(
+                    f"PMU counter appears before result for {current_pmu_case}"
+                )
+            rows_by_case[current_pmu_case]["pmu"][match.group(1)] = float(
+                match.group(2)
+            )
+            continue
+        if stripped.startswith("#"):
             continue
 
         parts = stripped.split()
-        if not parts:
+        if not parts or parts[0] == "case":
             continue
-
-        if parts[0] == "case":
-            continue
-
         if len(parts) != 2:
             raise ValueError(f"unexpected result row: {line}")
 
-        rows.append({
+        row = {
             "case": parts[0],
             "latency_ns": int(parts[1]),
-        })
+            "pmu": {},
+        }
+        rows.append(row)
+        rows_by_case[row["case"]] = row
 
     if not rows:
         raise ValueError("no result data found")
-
     return rows
 
 
-def classify_rows(rows, threshold_ns):
-    for row in rows:
-        row["prefetched"] = (
-            "no" if row["latency_ns"] < 0
-            else "yes" if row["latency_ns"] <= threshold_ns
-            else "no"
+def is_prefetched(row, args):
+    latency_positive = (
+        row["latency_ns"] >= 0
+        and row["latency_ns"] <= args.threshold_ns
+    )
+    if not args.enable_pmu:
+        return latency_positive
+
+    pmu = row["pmu"]
+    if args.arch == "X925":
+        pmu_positive = (
+            pmu.get("l1d_cache_hwprf", 0.0) >= 1.0
+            or pmu.get("l2d_cache_hwprf", 0.0) >= 1.0
         )
-        row["threshold_ns"] = threshold_ns
+    elif args.arch == "A55":
+        pmu_positive = pmu.get("l1d_cache_refill_prefetch", 0.0) >= 1.0
+    else:
+        pmu_positive = pmu.get("l1d_cache_hwprf", 0.0) >= 1.0
+    return pmu_positive or latency_positive
+
+
+def classify_rows(rows, args):
+    for row in rows:
+        row["prefetched"] = "yes" if is_prefetched(row, args) else "no"
+        row["threshold_ns"] = args.threshold_ns
 
 
 def write_tsv(path, rows):
+    counter_names = sorted({name for row in rows for name in row["pmu"]})
+    fieldnames = [
+        "case",
+        "latency_ns",
+        "prefetched",
+        "threshold_ns",
+    ] + counter_names
     ensure_parent(path)
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=["case", "latency_ns", "prefetched", "threshold_ns"],
-            delimiter="\t",
-        )
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter="\t")
         writer.writeheader()
-        writer.writerows(rows)
+        for row in rows:
+            flat = {
+                "case": row["case"],
+                "latency_ns": row["latency_ns"],
+                "prefetched": row["prefetched"],
+                "threshold_ns": row["threshold_ns"],
+            }
+            flat.update(row["pmu"])
+            writer.writerow(flat)
 
 
 def plot_result(path, rows, title, threshold_ns, vmin=None, vmax=None):
@@ -195,6 +261,104 @@ def plot_result(path, rows, title, threshold_ns, vmin=None, vmax=None):
     plt.close(fig)
 
 
+def validate_test_sequence(rows, diff_bit):
+    rows_by_case = {row["case"]: row for row in rows}
+    baseline_cases = ("no_trigger", "trigger_only", "same_pc")
+    bit_case = f"bit_{diff_bit}"
+    required = baseline_cases + (bit_case,)
+    missing_cases = [name for name in required if name not in rows_by_case]
+    if missing_cases:
+        return False, "missing cases: " + ", ".join(missing_cases)
+
+    missing_events = [
+        name
+        for name in required
+        if VALIDATION_EVENT not in rows_by_case[name]["pmu"]
+    ]
+    if missing_events:
+        return (
+            False,
+            f"{VALIDATION_EVENT} missing for: " + ", ".join(missing_events),
+        )
+
+    no_trigger = rows_by_case["no_trigger"]["pmu"][VALIDATION_EVENT]
+    trigger_only = rows_by_case["trigger_only"]["pmu"][VALIDATION_EVENT]
+    same_pc = rows_by_case["same_pc"]["pmu"][VALIDATION_EVENT]
+    valid = (
+        no_trigger < VALIDATION_THRESHOLD
+        and trigger_only < VALIDATION_THRESHOLD
+        and same_pc > VALIDATION_THRESHOLD
+    )
+    observed = (
+        f"diff_bit={diff_bit}: no_trigger={no_trigger:.2f}, "
+        f"trigger_only={trigger_only:.2f}, same_pc={same_pc:.2f}"
+    )
+    if not valid:
+        return (
+            False,
+            observed
+            + f"; required no_trigger < {VALIDATION_THRESHOLD}, "
+            + f"trigger_only < {VALIDATION_THRESHOLD}, "
+            + f"same_pc > {VALIDATION_THRESHOLD}",
+        )
+    return True, observed
+
+
+def plot_pmu_bit_relation(path, rows, args):
+    bit_rows = [row for row in rows if row["case"].startswith("bit_")]
+    bit_rows.sort(key=lambda row: int(row["case"].split("_", 1)[1]))
+    if not bit_rows:
+        raise ValueError("no bit_N rows available for PMU plotting")
+
+    bits = [int(row["case"].split("_", 1)[1]) for row in bit_rows]
+    counter_names = sorted({name for row in bit_rows for name in row["pmu"]})
+    if not counter_names:
+        raise ValueError("no PMU counters available for plotting")
+    for row in bit_rows:
+        missing = [name for name in counter_names if name not in row["pmu"]]
+        if missing:
+            raise ValueError(
+                f"{row['case']} is missing PMU counters: " + ", ".join(missing)
+            )
+
+    colors = ("#0072B2", "#D55E00", "#009E73", "#CC79A7")
+    markers = ("o", "s", "^", "D")
+    width = max(9.0, 0.22 * len(bits) + 3.0)
+    fig, ax = plt.subplots(figsize=(width, 4.8))
+    for index, counter_name in enumerate(counter_names):
+        ax.plot(
+            bits,
+            [row["pmu"][counter_name] for row in bit_rows],
+            color=colors[index % len(colors)],
+            marker=markers[index % len(markers)],
+            linewidth=1.5,
+            markersize=4,
+            label=counter_name,
+        )
+    if args.arch == "X925" and args.access == "store":
+        ax.axhline(
+            VALIDATION_THRESHOLD,
+            color="black",
+            linestyle="--",
+            linewidth=1.0,
+            label=f"validation threshold ({VALIDATION_THRESHOLD})",
+        )
+    ax.set_title(
+        f"{args.arch} core {args.core}: {args.access} inverted trigger-PC bit "
+        "vs PMU counters",
+        loc="left",
+    )
+    ax.set_xlabel("inverted trigger-PC bit")
+    ax.set_ylabel("PMU events / round")
+    ax.set_xticks(bits)
+    ax.grid(alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    ensure_parent(path)
+    fig.savefig(path, dpi=300)
+    plt.close(fig)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compile and run test1-index-pc.c."
@@ -218,6 +382,13 @@ def main():
     parser.add_argument("--probe-positions", type=int,
                         default=DEFAULT_PROBE_POSITIONS,
                         help=f"Number of cache-line positions to probe. Default: {DEFAULT_PROBE_POSITIONS}")
+    parser.add_argument("--enable-pmu", type=int, choices=[0, 1], required=True,
+                        help="Compile with -DENABLE_PMU; must be specified.")
+    parser.add_argument("--enable-probe", type=int, choices=[0, 1], default=None,
+                        help="Compile with -DENABLE_PROBE. Default: 0 when "
+                             "PMU is enabled, otherwise 1.")
+    parser.add_argument("--pmu-device", default=None,
+                        help="Override PMU_DEVICE for pmu.h raw-event fallback.")
     parser.add_argument("--threshold-ns", type=int, default=None,
                         help="Latency threshold for prefetched=yes. Default comes from --arch.")
     parser.add_argument("--timer", choices=["gettime", "rdtsc", "cntvct", "pmccntr"],
@@ -227,11 +398,14 @@ def main():
     parser.add_argument("--output", default=None)
     parser.add_argument("--raw-output", default=None)
     parser.add_argument("--plot-output", default=None)
+    parser.add_argument("--pmu-plot-output", default=None)
     parser.add_argument("--plot-vmin", type=float, default=None)
     parser.add_argument("--plot-vmax", type=float, default=400)
     parser.add_argument("--no-plot", action="store_true")
     parser.add_argument("--no-compile", action="store_true")
     args = parser.parse_args()
+    if args.enable_probe is None:
+        args.enable_probe = 0 if args.enable_pmu else 1
 
     apply_single_core_defaults(args)
     if args.access == "prefetch" and args.accesses is None:
@@ -244,6 +418,8 @@ def main():
     if args.timer is None:
         args.timer = default_timer_for_arch(args.arch)
 
+    if args.enable_pmu and args.arch == "Zen4":
+        parser.error("--enable-pmu is only supported for Arm architectures")
     if args.core < 0:
         parser.error("--core must be >= 0")
     if args.stride < 1:
@@ -266,7 +442,9 @@ def main():
         f"access={args.access}, "
         f"accesses={args.accesses}, train_only_accesses={args.accesses - 1}, "
         f"trigger_accesses=1, "
-        f"rounds={args.rounds}, probe_positions={args.probe_positions}, "
+        f"rounds={args.rounds}, enable_pmu={args.enable_pmu}, "
+        f"enable_probe={args.enable_probe}, "
+        f"probe_positions={args.probe_positions}, "
         f"threshold={args.threshold_ns} ns"
     )
 
@@ -301,6 +479,22 @@ def main():
             print(f"Parse failed for diff_bit={diff_bit}: {exc}", file=sys.stderr)
             return 1
 
+        if args.enable_pmu and args.arch == "X925" and args.access == "store":
+            valid, validation_message = validate_test_sequence(rows, diff_bit)
+            if not valid:
+                print(
+                    "ERROR: invalid PMU test sequence: " + validation_message,
+                    file=sys.stderr,
+                )
+                print("Test failed; no PMU line plot was generated.", file=sys.stderr)
+                return 1
+            print("PMU sequence valid: " + validation_message)
+        elif args.enable_pmu and diff_bit == args.min_diff_bit:
+            print(
+                "PMU sequence validation skipped: the 0.5 baseline rule "
+                "only applies to X925 store"
+            )
+
         for row in rows:
             if row["case"].startswith("bit_"):
                 all_rows.append(row)
@@ -313,14 +507,22 @@ def main():
     with open(raw_result_path, "w") as f:
         f.write("\n".join(raw_outputs))
 
-    classify_rows(all_rows, args.threshold_ns)
+    classify_rows(all_rows, args)
 
     tsv_result_path = output_path(args)
     write_tsv(tsv_result_path, all_rows)
     print(f"Saved raw output to {raw_result_path}")
     print(f"Saved TSV to {tsv_result_path}")
 
-    if not args.no_plot:
+    if not args.no_plot and args.enable_pmu:
+        try:
+            plot_pmu_bit_relation(pmu_plot_path(args), all_rows, args)
+        except ValueError as exc:
+            print(f"PMU plot failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"Saved PMU line plot to {pmu_plot_path(args)}")
+
+    if not args.no_plot and args.enable_probe:
         plot_title = (
             f"{args.arch} core {args.core}: {args.access} dynamic trigger-PC-bit latency "
             f"(accesses={args.accesses}, base_pc={args.base_pc})"
@@ -334,6 +536,8 @@ def main():
             vmax=args.plot_vmax,
         )
         print(f"Saved plot to {plot_path(args)}")
+    elif not args.no_plot and not args.enable_pmu:
+        print("Skipped latency plot because ENABLE_PROBE=0")
     return 0
 
 

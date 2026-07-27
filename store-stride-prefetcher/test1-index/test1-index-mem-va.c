@@ -46,11 +46,50 @@
 #define ENABLE_CPP_RCTX 0
 #endif
 
-#define ALIAS_SIZE PAGE_SIZE
+#ifndef ENABLE_PMU
+#define ENABLE_PMU 0
+#endif
+
+#ifndef ENABLE_PROBE
+#define ENABLE_PROBE 1
+#endif
+
+#ifndef STRIDE_ACCESS_LOAD
+#define STRIDE_ACCESS_LOAD 0
+#endif
+
+#if STRIDE_ACCESS_LOAD
+#define STRIDE_ACCESS_NAME "load"
+#else
+#define STRIDE_ACCESS_NAME "store"
+#endif
+
+#if ENABLE_PMU
+#ifndef PMU_WINDOW_NAME
+#define PMU_WINDOW_NAME "train-trigger-wait-per-round"
+#endif
+#ifndef PMU_CORE_X925
+#define PMU_CORE_X925 ENABLE_CPP_RCTX
+#endif
+#ifndef PMU_CORE_A55
+#define PMU_CORE_A55 0
+#endif
+#include "../pmu.h"
+static int index_mem_va_pmu_ready;
+#endif
+
 #define STRIDE_BYTES (STRIDE_LINES * LINE_SIZE)
 #define TRAIN_ONLY_ACCESSES (STORE_ACCESSES - 1)
 #define TRIGGER_POS (TRAIN_ONLY_ACCESSES * STRIDE_LINES)
 #define PREDICTED_POS (STORE_ACCESSES * STRIDE_LINES)
+#if ENABLE_PROBE
+#define MAX_ALIAS_ACCESS_POS PREDICTED_POS
+#else
+#define MAX_ALIAS_ACCESS_POS TRIGGER_POS
+#endif
+#define ALIAS_REQUIRED_BYTES ((MAX_ALIAS_ACCESS_POS + 1) * LINE_SIZE)
+#define ALIAS_SIZE \
+    (((ALIAS_REQUIRED_BYTES + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE)
 #define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 static uint8_t *dummy_buffer;
@@ -120,24 +159,33 @@ static void flush_aliases(uint8_t *va1, uint8_t *va2) {
         flush(va1 + offset);
         flush(va2 + offset);
     }
-    mfence();
 }
 
+static inline __attribute__((always_inline)) void stride_access(void *addr) {
+#if STRIDE_ACCESS_LOAD
+    mLoad_inline(addr);
+#else
+    mStore_inline(addr);
+#endif
+}
+
+#if ENABLE_PROBE
 static uint64_t probe_latency(uint8_t *addr) {
     uint64_t start = timestamp();
-    mStore_inline(addr);
+    stride_access(addr);
     return timestamp() - start;
 }
+#endif
 
 __attribute__((noinline)) static void run_trainer(uint8_t *va1) {
     for (int access = 0; access < TRAIN_ONLY_ACCESSES; access++) {
-        mStore_inline(va1 + (uint64_t)access * STRIDE_BYTES);
+        stride_access(va1 + (uint64_t)access * STRIDE_BYTES);
         nops();
     }
 }
 
 __attribute__((noinline)) static void run_trigger(uint8_t *va2) {
-    mStore_inline(va2 + TRIGGER_POS * LINE_SIZE);
+    stride_access(va2 + TRIGGER_POS * LINE_SIZE);
     nops();
 }
 
@@ -154,34 +202,62 @@ static void run_case(const char *result_name,
                      uint64_t rounds,
                      int enable_trainer,
                      int enable_trigger) {
+#if ENABLE_PROBE
     uint64_t latency_sum[PROBE_POSITIONS] = {0};
     int probe_count[PROBE_POSITIONS] = {0};
+#else
+    (void)detail_name;
+#endif
+
+#if ENABLE_PMU
+    if (index_mem_va_pmu_ready) {
+        pmu_reset_accumulated();
+    }
+#endif
 
     for (uint64_t round = 0; round < rounds; round++) {
-        int probe_pos = (int)(round % PROBE_POSITIONS);
+        dummyAccesses();
+        occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
+        flush_aliases(va1, va2);
+        mfence();
+
+#if ENABLE_PMU
+        int pmu_running = 0;
+        if (index_mem_va_pmu_ready) {
+            pmu_running = (pmu_start() == 0);
+            if (!pmu_running) {
+                printf("# PMU unavailable: counter group could not be started\n");
+                index_mem_va_pmu_ready = 0;
+            }
+        }
+#endif
 
 #if ENABLE_CPP_RCTX
         cpp_rctx();
 #endif
-        // dummy_accesses();
-        mfence();
-        dummyAccesses();
-        flush_aliases(va1, va2);
-        mfence();
-        occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
 
         if (enable_trainer) {
             run_trainer(va1);
         }
         if (enable_trigger) {
             run_trigger(va2);
-            wait_after_trigger_access();
         }
+        wait_after_trigger_access();
 
+#if ENABLE_PMU
+        if (pmu_running) {
+            pmu_stop_and_accumulate();
+        }
+#endif
+
+#if ENABLE_PROBE
+        int probe_pos = (int)(round % PROBE_POSITIONS);
         latency_sum[probe_pos] += probe_latency(va2 + probe_pos * LINE_SIZE);
         probe_count[probe_pos]++;
+#endif
     }
 
+#if ENABLE_PROBE
     for (int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
         unsigned long avg_ns = 0;
         if (probe_count[probe_pos] > 0) {
@@ -202,6 +278,16 @@ static void run_case(const char *result_name,
                                            (uint64_t)probe_count[PREDICTED_POS]);
     }
     printf("%s\t%lu\n", result_name, predicted_avg_ns);
+#else
+    printf("%s\t-1\n", result_name);
+#endif
+
+#if ENABLE_PMU
+    printf("# PMU_CASE %s\n", result_name);
+    if (index_mem_va_pmu_ready) {
+        pmu_print_accumulated(rounds);
+    }
+#endif
 }
 
 static void print_full_failure(int diff_bit) {
@@ -315,6 +401,18 @@ int main(void) {
         fprintf(stderr, "diff bit range must be within [12, 47]\n");
         return 1;
     }
+    if ((1ull << MIN_DIFF_BIT) < ALIAS_SIZE) {
+        fprintf(stderr,
+                "MIN_DIFF_BIT=%d makes VA aliases overlap: alias_size=%lu\n",
+                MIN_DIFF_BIT,
+                (unsigned long)ALIAS_SIZE);
+        return 1;
+    }
+    if ((TRIGGER_POS + 1) * LINE_SIZE > ALIAS_SIZE) {
+        fprintf(stderr, "trigger position exceeds one alias page\n");
+        return 1;
+    }
+#if ENABLE_PROBE
     if (PREDICTED_POS >= PROBE_POSITIONS) {
         fprintf(stderr,
                 "predicted probe position %d must be inside PROBE_POSITIONS=%d\n",
@@ -326,6 +424,7 @@ int main(void) {
         fprintf(stderr, "predicted probe position exceeds one alias page\n");
         return 1;
     }
+#endif
 
     dummy_buffer = (uint8_t *)mmap(NULL,
                                   DUMMY_BUFFER_SIZE,
@@ -338,7 +437,7 @@ int main(void) {
         return 1;
     }
 
-    printf("# store-stride VA-index contribution test\n");
+    printf("# %s-stride VA-index contribution test\n", STRIDE_ACCESS_NAME);
     printf("# VA1_BASE=0x%016lx stride_lines=%d accesses=%d train_only_accesses=%d rounds=%d probe_positions=%d\n",
            (unsigned long)va1_base,
            STRIDE_LINES,
@@ -348,6 +447,12 @@ int main(void) {
            PROBE_POSITIONS);
     printf("# VA2_BASE = VA1_BASE ^ (1 << diff_bit)\n");
     printf("# VA1 and VA2 are MAP_SHARED aliases of the same memfd page\n");
+    printf("# access=%s alias_size=%lu ENABLE_PMU=%d ENABLE_PROBE=%d ENABLE_CPP_RCTX=%d\n",
+           STRIDE_ACCESS_NAME, (unsigned long)ALIAS_SIZE,
+           ENABLE_PMU, ENABLE_PROBE, ENABLE_CPP_RCTX);
+#if !ENABLE_PROBE
+    printf("# probe disabled: no cache-line probe accesses or latency details\n");
+#endif
     printf("# trainer: VA1 + [0..%d]*%d*LINE_SIZE, trigger: VA2 + %d*LINE_SIZE, final: VA2 + %d*LINE_SIZE\n",
            TRAIN_ONLY_ACCESSES - 1,
            STRIDE_LINES,
@@ -355,12 +460,22 @@ int main(void) {
            PREDICTED_POS);
     printf("case\tlatency_ns\n");
 
+#if ENABLE_PMU
+    index_mem_va_pmu_ready = (pmu_setup() == 0);
+    if (!index_mem_va_pmu_ready) {
+        printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
+    }
+#endif
+
     run_same_va_baselines(va1_base, ROUNDS);
 
     for (int diff_bit = MIN_DIFF_BIT; diff_bit <= MAX_DIFF_BIT; diff_bit++) {
         run_bit(diff_bit, va1_base, ROUNDS);
     }
 
+#if ENABLE_PMU
+    pmu_cleanup();
+#endif
     munmap(dummy_buffer, DUMMY_BUFFER_SIZE);
     return 0;
 }

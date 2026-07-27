@@ -8,8 +8,8 @@ ARCH_CONFIG = {
             "trigger_core": 7,
         },
         "accesses": {
-            "store": 5,
-            "load": 1,
+            "store": 3,
+            "load": 20,
         },
     },
     "A725": {
@@ -22,7 +22,7 @@ ARCH_CONFIG = {
         },
         "accesses": {
             "store": 6,
-            "load": 5,
+            "load": 6,
         },
     },
     "A78": {

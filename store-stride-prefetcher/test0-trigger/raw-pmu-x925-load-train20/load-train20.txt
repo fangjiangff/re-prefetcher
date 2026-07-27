@@ -1,0 +1,7 @@
+# ENABLE_CPP_RCTX=1 PMU_CORE_X925=1 PMU_CORE_A55=0 ENABLE_DUMMY_ACCESSES=1 DUMMY_BUFFER_PAGES=64 DUMMY_BUFFER_SIZE=262144
+# PMU device=armv8_pmuv3_1 core=Cortex-X925 events=2/2 window=training-only-per-round
+# PMU started=2/2 multiplex=enabled
+# PMU l1d_cache_hwprf          per_round=0.05
+# PMU l2d_cache_hwprf          per_round=0.10
+  0	           0	        33	40000
+

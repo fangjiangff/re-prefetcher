@@ -15,6 +15,10 @@
 #define PMU_WINDOW_NAME "training-only-per-round"
 #endif
 
+#ifndef PMU_PRINT_START_STATUS
+#define PMU_PRINT_START_STATUS 1
+#endif
+
 #if defined(__aarch64__)
 
 #include <errno.h>
@@ -221,7 +225,8 @@ static int pmu_read_type(const char *pmu_name, uint32_t *type) {
     return 0;
 }
 
-static int pmu_find_type(uint32_t *type, char *name, size_t name_size) {
+static int pmu_find_type_for_cpu(int requested_cpu, uint32_t *type,
+                                  char *name, size_t name_size) {
     const char *forced_name = getenv("PMU_DEVICE");
     if (forced_name != NULL && forced_name[0] != '\0') {
         if (pmu_read_type(forced_name, type) != 0) {
@@ -233,8 +238,8 @@ static int pmu_find_type(uint32_t *type, char *name, size_t name_size) {
         return 0;
     }
 
-    int cpu = 0;
-    if (syscall(__NR_getcpu, &cpu, NULL, NULL) != 0) {
+    int cpu = requested_cpu;
+    if (cpu < 0 && syscall(__NR_getcpu, &cpu, NULL, NULL) != 0) {
         fprintf(stderr, "PMU: getcpu failed: %s\n", strerror(errno));
         return -1;
     }
@@ -266,11 +271,13 @@ static int pmu_find_type(uint32_t *type, char *name, size_t name_size) {
     return 0;
 }
 
-static int pmu_setup(void) {
+static int pmu_setup_target(pid_t pid, int cpu) {
     uint32_t type;
     char pmu_name[64];
+    int lookup_cpu = cpu;
 
-    if (pmu_find_type(&type, pmu_name, sizeof(pmu_name)) != 0) {
+    if (pmu_find_type_for_cpu(lookup_cpu, &type, pmu_name,
+                              sizeof(pmu_name)) != 0) {
         return -1;
     }
 
@@ -288,7 +295,7 @@ static int pmu_setup(void) {
                            PERF_FORMAT_TOTAL_TIME_RUNNING;
 
         /* Open events independently so the kernel can multiplex them. */
-        int fd = (int)pmu_perf_event_open(&attr, 0, -1, -1, 0);
+        int fd = (int)pmu_perf_event_open(&attr, pid, cpu, -1, 0);
         if (fd < 0) {
             fprintf(stderr,
                     "PMU: perf_event_open %s/event=0x%llx failed: %s\n",
@@ -304,14 +311,34 @@ static int pmu_setup(void) {
         return -1;
     }
 
-    printf("# PMU device=%s core=%s events=%d/%d window=%s\n",
-           pmu_name, pmu_core_name(), opened, PMU_COUNTER_COUNT,
-           PMU_WINDOW_NAME);
+    if (pid == -1) {
+        printf("# PMU device=%s core=%s events=%d/%d window=%s scope=cpu:%d\n",
+               pmu_name, pmu_core_name(), opened, PMU_COUNTER_COUNT,
+               PMU_WINDOW_NAME, cpu);
+    } else {
+        printf("# PMU device=%s core=%s events=%d/%d window=%s scope=thread\n",
+               pmu_name, pmu_core_name(), opened, PMU_COUNTER_COUNT,
+               PMU_WINDOW_NAME);
+    }
     return 0;
 }
 
+static int pmu_setup(void) {
+    return pmu_setup_target(0, -1);
+}
+
+static int pmu_setup_cpu(int cpu) {
+    if (cpu < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    return pmu_setup_target(-1, cpu);
+}
+
 static int pmu_start(void) {
+#if PMU_PRINT_START_STATUS
     static int reported = 0;
+#endif
     int started = 0;
     for (int i = 0; i < PMU_COUNTER_COUNT; i++) {
         if (pmu_counters[i].fd < 0) {
@@ -327,11 +354,13 @@ static int pmu_start(void) {
         }
         started++;
     }
+#if PMU_PRINT_START_STATUS
     if (!reported) {
-        printf("# PMU started=%d/%d multiplex=enabled\n",
-               started, PMU_COUNTER_COUNT);
+        // printf("# PMU started=%d/%d multiplex=enabled\n",
+        //        started, PMU_COUNTER_COUNT);
         reported = 1;
     }
+#endif
     return started > 0 ? 0 : -1;
 }
 
@@ -401,6 +430,7 @@ static void pmu_cleanup(void) {
 #else
 
 static int pmu_setup(void) { return -1; }
+static int pmu_setup_cpu(int cpu) { (void)cpu; return -1; }
 static int pmu_start(void) { return -1; }
 static void pmu_reset_accumulated(void) {}
 static void pmu_stop_and_accumulate(void) {}

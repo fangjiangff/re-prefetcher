@@ -82,6 +82,28 @@ typedef void (*store_gadget_f)(void *);
 #define ENABLE_CPP_RCTX 0
 #endif
 
+#ifndef ENABLE_PMU
+#define ENABLE_PMU 0
+#endif
+
+#ifndef ENABLE_PROBE
+#define ENABLE_PROBE 1
+#endif
+
+#if ENABLE_PMU
+#ifndef PMU_WINDOW_NAME
+#define PMU_WINDOW_NAME "train-trigger-wait-per-round"
+#endif
+#ifndef PMU_CORE_X925
+#define PMU_CORE_X925 ENABLE_CPP_RCTX
+#endif
+#ifndef PMU_CORE_A55
+#define PMU_CORE_A55 0
+#endif
+#include "../pmu.h"
+static int index_pc_pmu_ready;
+#endif
+
 #if STRIDE_ACCESS_PREFETCH && STRIDE_ACCESS_LOAD
 #error "Only one stride access mode can be enabled"
 #endif
@@ -253,12 +275,14 @@ static void delay_after_trigger(void) {
     nanosleep(&prefetch_wait, NULL);
 }
 
+#if ENABLE_PROBE
 static uint64_t probe_latency(uint8_t *addr) {
     uint64_t time1 = timestamp();
     maccess(addr);
     uint64_t time2 = timestamp();
     return time2 - time1;
 }
+#endif
 
 /*
  * do_train = 1:
@@ -282,13 +306,28 @@ static uint64_t run_one_round(store_gadget_f train_store,
     // dummy_accesses();
     mfence();
     dummyAccesses();
+// #if ENABLE_CPP_RCTX && !ENABLE_PMU
+//     cpp_rctx();
+// #endif
+    occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
+    flush_array2();
+    mfence();
+
+#if ENABLE_PMU
+    int pmu_running = 0;
+    if (index_pc_pmu_ready) {
+        pmu_running = (pmu_start() == 0);
+        if (!pmu_running) {
+            printf("# PMU unavailable: counter group could not be started\n");
+            index_pc_pmu_ready = 0;
+        }
+    }
+
+    /* Match test0-exist.c: PMU start, reset, trainer, trigger, wait, stop. */
 #if ENABLE_CPP_RCTX
     cpp_rctx();
 #endif
-occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
-    flush_array2();
-    mfence();
-    
+#endif
 
     /*
      * 第 1..STORE_TRIGGER_ACCESS-1 次 access: training
@@ -297,7 +336,7 @@ occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
     if (do_train) {
         for (int step = 0; step < STORE_TRIGGER_ACCESS - 1; step++) {
             train_store(array2 + ((uint64_t)step * (uint64_t)stride));
-
+            nops();
 #if FENCE_AFTER_EACH_STORE
             mfence();
 #endif
@@ -312,7 +351,7 @@ occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
         trigger_store(array2 +
                       ((uint64_t)(STORE_TRIGGER_ACCESS - 1) *
                        (uint64_t)stride));
-
+        nops();
 #if FENCE_AFTER_EACH_STORE
         mfence();
 #endif
@@ -321,10 +360,19 @@ occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
     // mfence();
 
     delay_after_trigger();
+#if ENABLE_PMU
+    if (pmu_running) {
+        pmu_stop_and_accumulate();
+    }
+#endif
 
+#if ENABLE_PROBE
     uint8_t *probe_addr = array2 + ((uint64_t)probe_pos * LINE_SIZE);
-
     return probe_latency(probe_addr);
+#else
+    (void)probe_pos;
+    return 0;
+#endif
 }
 
 static void print_case_results(const char *case_name,
@@ -334,10 +382,19 @@ static void print_case_results(const char *case_name,
                                int do_trigger,
                                int stride,
                                int rounds) {
+#if ENABLE_PROBE
     uint64_t latency_sum[PROBE_POSITIONS] = {0};
     int probe_count[PROBE_POSITIONS] = {0};
+#endif
+
+#if ENABLE_PMU
+    if (index_pc_pmu_ready) {
+        pmu_reset_accumulated();
+    }
+#endif
 
     for (int atk_round = 0; atk_round < rounds; atk_round++) {
+#if ENABLE_PROBE
         int probe_pos = atk_round % PROBE_POSITIONS;
         latency_sum[probe_pos] += run_one_round(train_store,
                                                 trigger_store,
@@ -346,8 +403,13 @@ static void print_case_results(const char *case_name,
                                                 stride,
                                                 probe_pos);
         probe_count[probe_pos]++;
+#else
+        run_one_round(train_store, trigger_store, do_train, do_trigger,
+                      stride, 0);
+#endif
     }
 
+#if ENABLE_PROBE
     for (int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
         unsigned long avg_ns = 0;
         if (probe_count[probe_pos] > 0) {
@@ -369,15 +431,26 @@ static void print_case_results(const char *case_name,
                                            (uint64_t)probe_count[predicted_probe_pos]);
     }
     printf("%s\t%lu\n", case_name, predicted_avg_ns);
+#else
+    printf("%s\t-1\n", case_name);
+#endif
+#if ENABLE_PMU
+    printf("# PMU_CASE %s\n", case_name);
+    if (index_pc_pmu_ready) {
+        pmu_print_accumulated((uint64_t)rounds);
+    }
+#endif
 }
 
 static void print_unmapped_case_results(const char *case_name) {
+#if ENABLE_PROBE
     for (int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
         printf("# probe_detail\t%s\t%d\t%d\t-1\t0\n",
                case_name,
                probe_pos,
                probe_pos * LINE_SIZE);
     }
+#endif
     printf("%s\t-1\n", case_name);
 }
 
@@ -430,6 +503,7 @@ int main(int argc, char **argv) {
     uint64_t trigger_offset =
         (uint64_t)(STORE_TRIGGER_ACCESS - 1) * (uint64_t)stride;
 
+#if ENABLE_PROBE
     uint64_t probe_offset =
         (uint64_t)STORE_TRIGGER_ACCESS * (uint64_t)stride;
     uint64_t max_probe_offset = (uint64_t)(PROBE_POSITIONS - 1) * LINE_SIZE;
@@ -442,13 +516,18 @@ int main(int argc, char **argv) {
                 PROBE_POSITIONS);
         return 1;
     }
-
-    if (trigger_offset + LINE_SIZE > sizeof(array2) ||
-        max_probe_offset + LINE_SIZE > sizeof(array2)) {
+    if (max_probe_offset + LINE_SIZE > sizeof(array2)) {
         fprintf(stderr,
-                "array2 is too small: trigger_offset=%lu max_probe_offset=%lu array2_size=%lu\n",
-                (unsigned long)trigger_offset,
+                "array2 is too small for max_probe_offset=%lu array2_size=%lu\n",
                 (unsigned long)max_probe_offset,
+                (unsigned long)sizeof(array2));
+        return 1;
+    }
+#endif
+    if (trigger_offset + LINE_SIZE > sizeof(array2)) {
+        fprintf(stderr,
+                "array2 is too small for trigger_offset=%lu array2_size=%lu\n",
+                (unsigned long)trigger_offset,
                 (unsigned long)sizeof(array2));
         return 1;
     }
@@ -495,22 +574,34 @@ int main(int argc, char **argv) {
            (unsigned long)trigger_pc,
            diff_bit);
 
-    printf("# accesses=%d train_only_accesses=%d trigger_accesses=1 probe_positions=%d\n",
+    printf("# accesses=%d train_only_accesses=%d trigger_accesses=1\n",
            STORE_TRIGGER_ACCESS,
-           STORE_TRIGGER_ACCESS - 1,
-           PROBE_POSITIONS);
-    printf("# trigger_offset=%lu probe_offset=%lu max_probe_offset=%lu\n",
-           (unsigned long)trigger_offset,
+           STORE_TRIGGER_ACCESS - 1);
+    printf("# trigger_offset=%lu\n", (unsigned long)trigger_offset);
+#if ENABLE_PROBE
+    printf("# probe_positions=%d probe_offset=%lu max_probe_offset=%lu\n",
+           PROBE_POSITIONS,
            (unsigned long)probe_offset,
            (unsigned long)max_probe_offset);
     printf("# final output uses probe_position=%d offset_bytes=%lu\n",
            predicted_probe_pos,
            (unsigned long)probe_offset);
     printf("# all probed positions are recorded as # probe_detail lines in the raw txt\n");
-
     printf("# lower latency means the predicted probe position was more likely prefetched\n");
-    printf("# FENCE_AFTER_EACH_STORE=%d\n", FENCE_AFTER_EACH_STORE);
+#else
+    printf("# probe disabled: no cache-line probe accesses or latency details\n");
+#endif
+    printf("# FENCE_AFTER_EACH_STORE=%d ENABLE_PROBE=%d\n",
+           FENCE_AFTER_EACH_STORE, ENABLE_PROBE);
     printf("case\tlatency_ns\n");
+
+#if ENABLE_PMU
+    index_pc_pmu_ready = (pmu_setup() == 0);
+    if (!index_pc_pmu_ready) {
+        printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
+    }
+#endif
+    printf("# ENABLE_PMU=%d\n", ENABLE_PMU);
 
     print_case_results("no_trigger", train_store, train_store, 1, 0, stride, rounds);
     print_case_results("trigger_only", train_store, train_store, 0, 1, stride, rounds);
@@ -522,11 +613,17 @@ int main(int argc, char **argv) {
     snprintf(case_name, sizeof(case_name), "bit_%d", diff_bit);
     if (!trigger_store) {
         print_unmapped_case_results(case_name);
+#if ENABLE_PMU
+        pmu_cleanup();
+#endif
         return 0;
     }
 
     print_case_results(case_name, train_store, trigger_store, 1, 1,
                        stride, rounds);
 
+#if ENABLE_PMU
+    pmu_cleanup();
+#endif
     return 0;
 }

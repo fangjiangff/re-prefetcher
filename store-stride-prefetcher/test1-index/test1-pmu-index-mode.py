@@ -18,15 +18,16 @@ from cross_test_config import (
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(BASE_DIR, "test1-index-mode-pmu.c")
+SRC = os.path.join(BASE_DIR, "test1-pmu-index-mode.c")
 UTIL_SRC = os.path.join(ROOT_DIR, "until.c")
-OUT = os.path.join(ROOT_DIR, "bin", "test1-index-mode-pmu")
+OUT = os.path.join(ROOT_DIR, "bin", "test1-pmu-index-mode")
 
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_TRAIN_STEP = None
-DEFAULT_ROUNDS = 400
+DEFAULT_ROUNDS = 4000
 DEFAULT_PROBE_POSITIONS = 100
 DEFAULT_REPEAT = 5
+DEFAULT_DUMMY_BUFFER_PAGES = 64
 GREEN = "\033[32m"
 RED = "\033[31m"
 RESET = "\033[0m"
@@ -38,8 +39,6 @@ TESTS = (
     ("T2", 3),
     ("T3", 4),
     ("T4", 5),
-    ("T5", 6),
-    ("T6", 7),
 )
 TEST_DEFINE_BY_ID = dict(TESTS)
 PMU_RE = re.compile(r"^# PMU\s+(\S+)\s+.*\bper_round=([0-9]+(?:\.[0-9]+)?)")
@@ -74,6 +73,9 @@ def parse_args():
                         default=DEFAULT_PROBE_POSITIONS)
     parser.add_argument("--repeat", type=int, default=DEFAULT_REPEAT,
                         help="Repeat train+trigger sequence inside each round.")
+    parser.add_argument("--dummy-buffer-pages", type=int,
+                        default=DEFAULT_DUMMY_BUFFER_PAGES,
+                        help="Pages used by per-round dummy cleanup. Default: 64")
     parser.add_argument("--hit-threshold-ns", dest="threshold_ns", type=int,
                         default=None,
                         help="Average latency <= threshold is classified as prefetched.")
@@ -111,6 +113,8 @@ def parse_args():
         parser.error("--probe-positions must be >= 1")
     if args.repeat < 1:
         parser.error("--repeat must be >= 1")
+    if args.dummy_buffer_pages < 1:
+        parser.error("--dummy-buffer-pages must be >= 1")
     if args.train_step * args.stride >= args.probe_positions:
         parser.error("predicted position train_step * stride must be inside probe positions")
     if args.threshold_ns < 1:
@@ -136,6 +140,7 @@ def compile_test(args, test_id):
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DREPEAT={args.repeat}",
+        f"-DDUMMY_BUFFER_PAGES={args.dummy_buffer_pages}",
         f"-DCPU_ID={args.core}",
         f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
         f"-DPMU_CORE_X925={1 if args.arch == 'X925' else 0}",
@@ -201,7 +206,7 @@ def parse_output(output):
     return row, counters, notes
 
 
-def print_summary(results, threshold, timer_unit, arch):
+def print_summary(results, threshold, timer_unit, arch, access):
     counter_names = sorted({name for result in results for name in result["pmu"]})
     print_test_descriptions()
     print()
@@ -209,7 +214,7 @@ def print_summary(results, threshold, timer_unit, arch):
     columns.extend(PMU_DISPLAY_NAMES.get(name, name) for name in counter_names)
     print("\t".join(columns))
     for result in results:
-        prefetched = is_prefetched(result, threshold, arch)
+        prefetched = is_prefetched(result, threshold, arch, access)
         verdict = "yes" if prefetched else "no"
         color = GREEN if prefetched else RED
         values = [
@@ -229,10 +234,21 @@ def print_summary(results, threshold, timer_unit, arch):
         for note in notes:
             print(note)
 
-    print_inference(results, threshold, arch)
+    print_inference(results, threshold, arch, access)
 
 
-def is_prefetched(result, threshold, arch):
+def is_prefetched(result, threshold, arch, access):
+    if arch == "A725":
+        return result["pmu"].get("l1d_cache_hwprf", 0.0) >= 0.5
+
+    if arch == "X925":
+        if access == "load":
+            return result["pmu"].get("l1d_cache_hwprf", 0.0) >= 0.5
+        return (
+            result["pmu"].get("l1d_cache_hwprf", 0.0) >= 1.0
+            or result["pmu"].get("l2d_cache_hwprf", 0.0) >= 1.0
+        )
+
     counter_name = L1D_PREFETCH_COUNTER_BY_ARCH.get(arch)
     pmu_prefetched = (
         counter_name is not None
@@ -241,13 +257,13 @@ def is_prefetched(result, threshold, arch):
     return result["latency"] < threshold or pmu_prefetched
 
 
-def is_prefetched_by_id(rows_by_id, test_id, threshold, arch):
-    return is_prefetched(rows_by_id[test_id], threshold, arch)
+def is_prefetched_by_id(rows_by_id, test_id, threshold, arch, access):
+    return is_prefetched(rows_by_id[test_id], threshold, arch, access)
 
 
-def print_inference(results, threshold, arch):
+def print_inference(results, threshold, arch, access):
     rows_by_id = {result["id"]: result for result in results}
-    required = ("T0_no_trigger", "T0", "T1", "T2", "T3", "T4", "T5", "T6")
+    required = ("T0_no_trigger", "T0", "T1", "T2", "T3", "T4")
     missing = [test_id for test_id in required if test_id not in rows_by_id]
 
     print("\ninference:")
@@ -255,14 +271,12 @@ def print_inference(results, threshold, arch):
         print("  skip PC/VA/PA index inference: missing " + ", ".join(missing))
         return
 
-    t0_no_trigger = is_prefetched_by_id(rows_by_id, "T0_no_trigger", threshold, arch)
-    t0 = is_prefetched_by_id(rows_by_id, "T0", threshold, arch)
-    t1 = is_prefetched_by_id(rows_by_id, "T1", threshold, arch)
-    t2 = is_prefetched_by_id(rows_by_id, "T2", threshold, arch)
-    t3 = is_prefetched_by_id(rows_by_id, "T3", threshold, arch)
-    t4 = is_prefetched_by_id(rows_by_id, "T4", threshold, arch)
-    t5 = is_prefetched_by_id(rows_by_id, "T5", threshold, arch)
-    t6 = is_prefetched_by_id(rows_by_id, "T6", threshold, arch)
+    t0_no_trigger = is_prefetched_by_id(rows_by_id, "T0_no_trigger", threshold, arch, access)
+    t0 = is_prefetched_by_id(rows_by_id, "T0", threshold, arch, access)
+    t1 = is_prefetched_by_id(rows_by_id, "T1", threshold, arch, access)
+    t2 = is_prefetched_by_id(rows_by_id, "T2", threshold, arch, access)
+    t3 = is_prefetched_by_id(rows_by_id, "T3", threshold, arch, access)
+    t4 = is_prefetched_by_id(rows_by_id, "T4", threshold, arch, access)
 
     if t0_no_trigger or not t0:
         print("  T0 sanity failed: expected T0_no_trigger=no and T0=yes.")
@@ -279,19 +293,11 @@ def print_inference(results, threshold, arch):
     else:
         print("  VA: T2=no with different VA but same PA, so VA may participate in the index/match.")
 
-    if t5:
-        print("  PA: T5=yes with same PC/VA but different PA, so PA equality is not required by this test.")
-    else:
-        print("  PA: T5=no with same PC/VA but different PA, so PA may participate in the index/match.")
-
     sufficient = []
     if t4:
         sufficient.append("PA-sufficient candidate: T4=yes when PC and VA both change but PA is same")
-    if t6:
-        sufficient.append("VA-sufficient candidate: T6=yes when PC and PA both change but VA is same")
     if t3:
         sufficient.append("VA/context-insensitive candidate: T3=yes across processes with same VA and different PA")
-
     if sufficient:
         print("  stronger signals:")
         for line in sufficient:
@@ -302,12 +308,30 @@ def print_inference(results, threshold, arch):
         candidates.append("PC")
     if not t2:
         candidates.append("VA")
-    if not t5:
-        candidates.append("PA")
+
+    print("\nfinal conclusion:")
     if candidates:
-        print("  likely indexed/matched fields: " + ", ".join(candidates))
+        print(
+            GREEN
+            + "  likely indexed/matched fields among the remaining equality tests: "
+            + ", ".join(candidates)
+            + RESET
+        )
     else:
-        print("  likely indexed/matched fields: no single PC/VA/PA equality condition was required in this run.")
+        print("  no PC/VA equality condition was required in this run.")
+    print("  PA equality requirement: not determined by the remaining tests.")
+    if t4:
+        print(
+            GREEN
+            + "  likely index basis: PA (PA-sufficient candidate from T4)"
+            + RESET
+        )
+    else:
+        print(RED + "  PA-sufficient signal: no (T4)" + RESET)
+    print(
+        "  same-VA cross-process signal: "
+        + ("yes (T3)" if t3 else "no (T3)")
+    )
 
 
 def print_test_descriptions():
@@ -318,12 +342,11 @@ def print_test_descriptions():
     print("  T2: same PC, different VA, same PA; tests whether VA equality is required.")
     print("  T3: cross-process, same VA, different PA; tests VA matching across address spaces.")
     print("  T4: different PC and VA, same PA; tests whether PA alone can be sufficient.")
-    print("  T5: same PC/VA, different PA via remap; tests whether PA equality is required.")
-    print("  T6: different PC and PA, same VA via remap; tests whether VA alone can be sufficient.")
 
 
 def main():
     args = parse_args()
+    print(f"train_step={args.train_step}", flush=True)
     timer_unit = timer_unit_for_arch(args.arch, args.timer)
     results = []
 
@@ -358,7 +381,7 @@ def main():
         row["notes"] = notes
         results.append(row)
 
-    print_summary(results, args.threshold_ns, timer_unit, args.arch)
+    print_summary(results, args.threshold_ns, timer_unit, args.arch, args.access)
     return 0
 
 
