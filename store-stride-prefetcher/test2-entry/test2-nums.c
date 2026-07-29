@@ -102,6 +102,118 @@ int probe_count[PROBE_POSITIONS] = {0};
 static uint8_t *other_pages_mapping;
 static size_t other_pages_mapping_size;
 static uint8_t **other_pages;
+#if OTHER_PAGES_ACCESS_LOAD
+typedef void (*load_gadget_f)(const void *);
+
+static void *other_pages_load_gadget_mapping;
+static size_t other_pages_load_gadget_mapping_size;
+static load_gadget_f *other_pages_load_gadgets;
+
+extern char _other_page_load_gadget_start[];
+extern char _other_page_load_gadget_end[];
+
+#if defined(__aarch64__)
+asm(
+    ".pushsection .text\n"
+    ".global _other_page_load_gadget_start\n"
+    ".global _other_page_load_gadget_end\n"
+    "_other_page_load_gadget_start:\n"
+    "    ldrb w1, [x0]\n"
+    "    ret\n"
+    "_other_page_load_gadget_end:\n"
+    "    nop\n"
+    ".popsection\n"
+);
+#elif defined(__x86_64__)
+asm(
+    ".pushsection .text\n"
+    ".global _other_page_load_gadget_start\n"
+    ".global _other_page_load_gadget_end\n"
+    "_other_page_load_gadget_start:\n"
+    "    movb (%rdi), %al\n"
+    "    ret\n"
+    "_other_page_load_gadget_end:\n"
+    "    nop\n"
+    ".popsection\n"
+);
+#else
+#error "Per-page load-PC gadgets are only implemented for AArch64 and x86_64"
+#endif
+
+static size_t other_page_load_offset(size_t page) {
+    const size_t lines_per_page = PAGE_SIZE / LINE_SIZE;
+    size_t line = (3 + page % lines_per_page) % lines_per_page;
+    size_t byte_in_line = page / lines_per_page;
+
+    return line * LINE_SIZE + byte_in_line;
+}
+
+static int allocate_other_pages_load_gadgets(void) {
+    const size_t pc_index_period = 1u << 15;
+    size_t gadget_size =
+        (size_t)(_other_page_load_gadget_end -
+                 _other_page_load_gadget_start);
+    size_t gadget_stride = (gadget_size + 7u) & ~7u;
+
+    if (gadget_size == 0 || gadget_stride >= pc_index_period ||
+        (size_t)OTHER_PAGES_N > pc_index_period / gadget_stride) {
+        fprintf(stderr, "too many per-page load gadgets for unique PC[14:0]\n");
+        return -1;
+    }
+
+    size_t code_size = (size_t)OTHER_PAGES_N * gadget_stride;
+    other_pages_load_gadget_mapping_size =
+        (code_size + PAGE_SIZE - 1) & ~(size_t)(PAGE_SIZE - 1);
+    other_pages_load_gadget_mapping =
+        mmap(NULL, other_pages_load_gadget_mapping_size,
+             PROT_READ | PROT_WRITE,
+             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (other_pages_load_gadget_mapping == MAP_FAILED) {
+        fprintf(stderr, "failed to map per-page load gadgets: %s\n",
+                strerror(errno));
+        other_pages_load_gadget_mapping = NULL;
+        return -1;
+    }
+
+    other_pages_load_gadgets =
+        calloc(OTHER_PAGES_N, sizeof(*other_pages_load_gadgets));
+    if (!other_pages_load_gadgets) {
+        fprintf(stderr, "failed to allocate per-page load gadget table\n");
+        return -1;
+    }
+
+    for (size_t page = 0; page < OTHER_PAGES_N; page++) {
+        char *gadget = (char *)other_pages_load_gadget_mapping +
+                       page * gadget_stride;
+        memcpy(gadget, _other_page_load_gadget_start, gadget_size);
+        other_pages_load_gadgets[page] =
+            (load_gadget_f)(void *)gadget;
+    }
+    __builtin___clear_cache(
+        (char *)other_pages_load_gadget_mapping,
+        (char *)other_pages_load_gadget_mapping + code_size);
+
+    if (mprotect(other_pages_load_gadget_mapping,
+                 other_pages_load_gadget_mapping_size,
+                 PROT_READ | PROT_EXEC) != 0) {
+        fprintf(stderr, "failed to make per-page load gadgets executable: %s\n",
+                strerror(errno));
+        return -1;
+    }
+
+    printf("# other-page load PCs use one gadget per page "
+           "(index=PC[14:0])\n");
+    for (size_t page = 0; page < OTHER_PAGES_N; page++) {
+        uintptr_t pc = (uintptr_t)(void *)other_pages_load_gadgets[page];
+        printf("# other_page_load_pc[%zu]=0x%016llx "
+               "pc14_0=0x%04llx page_offset=%zu\n",
+               page, (unsigned long long)pc,
+               (unsigned long long)(pc & (pc_index_period - 1)),
+               other_page_load_offset(page));
+    }
+    return 0;
+}
+#endif
 
 
 
@@ -143,7 +255,7 @@ static int physical_page_info(int pagemap_fd, const void *addr,
 }
 
 static int allocate_other_pages(void) {
-#if PMU_CORE_X925
+#if PMU_CORE_X925 && !TRAIN_ACCESS_LOAD
     if (CANDIDATE_PAGES_PER_OTHER <= 0 ||
         (size_t)CANDIDATE_PAGES_PER_OTHER > SIZE_MAX / PAGE_SIZE ||
         (size_t)OTHER_PAGES_N >
@@ -262,7 +374,7 @@ static int allocate_other_pages(void) {
     free(physical_addrs);
     return 0;
 #else
-    /* Keep A725 training VAs distinct and non-adjacent by placing an
+    /* Keep training VAs distinct and non-adjacent by placing an
        inaccessible guard page after every usable page. */
     if ((size_t)OTHER_PAGES_N > SIZE_MAX / (2 * PAGE_SIZE)) {
         fprintf(stderr, "invalid other-page mapping size\n");
@@ -273,7 +385,7 @@ static int allocate_other_pages(void) {
                                PROT_READ | PROT_WRITE,
                                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (other_pages_mapping == MAP_FAILED) {
-        fprintf(stderr, "failed to map A725 pages: %s\n", strerror(errno));
+        fprintf(stderr, "failed to map VA-spaced pages: %s\n", strerror(errno));
         other_pages_mapping = NULL;
         return -1;
     }
@@ -283,7 +395,7 @@ static int allocate_other_pages(void) {
         return -1;
     }
 
-    printf("# victim_page va=%p allocation=A725-va-spaced\n", (void *)array2);
+    printf("# victim_page va=%p allocation=va-spaced\n", (void *)array2);
     for (size_t i = 0; i < OTHER_PAGES_N; i++) {
         uint8_t *page = other_pages_mapping + i * 2 * PAGE_SIZE;
         uint8_t *guard = page + PAGE_SIZE;
@@ -348,49 +460,51 @@ static void flush_other_pages(int active_pages) {
 #endif
 }
 
-static inline __attribute__((always_inline)) void stride_access_inline(void *addr) {
+static inline __attribute__((always_inline)) void stride_access(void *addr) {
 #if TRAIN_ACCESS_LOAD
-    mLoad_inline(addr);
+    mLoad_noinline(addr);
 #else
     mStore_inline(addr);
 #endif
 }
 
-static inline __attribute__((always_inline)) void other_page_access_inline(void *addr) {
-#if OTHER_PAGES_ACCESS_LOAD
+static inline __attribute__((always_inline)) void other_page_access_inline(
+    int page, void *addr) {
+#if OTHER_PAGES_ACCESS_LOAD && OTHER_PAGES_N > 0
+    other_pages_load_gadgets[page](addr);
+#elif OTHER_PAGES_ACCESS_LOAD
+    (void)page;
     mLoad_inline(addr);
 #else
+    (void)page;
     mStore_inline(addr);
 #endif
 }
 
-// static void train_other_pages_range(int stride, int train_step,
-//                                     int first_page, int end_page) {
-static void train_other_pages_range(int stride, int train_step,
-                                    int activte_pages) {
+static void train_other_pages_range(int active_pages) {
 #if OTHER_PAGES_N > 0
-    // for (int page = first_page; page < end_page; page++) {
-    for (int page = 0; page < activte_pages; page++) {
-        uint8_t *base = other_pages[page];
-        for (int step = 0; step < 1; step++) {
-            other_page_access_inline(base + 3 * LINE_SIZE +
-                                     ((uint64_t)step * (uint64_t)stride));
-            nops();
-        }
+    for (int page = 0; page < active_pages; page++) {
+#if OTHER_PAGES_ACCESS_LOAD
+        size_t offset = other_page_load_offset((size_t)page);
+#else
+        size_t offset = 3 * LINE_SIZE;
+#endif
+        other_page_access_inline(page, other_pages[page] + offset);
+        nops();
     }
 #else
-    (void)stride;
-    (void)train_step;
-    // (void)first_page;
-    // (void)end_page;
+    (void)active_pages;
 #endif
 }
+#define DUMMY_BUFFER_SIZE (4096 * 10)
 
-// void dummyAccesses(void){
-//     for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
-//         asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
-//      }
-// }
+static uint8_t *dummy_buffer;
+
+void dummyAccesses(void){
+    for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+     }
+}
 
 int main(void) {
     register uint64_t time1, time2;
@@ -405,6 +519,18 @@ int main(void) {
         exit(1);
     }
 
+
+    dummy_buffer = mmap(NULL, DUMMY_BUFFER_SIZE,
+                        PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
+                        -1, 0);
+
+    if (dummy_buffer == MAP_FAILED) {
+        fprintf(stderr, "failed to map dummy buffer: %s\n", strerror(errno));
+        return 1;
+    }
+
+
 #if OTHER_PAGES_N > 0
     long system_page_size = sysconf(_SC_PAGESIZE);
     if (system_page_size != PAGE_SIZE) {
@@ -415,6 +541,11 @@ int main(void) {
     if (allocate_other_pages() != 0) {
         return 1;
     }
+#if OTHER_PAGES_ACCESS_LOAD
+    if (allocate_other_pages_load_gadgets() != 0) {
+        return 1;
+    }
+#endif
 #endif
 
     uint64_t rounds = ROUNDS;
@@ -459,7 +590,7 @@ int main(void) {
         for (uint64_t atkRound = 0; atkRound < rounds; ++atkRound) {
            
             // mfence();
-            // dummyAccesses();
+            dummyAccesses();
 
             occupy_store_prefetcher_entries(prefetcher_fill_buffer,
                                             DUMMY_BUFFER_PAGES, 6);
@@ -486,28 +617,19 @@ int main(void) {
             cpp_rctx();
 #endif
 
-            
-// #if OTHER_PAGES_N > 11
-//             mLoad_inline(other_pages[0] + 7 * LINE_SIZE);
-//             mLoad_inline(other_pages[1] + 3 * LINE_SIZE);
-// #endif
-
-            // mStore_inline(array2 + (0 * (uint64_t)stride));
-            // nops();
-            // mStore_inline(array2 + (1 * (uint64_t)stride));
-            // nops(); 
             for(int step = 0; step < train_step - 1; step++){
-                stride_access_inline(array2 + (step * stride));
+                stride_access(array2 + (step * stride));
                 // mfence();
                 nops();
             }
-            // int competitor_split = active_pages / 2;
-            train_other_pages_range(stride, train_step,
-                                    active_pages);
+
+            train_other_pages_range(active_pages);
 
 #if !NO_TRIGGER  
+            // stride_access_inline(array2 + ((train_step - 2) * stride));
+            // nops();
             // mStore_inline(array2 + (2 * (uint64_t)stride));
-            stride_access_inline(array2 + ((train_step - 1) * stride));
+            stride_access(array2 + ((train_step - 1) * stride));
             nops();
 #endif
         
@@ -527,7 +649,7 @@ int main(void) {
             //                       (uint64_t)stride);
 
             time1 = timestamp();
-            stride_access_inline((void *)probe_addr);
+            stride_access((void *)probe_addr);
             time2 = timestamp() - time1;
 
             latency2_sum += time2;
@@ -557,6 +679,11 @@ int main(void) {
     pmu_cleanup();
 
 #if OTHER_PAGES_N > 0
+#if OTHER_PAGES_ACCESS_LOAD
+    free(other_pages_load_gadgets);
+    munmap(other_pages_load_gadget_mapping,
+           other_pages_load_gadget_mapping_size);
+#endif
     free(other_pages);
     munmap(other_pages_mapping, other_pages_mapping_size);
 #endif

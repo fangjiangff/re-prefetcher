@@ -28,9 +28,9 @@ DEFAULT_TRAIN_STEP_MIN = 1
 DEFAULT_TRAIN_STEP_MAX = 10
 DEFAULT_OTHER_PAGES = 0
 DEFAULT_OTHER_PAGES_MIN = 0
-MAX_TOTAL_PAGES = 128
-MAX_OTHER_PAGES = MAX_TOTAL_PAGES - 1
-DEFAULT_OTHER_PAGES_MAX = MAX_OTHER_PAGES
+MAX_STORE_TOTAL_PAGES = 128
+MAX_STORE_OTHER_PAGES = MAX_STORE_TOTAL_PAGES - 1
+DEFAULT_OTHER_PAGES_MAX = MAX_STORE_OTHER_PAGES
 DEFAULT_ROUNDS = 400
 DEFAULT_PROBE_POSITIONS = 100
 GREEN = "\033[32m"
@@ -73,7 +73,10 @@ def parse_args():
     parser.add_argument("--train-step-max", type=int, default=DEFAULT_TRAIN_STEP_MAX,
                         help=f"Last train-step for --batch. Default: {DEFAULT_TRAIN_STEP_MAX}")
     parser.add_argument("--other-pages", type=int, default=DEFAULT_OTHER_PAGES,
-                        help=f"Number of other pages trained before victim trigger (max {MAX_OTHER_PAGES}; victim + other pages <= {MAX_TOTAL_PAGES}). Default: {DEFAULT_OTHER_PAGES}")
+                        help=(f"Number of other pages trained before victim trigger. "
+                              f"Store tests allow at most {MAX_STORE_OTHER_PAGES}; "
+                              f"load tests are limited by unique PC[14:0] values. "
+                              f"Default: {DEFAULT_OTHER_PAGES}"))
     parser.add_argument("--other-pages-sweep", action="store_true",
                         help="Sweep other-pages-min..other-pages-max instead of one value.")
     parser.add_argument("--other-pages-min", type=int, default=DEFAULT_OTHER_PAGES_MIN,
@@ -128,14 +131,14 @@ def parse_args():
         parser.error("--train-step-max must be >= --train-step-min")
     if args.other_pages < 0:
         parser.error("--other-pages must be >= 0")
-    if args.other_pages > MAX_OTHER_PAGES:
-        parser.error(f"--other-pages must be <= {MAX_OTHER_PAGES}")
+    if args.access == "store" and args.other_pages > MAX_STORE_OTHER_PAGES:
+        parser.error(f"--other-pages must be <= {MAX_STORE_OTHER_PAGES} for store")
     if args.other_pages_min < 0:
         parser.error("--other-pages-min must be >= 0")
     if args.other_pages_max < args.other_pages_min:
         parser.error("--other-pages-max must be >= --other-pages-min")
-    if args.other_pages_max > MAX_OTHER_PAGES:
-        parser.error(f"--other-pages-max must be <= {MAX_OTHER_PAGES}")
+    if args.access == "store" and args.other_pages_max > MAX_STORE_OTHER_PAGES:
+        parser.error(f"--other-pages-max must be <= {MAX_STORE_OTHER_PAGES} for store")
     if args.rounds < 1:
         parser.error("--rounds must be >= 1")
     if args.probe_positions < 1:

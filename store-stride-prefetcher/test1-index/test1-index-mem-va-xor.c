@@ -42,6 +42,38 @@
 #define DUMMY_BUFFER_PAGES 10
 #endif
 
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
+#ifndef ENABLE_PMU
+#define ENABLE_PMU 0
+#endif
+
+#ifndef STRIDE_ACCESS_LOAD
+#define STRIDE_ACCESS_LOAD 0
+#endif
+
+#if STRIDE_ACCESS_LOAD
+#define STRIDE_ACCESS_NAME "load"
+#else
+#define STRIDE_ACCESS_NAME "store"
+#endif
+
+#if ENABLE_PMU
+#ifndef PMU_WINDOW_NAME
+#define PMU_WINDOW_NAME "train-trigger-wait-per-round"
+#endif
+#ifndef PMU_CORE_X925
+#define PMU_CORE_X925 ENABLE_CPP_RCTX
+#endif
+#ifndef PMU_CORE_A55
+#define PMU_CORE_A55 0
+#endif
+#include "../pmu.h"
+static int index_mem_va_xor_pmu_ready;
+#endif
+
 #define ALIAS_SIZE PAGE_SIZE
 #define STRIDE_BYTES (STRIDE_LINES * LINE_SIZE)
 #define TRAIN_ONLY_ACCESSES (STORE_ACCESSES - 1)
@@ -116,7 +148,6 @@ static void flush_aliases(uint8_t *va1, uint8_t *va2) {
         flush(va1 + offset);
         flush(va2 + offset);
     }
-    mfence();
 }
 
 static uint64_t probe_latency(uint8_t *addr) {
@@ -125,14 +156,30 @@ static uint64_t probe_latency(uint8_t *addr) {
     return timestamp() - start;
 }
 
+static inline __attribute__((always_inline)) void stride_access(void *addr) {
+#if STRIDE_ACCESS_LOAD
+    mLoad_inline(addr);
+#else
+    mStore_inline(addr);
+#endif
+}
+
 __attribute__((noinline)) static void run_trainer(uint8_t *va1) {
     for (int access = 0; access < TRAIN_ONLY_ACCESSES; access++) {
-        mStore_inline(va1 + (uint64_t)access * STRIDE_BYTES);
+        stride_access(va1 + (uint64_t)access * STRIDE_BYTES);
+        nops();
     }
 }
 
 __attribute__((noinline)) static void run_trigger(uint8_t *va2) {
-    mStore_inline(va2 + TRIGGER_POS * LINE_SIZE);
+    stride_access(va2 + TRIGGER_POS * LINE_SIZE);
+    nops();
+}
+
+static void wait_after_trigger_access(void) {
+    nops();
+    struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 100};
+    nanosleep(&prefetch_wait, NULL);
 }
 
 static void run_case(const char *result_name,
@@ -145,15 +192,34 @@ static void run_case(const char *result_name,
     uint64_t latency_sum[PROBE_POSITIONS] = {0};
     int probe_count[PROBE_POSITIONS] = {0};
 
+#if ENABLE_PMU
+    if (index_mem_va_xor_pmu_ready) {
+        pmu_reset_accumulated();
+    }
+#endif
+
     for (uint64_t round = 0; round < rounds; round++) {
         int probe_pos = (int)(round % PROBE_POSITIONS);
 
-        cpp_rctx();
-        // dummy_accesses();
-        mfence();
         dummyAccesses();
+        occupy_store_prefetcher_entries(dummy_buffer, DUMMY_BUFFER_PAGES, 6);
         flush_aliases(va1, va2);
         mfence();
+
+#if ENABLE_PMU
+        int pmu_running = 0;
+        if (index_mem_va_xor_pmu_ready) {
+            pmu_running = (pmu_start() == 0);
+            if (!pmu_running) {
+                printf("# PMU unavailable: counter group could not be started\n");
+                index_mem_va_xor_pmu_ready = 0;
+            }
+        }
+#endif
+
+#if ENABLE_CPP_RCTX
+        cpp_rctx();
+#endif
 
         if (enable_trainer) {
             run_trainer(va1);
@@ -161,6 +227,13 @@ static void run_case(const char *result_name,
         if (enable_trigger) {
             run_trigger(va2);
         }
+        wait_after_trigger_access();
+
+#if ENABLE_PMU
+        if (pmu_running) {
+            pmu_stop_and_accumulate();
+        }
+#endif
 
         latency_sum[probe_pos] += probe_latency(va2 + probe_pos * LINE_SIZE);
         probe_count[probe_pos]++;
@@ -186,6 +259,13 @@ static void run_case(const char *result_name,
                                            (uint64_t)probe_count[PREDICTED_POS]);
     }
     printf("%s\t%lu\n", result_name, predicted_avg_ns);
+
+#if ENABLE_PMU
+    printf("# PMU_CASE %s\n", result_name);
+    if (index_mem_va_xor_pmu_ready) {
+        pmu_print_accumulated(rounds);
+    }
+#endif
 }
 
 static void print_mask_failure(const char *result_name) {
@@ -271,6 +351,8 @@ static void run_bit_pair(int bit_a, int bit_b,
     run_mask_case(result_name, detail_name, mask, va1_base, rounds);
 }
 
+#if 0
+/* Temporarily disabled: targeted three-bit and cross-group four-bit cases. */
 static void run_bit_triple(int bit_a, int bit_b, int bit_c,
                            uintptr_t va1_base, uint64_t rounds) {
     char result_name[80];
@@ -325,6 +407,8 @@ static void run_targeted_hash_cases(uintptr_t va1_base, uint64_t rounds) {
         }
     }
 }
+
+#endif
 
 static void run_same_va_baselines(uintptr_t va1_base, uint64_t rounds) {
     if ((va1_base % PAGE_SIZE) != 0) {
@@ -404,7 +488,7 @@ int main(void) {
         return 1;
     }
 
-    printf("# store-stride VA xor-index contribution test\n");
+    printf("# %s-stride VA xor-index contribution test\n", STRIDE_ACCESS_NAME);
     printf("# VA1_BASE=0x%016lx stride_lines=%d accesses=%d train_only_accesses=%d rounds=%d probe_positions=%d\n",
            (unsigned long)va1_base,
            STRIDE_LINES,
@@ -413,9 +497,11 @@ int main(void) {
            ROUNDS,
            PROBE_POSITIONS);
     printf("# pair condition: VA1 ^ VA2 == mask, with identical page offset\n");
-    printf("# single-bit controls cover MIN_DIFF_BIT..MAX_DIFF_BIT; pairwise xor masks cover MIN_DIFF_BIT..33\n");
-    printf("# targeted checks use triples and cross-group pairpair masks for candidate xor hashes\n");
+    printf("# single-bit controls and pairwise xor masks cover MIN_DIFF_BIT..MAX_DIFF_BIT\n");
+    printf("# targeted triple and cross-group pairpair checks are temporarily disabled\n");
     printf("# VA1 and VA2 are MAP_SHARED aliases of the same memfd page\n");
+    printf("# access=%s ENABLE_PMU=%d ENABLE_CPP_RCTX=%d\n",
+           STRIDE_ACCESS_NAME, ENABLE_PMU, ENABLE_CPP_RCTX);
     printf("# trainer: VA1 + [0..%d]*%d*LINE_SIZE, trigger: VA2 + %d*LINE_SIZE, final: VA2 + %d*LINE_SIZE\n",
            TRAIN_ONLY_ACCESSES - 1,
            STRIDE_LINES,
@@ -423,19 +509,29 @@ int main(void) {
            PREDICTED_POS);
     printf("case\tlatency_ns\n");
 
+#if ENABLE_PMU
+    index_mem_va_xor_pmu_ready = (pmu_setup() == 0);
+    if (!index_mem_va_xor_pmu_ready) {
+        printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
+    }
+#endif
+
     run_same_va_baselines(va1_base, ROUNDS);
 
     for (int diff_bit = MIN_DIFF_BIT; diff_bit <= MAX_DIFF_BIT; diff_bit++) {
         run_bit(diff_bit, va1_base, ROUNDS);
     }
 
-    for (int bit_a = MIN_DIFF_BIT; bit_a <= 33; bit_a++) {
-        for (int bit_b = bit_a + 1; bit_b <= 33; bit_b++) {
+    for (int bit_a = MIN_DIFF_BIT; bit_a <= MAX_DIFF_BIT; bit_a++) {
+        for (int bit_b = bit_a + 1; bit_b <= MAX_DIFF_BIT; bit_b++) {
             run_bit_pair(bit_a, bit_b, va1_base, ROUNDS);
         }
     }
-    run_targeted_hash_cases(va1_base, ROUNDS);
+    /* run_targeted_hash_cases(va1_base, ROUNDS); */
 
+#if ENABLE_PMU
+    pmu_cleanup();
+#endif
     munmap(dummy_buffer, DUMMY_BUFFER_SIZE);
     return 0;
 }

@@ -226,6 +226,8 @@ def plot_result(path, rows, title, threshold_ns, vmin=None, vmax=None):
         vmin = 0
     if vmax is None:
         vmax = max(max(values) if values else 0, threshold_ns) * 1.12
+    vmin = min(vmin, 0)
+    vmax = max(vmax, 1)
 
     width = max(10.5, 0.28 * len(rows) + 3.0)
     fig, ax = plt.subplots(figsize=(width, 4.8))
@@ -286,6 +288,8 @@ def plot_pmu_bit_relation(path, rows, args):
     ax.set_xticks(bits)
     ax.grid(alpha=0.25)
     ax.legend()
+    ymin, ymax = ax.get_ylim()
+    ax.set_ylim(min(ymin, 0), max(ymax, 1))
     fig.tight_layout()
     ensure_parent(path)
     fig.savefig(path, dpi=300)
