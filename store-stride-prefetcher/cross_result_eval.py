@@ -85,6 +85,9 @@ def print_cross_evaluation(
     experiment3_rows,
     experiment4_rows,
     experiment5_rows=None,
+    experiment5_control_description=(
+        "Experiment5 controls for Secure World switch without trigger"
+    ),
     unit="ns",
 ):
     baseline1_avg = _avg_for_line(baseline1_rows, predicted_line)
@@ -151,6 +154,6 @@ def print_cross_evaluation(
             f"avg={_avg_text(experiment5_avg, unit)}"
         )
         print(
-            "  Experiment5 controls for Secure World switch without trigger: "
+            f"  {experiment5_control_description}: "
             f"{_yes_no(experiment5_ok)}"
         )

@@ -8,11 +8,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 #include "../until.h"
 
 #define PAGE_LINES (PAGE_SIZE / LINE_SIZE)
-#define DUMMY_BUFFER_SIZE (PAGE_SIZE * 10)
+
+#ifndef DUMMY_BUFFER_PAGES
+#define DUMMY_BUFFER_PAGES 64
+#endif
+
+#define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 #ifndef STRIDE_LINES
 #define STRIDE_LINES 5
@@ -63,9 +69,25 @@
 #define THREAD0_TRIGGER 0
 #endif
 
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
+#ifndef PMU_CORE_X925
+#define PMU_CORE_X925 ENABLE_CPP_RCTX
+#endif
+
+#ifndef PMU_CORE_A55
+#define PMU_CORE_A55 0
+#endif
+
+#define PMU_WINDOW_NAME "cross-thread-stride-per-round"
+#include "../pmu.h"
+
 static uint8_t array1[100 * LINE_SIZE] = {0};
 static uint8_t *shared_page;
 static uint8_t *dummy_buffer;
+static uint8_t *prefetcher_fill_buffer;
 
 static long long latency_sum[PROBE_POSITIONS] = {0};
 static int probe_count[PROBE_POSITIONS] = {0};
@@ -102,14 +124,7 @@ static void flush_shared_page(void) {
 }
 
 static void dummyAccesses(void) {
-// #if TRAIN_ACCESS_LOAD
-//     for (size_t i = 0; i < DUMMY_BUFFER_SIZE; i += LINE_SIZE) {
-//         mStore_inline(dummy_buffer + i);
-//     }
-//     mfence();
-// #else
     dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
-// #endif
 }
 
 static inline __attribute__((always_inline)) void access_for_test(void *addr) {
@@ -351,6 +366,13 @@ int main(void) {
         die("mmap dummy_buffer");
     }
 
+    prefetcher_fill_buffer = mmap(
+        NULL, DUMMY_BUFFER_SIZE, PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+    if (prefetcher_fill_buffer == MAP_FAILED) {
+        die("mmap prefetcher_fill_buffer");
+    }
+
     for (size_t offset = 0; offset < PAGE_SIZE; offset += LINE_SIZE) {
         mLoad(shared_page + offset);
     }
@@ -363,6 +385,15 @@ int main(void) {
 
     print_header(stride_bytes, first_trigger_line, last_trigger_line,
                  predicted_line);
+    printf("# ENABLE_CPP_RCTX=%d PMU_CORE_X925=%d PMU_CORE_A55=%d "
+           "DUMMY_BUFFER_SIZE=%d\n",
+           ENABLE_CPP_RCTX, PMU_CORE_X925, PMU_CORE_A55,
+           DUMMY_BUFFER_SIZE);
+
+    int pmu_ready = (pmu_setup_cpu(CPU_ID) == 0);
+    if (!pmu_ready) {
+        printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
+    }
 
     for (uint64_t round = 0; round < ROUNDS; round++) {
         int probe_pos = (round*73) % PROBE_POSITIONS;
@@ -370,9 +401,24 @@ int main(void) {
         uint64_t time1;
         uint64_t time2;
 
-        cpp_rctx();
+        dummyAccesses();
+        occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+                                        DUMMY_BUFFER_SIZE / PAGE_SIZE, 1);
         flush_shared_page();
-        // dummyAccesses();
+        mfence();
+
+        int pmu_running = 0;
+        if (pmu_ready) {
+            pmu_running = (pmu_start() == 0);
+            if (!pmu_running) {
+                printf("# PMU unavailable: counter group could not be started\n");
+                pmu_ready = 0;
+            }
+        }
+
+#if ENABLE_CPP_RCTX
+        cpp_rctx();
+#endif
 
         train_in_thread0(stride_bytes);
 #if CONTEXT_SWITCH_ONLY
@@ -389,7 +435,14 @@ int main(void) {
         }
 #endif
 #endif
-        // delay_after_trigger();
+
+        nops();
+        struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 1000};
+        nanosleep(&prefetch_wait, NULL);
+
+        if (pmu_running) {
+            pmu_stop_and_accumulate();
+        }
 
         time1 = timestamp();
         junk += *probe_addr;
@@ -408,6 +461,11 @@ int main(void) {
         printf("%3d\t%12d\t%10lld\t%5d\n",
                pos, pos * LINE_SIZE, avg_ns, probe_count[pos]);
     }
+
+    if (pmu_ready) {
+        pmu_print_accumulated(ROUNDS);
+    }
+    pmu_cleanup();
 
 #if CONTEXT_SWITCH_ONLY || (!NO_TRIGGER && !THREAD0_TRIGGER)
     stop_trigger_thread();

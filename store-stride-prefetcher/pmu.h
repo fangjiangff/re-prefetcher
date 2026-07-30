@@ -19,6 +19,10 @@
 #define PMU_PRINT_START_STATUS 1
 #endif
 
+#ifndef PMU_EXCLUDE_KERNEL
+#define PMU_EXCLUDE_KERNEL 1
+#endif
+
 #if defined(__aarch64__)
 
 #include <errno.h>
@@ -289,7 +293,7 @@ static int pmu_setup_target(pid_t pid, int cpu) {
         attr.size = sizeof(attr);
         attr.config = pmu_counters[i].event;
         attr.disabled = 1;
-        attr.exclude_kernel = 1;
+        attr.exclude_kernel = PMU_EXCLUDE_KERNEL;
         attr.exclude_hv = 1;
         attr.read_format = PERF_FORMAT_TOTAL_TIME_ENABLED |
                            PERF_FORMAT_TOTAL_TIME_RUNNING;

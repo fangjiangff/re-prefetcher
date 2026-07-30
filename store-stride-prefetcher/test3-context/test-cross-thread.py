@@ -264,9 +264,7 @@ def supported_timers_for_arch(arch):
 def timer_for_arch(arch):
     if args.timer is not None:
         return args.timer
-    if is_x86_arch(arch):
-        return "gettime"
-    return "cntvct"
+    return ARCH_CONFIG[arch]["timer"]
 
 
 def timer_unit_for(arch):
@@ -290,9 +288,9 @@ def timer_define_for(arch):
 
 
 def arch_cflags_for(arch):
-    if is_x86_arch(arch):
-        return []
-    return ["-march=armv8.5-a+predres"]
+    if arch == "X925":
+        return ["-march=armv8.5-a+predres"]
+    return []
 
 
 def micro_arch_name(arch, core, train_step):
@@ -455,6 +453,7 @@ def compile_test(train_step, arch):
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
         f"-DCONTEXT_SWITCH_BEFORE_TRIGGER={1 if args.context_switch else 0}",
         f"-DCONTEXT_SWITCH_YIELDS={args.context_switch_yields}",
+        f"-DENABLE_CPP_RCTX={1 if arch == 'X925' else 0}",
         "-o",
         OUT,
         SRC,

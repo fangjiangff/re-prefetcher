@@ -9,6 +9,7 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from cross_test_config import (
+    ARCH_CONFIG,
     apply_access_defaults,
     apply_single_core_defaults,
     apply_threshold_defaults,
@@ -29,6 +30,8 @@ OUT = os.path.join(ROOT_DIR, "bin", "test3-cross-thread")
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_ROUNDS = 4000
 DEFAULT_PROBE_POSITIONS = 64
+DEFAULT_DUMMY_BUFFER_PAGES = 64
+PREFETCH_CANDIDATE_LINES = 10
 ANSI_GREEN = "\033[32m"
 ANSI_RESET = "\033[0m"
 
@@ -52,11 +55,20 @@ def parse_args():
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
     parser.add_argument("--probe-positions", type=int,
                         default=DEFAULT_PROBE_POSITIONS)
+    parser.add_argument("--dummy-buffer-pages", type=int,
+                        default=DEFAULT_DUMMY_BUFFER_PAGES,
+                        help="Pages used by dummy and prefetcher-fill buffers. Default: 64")
     parser.add_argument("--hit-threshold-ns", type=int,
                         default=None,
                         help="Override the arch-specific cache hit threshold.")
     parser.add_argument("--access", choices=["store", "load"], default="store",
                         help="Stride instruction to test. Default: store")
+    parser.add_argument("--timer",
+                        choices=["gettime", "rdtsc", "cntvct", "pmccntr"],
+                        default=None,
+                        help="Timestamp source. Default is selected from --arch.")
+    parser.add_argument("--pmu-device", default=None,
+                        help="Override the PMU device name passed as PMU_DEVICE.")
     parser.add_argument("--inline-store", action="store_true",
                         help="Use inline store call sites instead of same-PC "
                              "noinline stores.")
@@ -88,6 +100,8 @@ def parse_args():
         parser.error("--rounds must be >= 1")
     if args.probe_positions < 1 or args.probe_positions > 64:
         parser.error("--probe-positions must be in [1, 64]")
+    if args.dummy_buffer_pages < 1:
+        parser.error("--dummy-buffer-pages must be >= 1")
     if args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
 
@@ -243,6 +257,36 @@ def predicted_offset():
     return predicted_line() * 64
 
 
+def timer_for_arch():
+    if args.timer is not None:
+        return args.timer
+    return ARCH_CONFIG[args.arch]["timer"]
+
+
+def timer_define():
+    timer = timer_for_arch()
+    if timer == "rdtsc":
+        return "-DRDTSC=1"
+    if timer == "cntvct":
+        return "-DCNTVCT=1"
+    if timer == "pmccntr":
+        return "-DPMCCNTR=1"
+    return "-DGETTIME=1"
+
+
+def arch_cflags():
+    if args.arch == "X925":
+        return ["-march=armv8.5-a+predres"]
+    return []
+
+
+def pmu_defines():
+    return [
+        f"-DPMU_CORE_X925={1 if args.arch == 'X925' else 0}",
+        f"-DPMU_CORE_A55={1 if args.arch == 'A55' else 0}",
+    ]
+
+
 def classify_position(offset_bytes, avg_ns, probes):
     if offset_bytes in trained_offsets():
         return "trained"
@@ -324,18 +368,22 @@ def compile_test(no_trigger=False, context_switch=False, thread0_trigger=False):
         "-O0",
         "-static",
         "-pthread",
-        "-march=armv8.5-a+predres",
+        *arch_cflags(),
+        timer_define(),
         f"-DSTRIDE_LINES={args.stride}",
         f"-DTRAIN_ACCESSES={train_only_accesses()}",
         f"-DTRIGGER_ACCESSES={args.trigger_accesses}",
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
+        f"-DDUMMY_BUFFER_PAGES={args.dummy_buffer_pages}",
         f"-DCPU_ID={args.core}",
         f"-DUSE_NOINLINE_STORE={use_noinline}",
         f"-DTRAIN_ACCESS_LOAD={train_access_load}",
         f"-DNO_TRIGGER={1 if no_trigger else 0}",
         f"-DCONTEXT_SWITCH_ONLY={1 if context_switch else 0}",
         f"-DTHREAD0_TRIGGER={1 if thread0_trigger else 0}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
+        *pmu_defines(),
         "-o",
         OUT,
         SRC,
@@ -345,10 +393,14 @@ def compile_test(no_trigger=False, context_switch=False, thread0_trigger=False):
 
 
 def run_binary():
+    env = os.environ.copy()
+    if args.pmu_device is not None:
+        env["PMU_DEVICE"] = args.pmu_device
     return subprocess.run(
         ["taskset", "-c", str(args.core), OUT],
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
@@ -362,6 +414,13 @@ def result_paths(no_trigger=False, context_switch=False, thread0_trigger=False):
     if thread0_trigger:
         return baseline1_raw_path(), baseline1_tsv_path()
     return experiment4_raw_path(), experiment4_tsv_path()
+
+
+def print_pmu_output(output):
+    for line in output.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("# PMU") or stripped.startswith("PMU:"):
+            print(line)
 
 
 def run_one(no_trigger=False, context_switch=False, thread0_trigger=False):
@@ -380,6 +439,9 @@ def run_one(no_trigger=False, context_switch=False, thread0_trigger=False):
         if run.stderr:
             print(run.stderr)
         return []
+
+    print_pmu_output(run.stdout)
+    print_pmu_output(run.stderr)
 
     raw_result_path, tsv_result_path = result_paths(
         no_trigger=no_trigger,
@@ -402,7 +464,7 @@ def run_one(no_trigger=False, context_switch=False, thread0_trigger=False):
 def print_summary(rows, label):
     targets = [
         step * args.stride
-        for step in range(args.accesses + 4)
+        for step in range(args.accesses)
         if step * args.stride < args.probe_positions
     ]
     print(label)
@@ -410,6 +472,21 @@ def print_summary(rows, label):
         if pos < len(rows):
             row = rows[pos]
             print(f"  line {pos:2d}: {row['role']:10s} {row['avg_ns']:4d} ns")
+
+    candidate_positions = [
+        predicted_line() + candidate_index * args.stride
+        for candidate_index in range(PREFETCH_CANDIDATE_LINES)
+        if predicted_line() + candidate_index * args.stride
+        < min(args.probe_positions, len(rows))
+    ]
+    print(
+        "  Candidate prefetch lines at stride intervals: "
+        + ", ".join(str(pos) for pos in candidate_positions)
+    )
+    for pos in candidate_positions:
+        row = rows[pos]
+        print(f"    line {pos:2d}: {row['role']:10s} {row['avg_ns']:4d} ns")
+    print()
 
 
 def print_green(text):
@@ -438,6 +515,7 @@ def run_test():
         f"trigger_line={trigger_line()}, last_trigger_line={last_trigger_line()}, "
         f"predicted_line={predicted_line()}, "
         f"probe_positions={args.probe_positions}, rounds={args.rounds}, "
+        f"dummy_buffer_pages={args.dummy_buffer_pages}, "
         f"{args.access}={'noinline' if args.access == 'load' else ('inline' if args.inline_store else 'noinline')}"
     )
 
@@ -572,6 +650,7 @@ if __name__ == "__main__":
         f"trigger_line={trigger_line()}, last_trigger_line={last_trigger_line()}, "
         f"predicted_line={predicted_line()}, "
         f"probe_positions={args.probe_positions}, rounds={args.rounds}, "
+        f"dummy_buffer_pages={args.dummy_buffer_pages}, "
         f"{args.access}={'noinline' if args.access == 'load' else ('inline' if args.inline_store else 'noinline')}"
     )
 

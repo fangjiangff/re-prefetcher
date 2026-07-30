@@ -7,6 +7,8 @@
 #include <sched.h>
 #include <time.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #include "../until.h"
 // #include "victim.h"
 
@@ -76,6 +78,10 @@
 
 #ifndef ENABLE_SCHED_YIELD
 #define ENABLE_SCHED_YIELD 2
+#endif
+
+#ifndef ENABLE_GETPID_SYSCALL
+#define ENABLE_GETPID_SYSCALL 0
 #endif
 
 #if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
@@ -152,10 +158,12 @@ int main(){
 
     printf("# ENABLE_CPP_RCTX=%d PMU_CORE_X925=%d PMU_CORE_A55=%d "
            "ENABLE_DUMMY_ACCESSES=%d "
+           "ENABLE_SCHED_YIELD=%d ENABLE_GETPID_SYSCALL=%d "
            "DUMMY_BUFFER_PAGES=%d "
            "DUMMY_BUFFER_SIZE=%u\n",
            ENABLE_CPP_RCTX, PMU_CORE_X925, PMU_CORE_A55,
            ENABLE_DUMMY_ACCESSES,
+           ENABLE_SCHED_YIELD, ENABLE_GETPID_SYSCALL,
            DUMMY_BUFFER_PAGES, DUMMY_BUFFER_SIZE);
 
           int pmu_ready = (pmu_setup() == 0);
@@ -192,8 +200,8 @@ int main(){
             // reset prefetcher state
 #if ENABLE_CPP_RCTX
             cpp_rctx();
-#endif        
-    
+#endif
+
             // begin to trainer the store stride prefetch
             for(int step = 0; step < train_step-1; step++){
                 stride_access(array2 + (step * stride));
@@ -207,6 +215,16 @@ int main(){
             sched_yield();
         }        
 #endif
+
+#if ENABLE_GETPID_SYSCALL
+        for (int i = 0; i < 10; i++) {
+            (void)syscall(SYS_getpid);
+        }
+#endif
+
+            // mLoad_inline(array2+ 31*LINE_SIZE);
+            // mLoad_inline(array2+ 76*LINE_SIZE);
+            // mLoad_inline(array2+ 112*LINE_SIZE);
 
 #if !NO_TRIGGER
             if (train_step > 0) {

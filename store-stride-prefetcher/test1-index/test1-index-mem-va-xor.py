@@ -381,6 +381,8 @@ def split_pmu_plot_paths(path, counter_name):
 
 
 def pairwise_pmu_counter(args):
+    if args.arch == "A55":
+        return "l1d_cache_refill_prefetch"
     if args.arch == "A725":
         return "l1d_cache_hwprf"
     if args.arch == "X925" and args.access == "load":
@@ -388,7 +390,7 @@ def pairwise_pmu_counter(args):
     if args.arch == "X925" and args.access == "store":
         return "l2d_cache_hwprf"
     raise ValueError(
-        "PMU pairwise heatmap is only defined for A725 store/load and "
+        "PMU pairwise heatmap is only defined for A55/A725 store/load and "
         "X925 store/load"
     )
 
@@ -527,8 +529,8 @@ def main():
     parser.add_argument("--probe-positions", type=int,
                         default=DEFAULT_PROBE_POSITIONS,
                         help=f"Number of cache-line positions to probe. Default: {DEFAULT_PROBE_POSITIONS}")
-    parser.add_argument("--enable-pmu", type=int, choices=[0, 1], default=0,
-                        help="Compile with -DENABLE_PMU. Default: 0")
+    parser.add_argument("--enable-pmu", type=int, choices=[0, 1], required=True,
+                        help="Compile with -DENABLE_PMU. Must be explicitly set to 0 or 1.")
     parser.add_argument("--pmu-device", default=None,
                         help="Override PMU_DEVICE for pmu.h raw-event fallback.")
     parser.add_argument("--threshold-ns", type=int, default=None,

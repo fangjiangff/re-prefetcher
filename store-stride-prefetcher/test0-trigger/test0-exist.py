@@ -94,6 +94,9 @@ def parse_args():
                         help="Skip the final same-PC trigger access after training.")
     parser.add_argument("--context-switch", action="store_true",
                         help="Call sched_yield at the post-training context-switch point.")
+    parser.add_argument("--getpid", action="store_true",
+                        help=("Call syscall(SYS_getpid) 10 times between training "
+                              "and trigger, without voluntarily yielding the CPU."))
     parser.add_argument("--pmu-device", default=None,
                         help=("Override PMU device name passed as PMU_DEVICE. "
                               "Example: armv8_pmuv3_0"))
@@ -129,6 +132,8 @@ def parse_args():
         parser.error("--dummy-buffer-pages must be >= 1")
     if args.hit_threshold_ns is not None and args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
+    if args.context_switch and args.getpid:
+        parser.error("--context-switch and --getpid cannot be used together")
     requested_arches = []
     if args.arches is not None:
         requested_arches.extend(item.strip() for item in args.arches.split(",") if item.strip())
@@ -303,6 +308,7 @@ def pmu_defines_for_arch(arch):
 def micro_arch_name(arch, core, train_step):
     trigger_suffix = "-no-trigger" if args.no_trigger else ""
     switch_suffix = "-ctxswitch" if args.context_switch else ""
+    syscall_suffix = "-getpid" if args.getpid else ""
     dummy_suffix = ""
     timer = timer_for_arch(arch)
     timer_suffix = ""
@@ -321,7 +327,8 @@ def micro_arch_name(arch, core, train_step):
     return (
         f"{arch}-core{core}-stride{args.stride}"
         f"-train{train_step}-{args.access}"
-        f"{timer_suffix}{probe_mode_suffix(train_step)}{trigger_suffix}{switch_suffix}"
+        f"{timer_suffix}{probe_mode_suffix(train_step)}{trigger_suffix}"
+        f"{switch_suffix}{syscall_suffix}"
         f"{dummy_suffix}"
     )
 
@@ -447,6 +454,7 @@ def compile_test(train_step, arch):
         f"-DDUMMY_BUFFER_PAGES={args.dummy_buffer_pages}",
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
         f"-DENABLE_SCHED_YIELD={1 if args.context_switch else 0}",
+        f"-DENABLE_GETPID_SYSCALL={1 if args.getpid else 0}",
         "-o",
         OUT,
         SRC,
@@ -496,6 +504,7 @@ def run_one(arch, core, train_step):
         f"dummy_order={args.dummy_order}, "
         f"dummy_buffer_pages={args.dummy_buffer_pages}, "
         f"context_switch={args.context_switch}, "
+        f"getpid={args.getpid}, "
     )
 
     if compile_test(train_step, arch) != 0:

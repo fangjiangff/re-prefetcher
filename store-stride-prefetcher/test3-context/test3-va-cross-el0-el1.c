@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sched.h>
 #include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 #include "../until.h"
 
@@ -15,21 +16,26 @@
  * EL0/EL1 stride prefetcher state test.
  *
  * Store mode:
- *   EL0 stores line 0, 5, 10, 15, 20.
- *   EL1 read(/dev/zero, user_page + line 25, 1) writes one byte.
+ *   EL0 stores line 0, 5, 10, 15.
+ *   EL1 read(/dev/zero, user_page + line 20, 1) writes one byte.
  *
  * Load mode:
  *   EL0 loads line 0, 5, 10, 15.
  *   EL1 write(/dev/null, user_page + line 20, 1) reads one byte.
  *
  * EL0:
- *   probe one line per round. With stride = 5 cache lines, line 30 is the
+ *   probe one line per round. With stride = 5 cache lines, line 25 is the
  *   expected next-line prediction if the store-stride state survives the
  *   EL0->EL1 transition and can be triggered by the kernel store.
  */
 
 #define PAGE_LINES (PAGE_SIZE / LINE_SIZE)
-#define DUMMY_BUFFER_SIZE (PAGE_SIZE * 10)
+
+#ifndef DUMMY_BUFFER_PAGES
+#define DUMMY_BUFFER_PAGES 64
+#endif
+
+#define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
 
 #ifndef STRIDE_LINES
 #define STRIDE_LINES 5
@@ -59,15 +65,9 @@
 #define TRAIN_ACCESS_LOAD 0
 #endif
 
-#if TRAIN_ACCESS_LOAD
 #define TRAIN_ONLY_ACCESSES (TRAIN_ACCESSES - 1)
 #define TRIGGER_LINE_INDEX ((TRAIN_ACCESSES - 1) * STRIDE_LINES)
 #define PREDICTED_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
-#else
-#define TRAIN_ONLY_ACCESSES TRAIN_ACCESSES
-#define TRIGGER_LINE_INDEX (TRAIN_ACCESSES * STRIDE_LINES)
-#define PREDICTED_LINE_INDEX ((TRAIN_ACCESSES + 1) * STRIDE_LINES)
-#endif
 
 #ifndef NO_TRIGGER
 #define NO_TRIGGER 0
@@ -81,6 +81,26 @@
 #define CONTEXT_SWITCH_ONLY 0
 #endif
 
+#ifndef CONTEXT_SWITCH_NO_TRIGGER
+#define CONTEXT_SWITCH_NO_TRIGGER 0
+#endif
+
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
+#ifndef PMU_CORE_X925
+#define PMU_CORE_X925 ENABLE_CPP_RCTX
+#endif
+
+#ifndef PMU_CORE_A55
+#define PMU_CORE_A55 0
+#endif
+
+#define PMU_WINDOW_NAME "same-va-el0-el1-stride-per-round"
+#define PMU_EXCLUDE_KERNEL 0
+#include "../pmu.h"
+
 #ifndef VA_MAP_ADDR
 #define VA_MAP_ADDR 0x700000000ULL
 #endif
@@ -91,7 +111,7 @@
 
 static uint8_t *user_page;
 static uint8_t *dummy_buffer;
-static uint8_t array1[100 * LINE_SIZE] = {0};
+static uint8_t *prefetcher_fill_buffer;
 
 static long long latency_sum[PROBE_POSITIONS] = {0};
 static int probe_count[PROBE_POSITIONS] = {0};
@@ -206,21 +226,23 @@ static void context_switch_in_el1(int trigger_fd) {
 #endif
 
 #if !SAME_EL0_TRIGGER && !CONTEXT_SWITCH_ONLY
-static void trigger_in_el1(int trigger_fd, size_t trigger_offset) {
+static void trigger_in_el1(int trigger_fd, size_t trigger_offset,
+                           int enable_trigger) {
     uint8_t *trigger_addr =
         user_page + trigger_offset;
+    size_t access_size = enable_trigger ? 1 : 0;
     ssize_t ret;
 
     do {
         ret =
 #if TRAIN_ACCESS_LOAD
-            write(trigger_fd, trigger_addr, 1);
+            write(trigger_fd, trigger_addr, access_size);
 #else
-            read(trigger_fd, trigger_addr, 1);
+            read(trigger_fd, trigger_addr, access_size);
 #endif
     } while (ret < 0 && errno == EINTR);
 
-    if (ret != 1) {
+    if (ret != (ssize_t)access_size) {
 #if TRAIN_ACCESS_LOAD
         die("write /dev/null trigger");
 #else
@@ -231,19 +253,6 @@ static void trigger_in_el1(int trigger_fd, size_t trigger_offset) {
 #endif
 #endif
 
-static void delay_after_trigger(void) {
-    uint64_t dummy = 0;
-
-    for (int k = 0; k < 100; k++) {
-        dummy += array1[k * LINE_SIZE];
-    }
-    for (int i = 0; i < 100; i++) {
-        nop();
-    }
-
-    (void)dummy;
-}
-
 static void print_header(int stride_bytes, int trigger_line,
                          int predicted_line) {
     printf("# arm64 same-VA EL0/EL1 %s-stride retention test\n",
@@ -253,14 +262,18 @@ static void print_header(int stride_bytes, int trigger_line,
            "store"
 #endif
     );
-    printf("# EL0 trains %d %ss, %s triggers access %d\n",
+    printf("# EL0 trains %d %ss, trigger_actor=%s access_number=%d\n",
            TRAIN_ONLY_ACCESSES,
 #if TRAIN_ACCESS_LOAD
            "load",
 #else
            "store",
 #endif
-#if CONTEXT_SWITCH_ONLY
+#if NO_TRIGGER
+           "disabled"
+#elif CONTEXT_SWITCH_NO_TRIGGER
+           "EL1_trigger_disabled"
+#elif CONTEXT_SWITCH_ONLY
            "EL0_after_EL1_context_switch"
 #elif SAME_EL0_TRIGGER
            "EL0"
@@ -292,6 +305,8 @@ static void print_header(int stride_bytes, int trigger_line,
     printf("# trigger=%s\n",
 #if NO_TRIGGER
            "disabled"
+#elif CONTEXT_SWITCH_NO_TRIGGER
+           "syscall_trigger_addr_count_0"
 #elif CONTEXT_SWITCH_ONLY
            "el1_context_switch_then_same_el0"
 #elif SAME_EL0_TRIGGER
@@ -300,6 +315,14 @@ static void print_header(int stride_bytes, int trigger_line,
            "syscall_write_dev_null_from_user_page"
 #else
            "syscall_read_dev_zero_to_user_page"
+#endif
+    );
+    printf("# el1_trigger_enabled=%d\n",
+#if !NO_TRIGGER && !SAME_EL0_TRIGGER && !CONTEXT_SWITCH_ONLY && \
+    !CONTEXT_SWITCH_NO_TRIGGER
+           1
+#else
+           0
 #endif
     );
     printf("# position\toffset_bytes\tavg_ns\tprobes\n");
@@ -321,8 +344,8 @@ int main(void) {
         fprintf(stderr, "training/trigger/predicted lines must fit in one page\n");
         return 1;
     }
-    if (TRAIN_ACCESS_LOAD && TRAIN_ACCESSES < 2) {
-        fprintf(stderr, "TRAIN_ACCESSES must be >= 2 for load mode\n");
+    if (TRAIN_ACCESSES < 2) {
+        fprintf(stderr, "TRAIN_ACCESSES must be >= 2\n");
         return 1;
     }
     if (PROBE_POSITIONS > PAGE_LINES) {
@@ -339,6 +362,13 @@ int main(void) {
                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
     if (dummy_buffer == MAP_FAILED) {
         die("mmap dummy_buffer");
+    }
+
+    prefetcher_fill_buffer = mmap(
+        NULL, DUMMY_BUFFER_SIZE, PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+    if (prefetcher_fill_buffer == MAP_FAILED) {
+        die("mmap prefetcher_fill_buffer");
     }
 
     trigger_fd =
@@ -360,6 +390,16 @@ int main(void) {
     }
 
     print_header(stride_bytes, trigger_line, predicted_line);
+    printf("# ENABLE_CPP_RCTX=%d PMU_CORE_X925=%d PMU_CORE_A55=%d "
+           "PMU_EXCLUDE_KERNEL=%d DUMMY_BUFFER_PAGES=%d "
+           "DUMMY_BUFFER_SIZE=%d\n",
+           ENABLE_CPP_RCTX, PMU_CORE_X925, PMU_CORE_A55,
+           PMU_EXCLUDE_KERNEL, DUMMY_BUFFER_PAGES, DUMMY_BUFFER_SIZE);
+
+    int pmu_ready = (pmu_setup() == 0);
+    if (!pmu_ready) {
+        printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
+    }
 
     for (uint64_t round = 0; round < ROUNDS; round++) {
         int probe_pos = round % PROBE_POSITIONS;
@@ -367,21 +407,46 @@ int main(void) {
         uint64_t time1;
         uint64_t time2;
 
-        flush_user_page();
         dummyAccesses();
+        occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+                                        DUMMY_BUFFER_PAGES, 1);
+        flush_user_page();
+        mfence();
+
+        int pmu_running = 0;
+        if (pmu_ready) {
+            pmu_running = (pmu_start() == 0);
+            if (!pmu_running) {
+                printf("# PMU unavailable: counter group could not be started\n");
+                pmu_ready = 0;
+            }
+        }
+
+#if ENABLE_CPP_RCTX
+        cpp_rctx();
+#endif
 
         train_in_el0(stride_bytes);
 #if !NO_TRIGGER
-#if CONTEXT_SWITCH_ONLY
+#if CONTEXT_SWITCH_NO_TRIGGER
+        trigger_in_el1(trigger_fd, trigger_offset, 0);
+#elif CONTEXT_SWITCH_ONLY
         context_switch_in_el1(trigger_fd);
         trigger_in_el0(trigger_offset);
 #elif SAME_EL0_TRIGGER
         trigger_in_el0(trigger_offset);
 #else
-        trigger_in_el1(trigger_fd, trigger_offset);
+        trigger_in_el1(trigger_fd, trigger_offset, 1);
 #endif
 #endif
-        delay_after_trigger();
+
+        nops();
+        struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 1000};
+        nanosleep(&prefetch_wait, NULL);
+
+        if (pmu_running) {
+            pmu_stop_and_accumulate();
+        }
 
         time1 = timestamp();
         junk += *probe_addr;
@@ -400,6 +465,11 @@ int main(void) {
         printf("%3d\t%12d\t%10lld\t%5d\n",
                pos, pos * LINE_SIZE, avg_ns, probe_count[pos]);
     }
+
+    if (pmu_ready) {
+        pmu_print_accumulated(ROUNDS);
+    }
+    pmu_cleanup();
 
     close(trigger_fd);
     (void)junk;

@@ -21,6 +21,7 @@ def plot_cross_bar_chart(
     output_path,
     no_trigger_avg_ns=None,
     title=None,
+    quiet=False,
 ):
     try:
         import matplotlib.pyplot as plt
@@ -93,4 +94,5 @@ def plot_cross_bar_chart(
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     fig.savefig(output_path, dpi=300)
     plt.close(fig)
-    print(f"Saved bar chart to {output_path}")
+    if not quiet:
+        print(f"Saved bar chart to {output_path}")

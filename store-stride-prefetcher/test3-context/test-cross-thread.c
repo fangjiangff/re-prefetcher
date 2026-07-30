@@ -53,6 +53,10 @@
 #define CONTEXT_SWITCH_YIELDS 1
 #endif
 
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
 #define ARRAY2_SIZE (Items * LINE_SIZE * sizeof(uint8_t))
 
 static uint8_t *array2;
@@ -223,7 +227,9 @@ int main(int argc, char **argv) {
             flush(&array2[offset]);
         }
         mfence();
+#if ENABLE_CPP_RCTX
         cpp_rctx();
+#endif
 
         for (int step = 0; step < train_step - 1; step++) {
             train_access(array2 + (step * stride));

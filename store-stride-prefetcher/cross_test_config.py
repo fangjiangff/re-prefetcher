@@ -27,6 +27,7 @@ ARCH_CONFIG = {
     },
     "A78": {
         "core": 4,
+        "timer": "cntvct",
         "threshold_ns": 150,
         "cross_core": {
             "train_core": 4,
@@ -52,6 +53,7 @@ ARCH_CONFIG = {
     },
     "A76": {
         "core": 1,
+        "timer": "cntvct",
         "threshold_ns": 170,
         "cross_core": {
             "train_core": 1,
@@ -64,6 +66,7 @@ ARCH_CONFIG = {
     },
     "A53": {
         "core": 0,
+        "timer": "cntvct",
         "threshold_ns": 170,
         "cross_core": {
             "train_core": 1,
@@ -76,6 +79,7 @@ ARCH_CONFIG = {
     },
     "Zen4": {
         "core": 0,
+        "timer": "gettime",
         "threshold_ns": 170,
         "cross_core": {
             "train_core": 1,
