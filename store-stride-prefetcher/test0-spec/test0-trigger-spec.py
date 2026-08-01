@@ -11,6 +11,7 @@ if ROOT_DIR not in sys.path:
 
 from cross_test_config import (
     apply_single_core_defaults,
+    apply_threshold_defaults,
     arch_choices,
 )
 
@@ -27,6 +28,9 @@ DEFAULT_ROUNDS = 1
 DEFAULT_TRIES = 9999
 DEFAULT_SECRET_VALUE = 8
 DEFAULT_SECRET_LEN = 1
+GREEN = "\033[32m"
+RED = "\033[31m"
+RESET = "\033[0m"
 
 RESULT_RE = re.compile(r"^results\[(\d+)\]\s*=\s*(-?\d+)\s*$")
 
@@ -51,6 +55,11 @@ def parse_args():
                         help=f"Single-byte secret value. Default: {DEFAULT_SECRET_VALUE}.")
     parser.add_argument("--secret-len", type=int, default=DEFAULT_SECRET_LEN,
                         help=f"Bytes to read. Default: {DEFAULT_SECRET_LEN}.")
+    parser.add_argument("--test-on-hit", action="store_true",
+                        help="Set TEST_ON_HIT=1. Default: TEST_ON_HIT=0.")
+    parser.add_argument("--hit-threshold-ns", dest="threshold_ns", type=int, default=None,
+                        help="Latency <= this value is shown in green; otherwise red. "
+                             "Default is selected from --arch.")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
                         help="C compiler command. Default: $CC or gcc.")
     parser.add_argument("--output", default=None,
@@ -69,6 +78,7 @@ def parse_args():
     args = parser.parse_args()
 
     apply_single_core_defaults(args)
+    apply_threshold_defaults(args)
 
     if args.core < 0:
         parser.error("--core must be >= 0")
@@ -82,6 +92,8 @@ def parse_args():
         parser.error("--secret-value must be in [0, 255]")
     if args.secret_len < 1:
         parser.error("--secret-len must be >= 1")
+    if args.threshold_ns < 1:
+        parser.error("--hit-threshold-ns must be >= 1")
     apply_default_paths(args)
     return args
 
@@ -121,6 +133,7 @@ def compile_test(args):
         f"-DTRY_COUNT={args.tries}",
         f"-DSECRET_VALUE={args.secret_value}",
         f"-DSECRET_LEN={args.secret_len}",
+        f"-DTEST_ON_HIT={int(args.test_on_hit)}",
         "-o",
         OUT,
         SRC,
@@ -202,7 +215,7 @@ def plot_result(path, rows, args):
     values = [row["avg_ns"] for row in rows]
 
     secret = args.secret_value
-    predicted = secret * 5
+    predicted = secret * 6
     by_index = {row["index"]: row["avg_ns"] for row in rows}
 
     fig, ax = plt.subplots(figsize=(13, 4.8))
@@ -236,24 +249,15 @@ def plot_result(path, rows, args):
 
 
 def print_summary(rows, args):
-    fastest = sorted(rows, key=lambda row: row["avg_ns"])[:10]
-    predicted = args.secret_value * 5
+    predicted = args.secret_value * 6
     by_index = {row["index"]: row for row in rows}
 
-    print("Fastest indices:")
-    for row in fastest:
-        markers = []
-        if row["index"] == args.secret_value:
-            markers.append("secret")
-        if row["index"] == predicted:
-            markers.append("stride-predicted")
-        note = f" ({', '.join(markers)})" if markers else ""
-        print(f"  {row['index']:3d}: {row['avg_ns']} ns{note}")
-
     if predicted in by_index:
+        avg_ns = by_index[predicted]["avg_ns"]
+        color = GREEN if avg_ns <= args.threshold_ns else RED
         print(
-            f"Predicted store-stride index {predicted}: "
-            f"{by_index[predicted]['avg_ns']} ns"
+            f"{color}Predicted store-stride index {predicted}: "
+            f"{avg_ns} ns{RESET}"
         )
 
 
