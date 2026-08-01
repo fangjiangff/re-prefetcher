@@ -34,6 +34,10 @@ asm volatile(                                      \
     : "memory")
 
 
+#ifndef ACCESS_TYPE_LOAD
+#define ACCESS_TYPE_LOAD    1
+#endif
+
 #ifndef TRAIN_TIMES
 #define TRAIN_TIMES         15
 #endif
@@ -47,7 +51,7 @@ asm volatile(                                      \
 #endif
 
 #ifndef SECRET_VALUE
-#define SECRET_VALUE        8
+#define SECRET_VALUE        115
 #endif
 
 #ifndef SECRET_LEN
@@ -71,7 +75,12 @@ uint8_t temp = 0; /* 用于防止编译器优化掉内存访问 */
 
 void victim_function(size_t x) {
     if (x < array1_size) {
+#if ACCESS_TYPE_LOAD
         temp &= array2[array1[x] * 64];
+#else
+        array2[array1[x] * 64] = 1;
+#endif
+
         // for(int t = 0; t < 5; t++){//1,2,3,4
             // _mStore(&array2[array1[x] * t * 64], 17);
             // temp &= array2[array1[x] * t * 64];
