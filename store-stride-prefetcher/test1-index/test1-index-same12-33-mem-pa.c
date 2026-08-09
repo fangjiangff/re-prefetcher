@@ -274,12 +274,22 @@ static void run_scan(uint8_t *pa1_va, uint8_t *pa2_va) {
         nops();
         mStore_inline(pa1_va + 15 * LINE_SIZE);
         nops();
-        mLoad_inline(pa1_va + 4020 * LINE_SIZE);
-        nops();
-        mStore_inline(pa2_va + 20 * LINE_SIZE);
-        nops();
-        // mStore_inline(pa2_va + 25* LINE_SIZE);
+        //  mStore_inline(pa1_va + 20 * LINE_SIZE);
         // nops();
+        //  mStore_inline(pa1_va + 25 * LINE_SIZE);
+        // nops();
+        //  mStore_inline(pa1_va + 30 * LINE_SIZE);
+        // nops();
+
+        // mLoad_inline(pa1_va + 4020 * LINE_SIZE);
+        // nops();
+        // mStore_inline(pa2_va + 4 * LINE_SIZE);
+        // nops();
+
+        // mStore_inline(pa2_va + 9 * LINE_SIZE);
+        // nops();
+        mStore_inline(pa2_va + 20* LINE_SIZE);
+        nops();
         // mStore_inline(pa2_va + 30* LINE_SIZE);
         // nops();
        
@@ -305,10 +315,20 @@ static void run_scan(uint8_t *pa1_va, uint8_t *pa2_va) {
         nops();
         mStore_inline(pa1_va + 15 * LINE_SIZE);
         nops();
-        mLoad_inline(pa1_va + 4020 * LINE_SIZE);
-        nops();
+
+        //   mStore_inline(pa1_va + 20 * LINE_SIZE);
+        // nops();
+        //  mStore_inline(pa1_va + 25 * LINE_SIZE);
+        // nops();
+        //  mStore_inline(pa1_va + 30 * LINE_SIZE);
+        // nops();
+
+        // mLoad_inline(pa1_va + 4020 * LINE_SIZE);
+        // nops();
         mStore_inline(pa2_va + 20 * LINE_SIZE);
         nops();
+        //  mStore_inline(pa2_va + 9 * LINE_SIZE);
+        // nops();
         // mStore_inline(pa2_va + 25* LINE_SIZE);
         // nops();
         // mStore_inline(pa2_va + 30* LINE_SIZE);

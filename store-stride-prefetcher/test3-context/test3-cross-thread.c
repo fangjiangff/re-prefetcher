@@ -69,6 +69,15 @@
 #define THREAD0_TRIGGER 0
 #endif
 
+#ifndef PMU_CROSS_THREAD_ONLY
+#define PMU_CROSS_THREAD_ONLY 0
+#endif
+
+#ifndef WORKER_TRIGGER_PMU
+#define WORKER_TRIGGER_PMU \
+    (!NO_TRIGGER && !CONTEXT_SWITCH_ONLY && !THREAD0_TRIGGER)
+#endif
+
 #ifndef ENABLE_CPP_RCTX
 #define ENABLE_CPP_RCTX 0
 #endif
@@ -81,7 +90,13 @@
 #define PMU_CORE_A55 0
 #endif
 
+#if WORKER_TRIGGER_PMU
+#define PMU_WINDOW_NAME "worker-trigger-only-per-access"
+#elif PMU_CROSS_THREAD_ONLY
+#define PMU_WINDOW_NAME "cross-thread-handoff-only-per-round"
+#else
 #define PMU_WINDOW_NAME "cross-thread-stride-per-round"
+#endif
 #include "../pmu.h"
 
 static uint8_t array1[100 * LINE_SIZE] = {0};
@@ -97,6 +112,10 @@ static pthread_mutex_t trigger_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t trigger_cond = PTHREAD_COND_INITIALIZER;
 static int trigger_state = 0;
 static int trigger_index;
+#if WORKER_TRIGGER_PMU
+static int worker_pmu_setup_done;
+static int worker_pmu_ready;
+#endif
 #endif
 
 static void die(const char *message) {
@@ -236,6 +255,16 @@ static void request_trigger(int index) {
     pthread_mutex_unlock(&trigger_mutex);
 }
 
+#if WORKER_TRIGGER_PMU
+static void wait_for_worker_pmu_setup(void) {
+    pthread_mutex_lock(&trigger_mutex);
+    while (!worker_pmu_setup_done) {
+        pthread_cond_wait(&trigger_cond, &trigger_mutex);
+    }
+    pthread_mutex_unlock(&trigger_mutex);
+}
+#endif
+
 static void stop_trigger_thread(void) {
     pthread_mutex_lock(&trigger_mutex);
     publish_trigger_stop();
@@ -247,6 +276,16 @@ static void *trigger_thread_main(void *arg) {
     (void)arg;
 
     set_cpu_if_requested();
+#if WORKER_TRIGGER_PMU
+    int setup_ready = (pmu_setup() == 0);
+
+    pthread_mutex_lock(&trigger_mutex);
+    worker_pmu_ready = setup_ready;
+    worker_pmu_setup_done = 1;
+    pthread_cond_signal(&trigger_cond);
+    pthread_mutex_unlock(&trigger_mutex);
+#endif
+
     for (;;) {
         pthread_mutex_lock(&trigger_mutex);
         while (trigger_state != 1 && trigger_state != 3) {
@@ -261,8 +300,24 @@ static void *trigger_thread_main(void *arg) {
 #if CONTEXT_SWITCH_ONLY
         minimal_thread1_activity();
 #else
+#if WORKER_TRIGGER_PMU
+        int worker_pmu_running = 0;
+        if (worker_pmu_ready) {
+            worker_pmu_running = (pmu_start() == 0);
+            if (!worker_pmu_running) {
+                printf("# PMU unavailable: worker counters could not be started\n");
+                worker_pmu_ready = 0;
+            }
+        }
+#endif
         access_for_test(shared_page + trigger_offset_for_index(trigger_index,
                                                               STRIDE_LINES * LINE_SIZE));
+#if WORKER_TRIGGER_PMU
+        if (worker_pmu_running) {
+            nops();
+            pmu_stop_and_accumulate();
+        }
+#endif
 #endif
 
         pthread_mutex_lock(&trigger_mutex);
@@ -312,7 +367,9 @@ static void print_header(int stride_bytes, int first_trigger_line,
 #endif
     );
     printf("# trigger=%s\n",
-#if NO_TRIGGER && CONTEXT_SWITCH_ONLY
+#if PMU_CROSS_THREAD_ONLY
+           "pmu_cross_thread_only"
+#elif NO_TRIGGER && CONTEXT_SWITCH_ONLY
            "thread1_context_switch_no_trigger"
 #elif NO_TRIGGER
            "disabled"
@@ -390,7 +447,12 @@ int main(void) {
            ENABLE_CPP_RCTX, PMU_CORE_X925, PMU_CORE_A55,
            DUMMY_BUFFER_SIZE);
 
+#if WORKER_TRIGGER_PMU
+    wait_for_worker_pmu_setup();
+    int pmu_ready = worker_pmu_ready;
+#else
     int pmu_ready = (pmu_setup_cpu(CPU_ID) == 0);
+#endif
     if (!pmu_ready) {
         printf("# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
     }
@@ -407,6 +469,7 @@ int main(void) {
         flush_shared_page();
         mfence();
 
+#if !WORKER_TRIGGER_PMU
         int pmu_running = 0;
         if (pmu_ready) {
             pmu_running = (pmu_start() == 0);
@@ -415,7 +478,11 @@ int main(void) {
                 pmu_ready = 0;
             }
         }
+#endif
 
+#if PMU_CROSS_THREAD_ONLY
+        request_trigger(0);
+#else
 #if ENABLE_CPP_RCTX
         cpp_rctx();
 #endif
@@ -435,14 +502,24 @@ int main(void) {
         }
 #endif
 #endif
+#endif
 
+        /*
+         * Give prefetch requests a short userspace-only completion window, then
+         * stop the CPU-wide counters before nanosleep can schedule unrelated
+         * work on this CPU. The cross-thread handoff above remains inside the
+         * window because it is the behavior under test.
+         */
         nops();
-        struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 1000};
-        nanosleep(&prefetch_wait, NULL);
 
+#if !WORKER_TRIGGER_PMU
         if (pmu_running) {
             pmu_stop_and_accumulate();
         }
+#endif
+
+        struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 1000};
+        nanosleep(&prefetch_wait, NULL);
 
         time1 = timestamp();
         junk += *probe_addr;

@@ -95,11 +95,23 @@ def parse_args():
     parser.add_argument("--context-switch", action="store_true",
                         help="Call sched_yield at the post-training context-switch point.")
     parser.add_argument("--getpid", action="store_true",
-                        help=("Call syscall(SYS_getpid) 10 times between training "
+                        help=("Call syscall(SYS_getpid) once between training "
                               "and trigger, without voluntarily yielding the CPU."))
+    parser.add_argument("--syscall", action="store_true",
+                        help=("Issue one invalid raw AArch64 syscall between training "
+                              "and trigger; Linux returns -ENOSYS."))
     parser.add_argument("--pmu-device", default=None,
                         help=("Override PMU device name passed as PMU_DEVICE. "
                               "Example: armv8_pmuv3_0"))
+    parser.add_argument("--pmu-exclude-user", choices=[0, 1], type=int,
+                        default=None,
+                        help=("Override PMU exclude_user for one run; must be used "
+                              "together with --pmu-exclude-kernel."))
+    parser.add_argument("--pmu-exclude-kernel", choices=[0, 1], type=int,
+                        default=None,
+                        help=("Override PMU exclude_kernel for one run; must be used "
+                              "together with --pmu-exclude-user. By default, run "
+                              "kernel-only and user-only separately."))
     parser.add_argument("--plot-only", action="store_true",
                         help="Only read existing TSV results and print summaries.")
     parser.add_argument("--no-plot", action="store_true",
@@ -132,8 +144,10 @@ def parse_args():
         parser.error("--dummy-buffer-pages must be >= 1")
     if args.hit_threshold_ns is not None and args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
-    if args.context_switch and args.getpid:
-        parser.error("--context-switch and --getpid cannot be used together")
+    if sum((args.context_switch, args.getpid, args.syscall)) > 1:
+        parser.error("--context-switch, --getpid, and --syscall are mutually exclusive")
+    if (args.pmu_exclude_user is None) != (args.pmu_exclude_kernel is None):
+        parser.error("--pmu-exclude-user and --pmu-exclude-kernel must be specified together")
     requested_arches = []
     if args.arches is not None:
         requested_arches.extend(item.strip() for item in args.arches.split(",") if item.strip())
@@ -229,6 +243,12 @@ def train_steps():
     return [args.train_step]
 
 
+def pmu_filter_values():
+    if args.pmu_exclude_user is not None:
+        return [(args.pmu_exclude_user, args.pmu_exclude_kernel)]
+    return [(1, 0), (0, 1)]
+
+
 def dummy_configs():
     if not args.dummy_sweep:
         return [(args.dummy_access, args.dummy_order, args.dummy_buffer_pages)]
@@ -308,7 +328,12 @@ def pmu_defines_for_arch(arch):
 def micro_arch_name(arch, core, train_step):
     trigger_suffix = "-no-trigger" if args.no_trigger else ""
     switch_suffix = "-ctxswitch" if args.context_switch else ""
-    syscall_suffix = "-getpid" if args.getpid else ""
+    getpid_suffix = "-getpid" if args.getpid else ""
+    syscall_suffix = "-syscall" if args.syscall else ""
+    pmu_filter_suffix = (
+        f"-pmu-exclude-user{args.current_pmu_exclude_user}"
+        f"-kernel{args.current_pmu_exclude_kernel}"
+    )
     dummy_suffix = ""
     timer = timer_for_arch(arch)
     timer_suffix = ""
@@ -328,8 +353,8 @@ def micro_arch_name(arch, core, train_step):
         f"{arch}-core{core}-stride{args.stride}"
         f"-train{train_step}-{args.access}"
         f"{timer_suffix}{probe_mode_suffix(train_step)}{trigger_suffix}"
-        f"{switch_suffix}{syscall_suffix}"
-        f"{dummy_suffix}"
+        f"{switch_suffix}{getpid_suffix}{syscall_suffix}"
+        f"{dummy_suffix}{pmu_filter_suffix}"
     )
 
 
@@ -437,7 +462,7 @@ def compile_test(train_step, arch):
     compile_cmd = [
         os.environ.get("CC", "gcc"),
         "-std=gnu11",
-        "-O0",
+        "-O2",
         "-static",
         # "-march=armv8.5-a+predres",
         f"-DSTRIDE_BYTES={args.stride * 64}",
@@ -455,6 +480,9 @@ def compile_test(train_step, arch):
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
         f"-DENABLE_SCHED_YIELD={1 if args.context_switch else 0}",
         f"-DENABLE_GETPID_SYSCALL={1 if args.getpid else 0}",
+        f"-DENABLE_INVALID_SYSCALL={1 if args.syscall else 0}",
+        f"-DPMU_EXCLUDE_USER={args.current_pmu_exclude_user}",
+        f"-DPMU_EXCLUDE_KERNEL={args.current_pmu_exclude_kernel}",
         "-o",
         OUT,
         SRC,
@@ -505,6 +533,9 @@ def run_one(arch, core, train_step):
         f"dummy_buffer_pages={args.dummy_buffer_pages}, "
         f"context_switch={args.context_switch}, "
         f"getpid={args.getpid}, "
+        f"syscall={args.syscall}, "
+        f"pmu_exclude_user={args.current_pmu_exclude_user}, "
+        f"pmu_exclude_kernel={args.current_pmu_exclude_kernel}, "
     )
 
     if compile_test(train_step, arch) != 0:
@@ -662,19 +693,22 @@ def main():
             args.dummy_access = dummy_access
             args.dummy_order = dummy_order
             args.dummy_buffer_pages = dummy_pages
-            for train_step in train_steps():
-                if args.plot_only:
-                    path = tsv_path_for(arch, core, train_step)
-                    if not os.path.exists(path):
-                        print(f"Error: TSV result '{path}' not found.")
-                        continue
-                    rows = read_tsv(path)
-                else:
-                    rows = run_one(arch, core, train_step)
-                if rows:
-                    print_predicted_result(arch, core, train_step, rows)
-                    if not args.no_plot:
-                        plot_bar_chart(rows, arch, core, train_step)
+            for exclude_user, exclude_kernel in pmu_filter_values():
+                args.current_pmu_exclude_user = exclude_user
+                args.current_pmu_exclude_kernel = exclude_kernel
+                for train_step in train_steps():
+                    if args.plot_only:
+                        path = tsv_path_for(arch, core, train_step)
+                        if not os.path.exists(path):
+                            print(f"Error: TSV result '{path}' not found.")
+                            continue
+                        rows = read_tsv(path)
+                    else:
+                        rows = run_one(arch, core, train_step)
+                    if rows:
+                        print_predicted_result(arch, core, train_step, rows)
+                        if not args.no_plot:
+                            plot_bar_chart(rows, arch, core, train_step)
 
 
 if __name__ == "__main__":

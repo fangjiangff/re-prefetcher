@@ -84,6 +84,27 @@
 #define ENABLE_GETPID_SYSCALL 0
 #endif
 
+#ifndef ENABLE_INVALID_SYSCALL
+#define ENABLE_INVALID_SYSCALL 0
+#endif
+
+/*
+ * Enter EL1 through the normal Linux arm64 syscall path without executing a
+ * real syscall body.  -1 is outside the arm64 syscall-number range, so Linux
+ * returns -ENOSYS in x0 after the common syscall entry/exit path.
+ */
+static inline long invalid_syscall(void)
+{
+    register long x0 asm("x0");
+    register long x8 asm("x8") = -1L;
+
+    asm volatile("svc #0"
+                 : "=r"(x0)
+                 : "r"(x8)
+                 : "memory", "cc");
+    return x0;
+}
+
 #if TRAIN_ACCESS_LOAD && TRAIN_ACCESS_PREFETCH
 #error "Only one train access mode can be enabled"
 #endif
@@ -159,11 +180,13 @@ int main(){
     printf("# ENABLE_CPP_RCTX=%d PMU_CORE_X925=%d PMU_CORE_A55=%d "
            "ENABLE_DUMMY_ACCESSES=%d "
            "ENABLE_SCHED_YIELD=%d ENABLE_GETPID_SYSCALL=%d "
+           "ENABLE_INVALID_SYSCALL=%d "
            "DUMMY_BUFFER_PAGES=%d "
            "DUMMY_BUFFER_SIZE=%u\n",
            ENABLE_CPP_RCTX, PMU_CORE_X925, PMU_CORE_A55,
            ENABLE_DUMMY_ACCESSES,
            ENABLE_SCHED_YIELD, ENABLE_GETPID_SYSCALL,
+           ENABLE_INVALID_SYSCALL,
            DUMMY_BUFFER_PAGES, DUMMY_BUFFER_SIZE);
 
           int pmu_ready = (pmu_setup() == 0);
@@ -208,6 +231,8 @@ int main(){
                 // mLoad_inline(array2 + (step * stride));
                 // mfence();
                 nops();
+
+                // stride_access(array2 + 1*LINE_SIZE + (step * stride));
             }
 
 #if ENABLE_SCHED_YIELD
@@ -216,15 +241,15 @@ int main(){
         }        
 #endif
 
+
 #if ENABLE_GETPID_SYSCALL
-        for (int i = 0; i < 10; i++) {
             (void)syscall(SYS_getpid);
-        }
 #endif
 
-            // mLoad_inline(array2+ 31*LINE_SIZE);
-            // mLoad_inline(array2+ 76*LINE_SIZE);
-            // mLoad_inline(array2+ 112*LINE_SIZE);
+#if ENABLE_INVALID_SYSCALL
+            (void)invalid_syscall();
+#endif
+
 
 #if !NO_TRIGGER
             if (train_step > 0) {
@@ -232,9 +257,16 @@ int main(){
                 // mLoad_inline(array2 + ((train_step - 1) * stride));
                 nops();
                 // mfence();
+                // stride_access(array2 + 1*LINE_SIZE +((train_step - 1) * stride));
             }
 #endif
-            //wait
+
+// // nops();
+
+// for(int step = 0; step < 2; step++){
+//     stride_access(array2 + 3*LINE_SIZE + (step * 4*LINE_SIZE));
+//     nops();
+// }
             nops();
             struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 1000};
             nanosleep(&prefetch_wait, NULL);

@@ -23,6 +23,10 @@
 #define PMU_EXCLUDE_KERNEL 1
 #endif
 
+#ifndef PMU_EXCLUDE_USER
+#define PMU_EXCLUDE_USER 0
+#endif
+
 #if defined(__aarch64__)
 
 #include <errno.h>
@@ -60,8 +64,22 @@ struct pmu_read_value {
 #if PMU_CORE_X925
 static struct pmu_counter pmu_counters[] = {
     // for hardware prefetcher
+    // PMU_COUNTER("L1D_CACHE",0x0004),// Level 1 data cache access
+    // PMU_COUNTER("L1D_CACHE_MISS",0x8144),
+    // // PMU_COUNTER("l1d_cache_wr", 0x0041),//Level 1 data cache access, write
+    // // PMU_COUNTER("L1D_CACHE_PRFM",0x8142),
+    // PMU_COUNTER("L1D_CACHE_REFILL", 0x0003),
+    // PMU_COUNTER("L2D_CACHE_REFILL_RD",0x0052),
+    // PMU_COUNTER("L2D_CACHE_REFILL_WR", 0x0053),
+    // PMU_COUNTER("ST_SPEC", 0x0071),
+    // PMU_COUNTER("BR_MIS_PRED", 0x0010),
+    PMU_COUNTER("L1D_TLB", 0x0025),// Level 1 data cache refill, software prefetch
+    PMU_COUNTER("L1D_TLB_REFILL", 0x0005),// Level 1 data cache refill, software prefetch
+    PMU_COUNTER("L1D_CACHE_WR", 0x0041),// Level 1 data cache refill, software prefetch
+    
     PMU_COUNTER("l1d_cache_hwprf", 0x8154),//Level 1 data cache hardware prefetch
     PMU_COUNTER("l2d_cache_hwprf", 0x8155),// Level 2 data cache hardware prefetch
+    // PMU_COUNTER("l2d_cache_refill_prfm", 0x814e),// L2 refill caused by preload/prefetch
 
         // for store
     // {"st_retired", 0x0007, -1},
@@ -293,6 +311,7 @@ static int pmu_setup_target(pid_t pid, int cpu) {
         attr.size = sizeof(attr);
         attr.config = pmu_counters[i].event;
         attr.disabled = 1;
+        attr.exclude_user = PMU_EXCLUDE_USER;
         attr.exclude_kernel = PMU_EXCLUDE_KERNEL;
         attr.exclude_hv = 1;
         attr.read_format = PERF_FORMAT_TOTAL_TIME_ENABLED |
@@ -316,13 +335,15 @@ static int pmu_setup_target(pid_t pid, int cpu) {
     }
 
     if (pid == -1) {
-        printf("# PMU device=%s core=%s events=%d/%d window=%s scope=cpu:%d\n",
+        printf("# PMU device=%s core=%s events=%d/%d window=%s scope=cpu:%d "
+               "exclude_user=%d exclude_kernel=%d\n",
                pmu_name, pmu_core_name(), opened, PMU_COUNTER_COUNT,
-               PMU_WINDOW_NAME, cpu);
+               PMU_WINDOW_NAME, cpu, PMU_EXCLUDE_USER, PMU_EXCLUDE_KERNEL);
     } else {
-        printf("# PMU device=%s core=%s events=%d/%d window=%s scope=thread\n",
+        printf("# PMU device=%s core=%s events=%d/%d window=%s scope=thread "
+               "exclude_user=%d exclude_kernel=%d\n",
                pmu_name, pmu_core_name(), opened, PMU_COUNTER_COUNT,
-               PMU_WINDOW_NAME);
+               PMU_WINDOW_NAME, PMU_EXCLUDE_USER, PMU_EXCLUDE_KERNEL);
     }
     return 0;
 }

@@ -1,6 +1,7 @@
 import argparse
 import csv
 import os
+import re
 import subprocess
 import sys
 
@@ -116,6 +117,11 @@ args = parse_args()
 result_dir = os.path.join(ROOT_DIR, "res", "cross-thread")
 plot_dir = os.path.join(ROOT_DIR, "res", "barplots")
 raw_dir = os.path.join(result_dir, "raw")
+pmu_results = {}
+
+PMU_VALUE_RE = re.compile(
+    r"^# PMU\s+(?P<name>\S+)\s+per_round=(?P<value>[0-9]+(?:\.[0-9]+)?)$"
+)
 
 
 def train_only_accesses():
@@ -227,6 +233,14 @@ def experiment5_tsv_path():
 
 def experiment5_raw_path():
     return os.path.join(raw_dir, f"{micro_arch_name()}-exp5-thread1-context-no-trigger.txt")
+
+
+def experiment6_tsv_path():
+    return os.path.join(result_dir, f"{micro_arch_name()}-exp6-cross-thread-only.tsv")
+
+
+def experiment6_raw_path():
+    return os.path.join(raw_dir, f"{micro_arch_name()}-exp6-cross-thread-only.txt")
 
 
 def ensure_dirs():
@@ -359,7 +373,8 @@ def read_tsv(path):
     return rows
 
 
-def compile_test(no_trigger=False, context_switch=False, thread0_trigger=False):
+def compile_test(no_trigger=False, context_switch=False, thread0_trigger=False,
+                 pmu_cross_thread_only=False):
     use_noinline = 0 if args.inline_store else 1
     train_access_load = 1 if args.access == "load" else 0
     compile_cmd = [
@@ -382,6 +397,7 @@ def compile_test(no_trigger=False, context_switch=False, thread0_trigger=False):
         f"-DNO_TRIGGER={1 if no_trigger else 0}",
         f"-DCONTEXT_SWITCH_ONLY={1 if context_switch else 0}",
         f"-DTHREAD0_TRIGGER={1 if thread0_trigger else 0}",
+        f"-DPMU_CROSS_THREAD_ONLY={1 if pmu_cross_thread_only else 0}",
         f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
         *pmu_defines(),
         "-o",
@@ -404,7 +420,10 @@ def run_binary():
     )
 
 
-def result_paths(no_trigger=False, context_switch=False, thread0_trigger=False):
+def result_paths(no_trigger=False, context_switch=False, thread0_trigger=False,
+                 pmu_cross_thread_only=False):
+    if pmu_cross_thread_only:
+        return experiment6_raw_path(), experiment6_tsv_path()
     if no_trigger and context_switch:
         return experiment5_raw_path(), experiment5_tsv_path()
     if no_trigger:
@@ -416,17 +435,79 @@ def result_paths(no_trigger=False, context_switch=False, thread0_trigger=False):
     return experiment4_raw_path(), experiment4_tsv_path()
 
 
-def print_pmu_output(output):
+def parse_and_print_pmu_output(output):
+    values = {}
     for line in output.splitlines():
         stripped = line.lstrip()
         if stripped.startswith("# PMU") or stripped.startswith("PMU:"):
             print(line)
+        match = PMU_VALUE_RE.match(stripped)
+        if match:
+            values[match.group("name")] = float(match.group("value"))
+    return values
 
 
-def run_one(no_trigger=False, context_switch=False, thread0_trigger=False):
+def pmu_result_key(no_trigger=False, context_switch=False,
+                   thread0_trigger=False, pmu_cross_thread_only=False):
+    if pmu_cross_thread_only:
+        return "experiment6"
+    if no_trigger and context_switch:
+        return "experiment5"
+    if no_trigger:
+        return "baseline2"
+    if context_switch:
+        return "experiment3"
+    if thread0_trigger:
+        return "baseline1"
+    return "experiment4"
+
+
+def print_pmu_exp5_comparison():
+    experiment6 = pmu_results.get("experiment6")
+    if experiment6:
+        print("Experiment6 PMU: cross-thread handoff only (per round):")
+        for event in sorted(experiment6):
+            print(f"  {event:24s} {experiment6[event]:.2f}")
+        print()
+
+    worker_trigger = pmu_results.get("experiment4")
+    if worker_trigger:
+        print("Experiment4 PMU: worker trigger body only (per round):")
+        for event in sorted(worker_trigger):
+            print(f"  {event:24s} {worker_trigger[event]:.2f}")
+        print()
+
+    exp5 = pmu_results.get("experiment5")
+    if not exp5:
+        return
+
+    print("PMU comparison against Experiment5 (same context-switch path, no trigger):")
+    for experiment, label in (
+        ("experiment3", "Experiment3"),
+    ):
+        values = pmu_results.get(experiment)
+        if not values:
+            continue
+        print(f"  {label} - Experiment5:")
+        for event in sorted(set(values) & set(exp5)):
+            delta = values[event] - exp5[event]
+            print(
+                f"    {event:24s} delta_per_round={delta:+.2f} "
+                f"({values[event]:.2f} - {exp5[event]:.2f})"
+            )
+    print(
+        "  Note: these are CPU-wide aggregate deltas, not address-specific "
+        "proof of a refill."
+    )
+    print()
+
+
+def run_one(no_trigger=False, context_switch=False, thread0_trigger=False,
+            pmu_cross_thread_only=False):
     compiled = compile_test(no_trigger=no_trigger,
                             context_switch=context_switch,
-                            thread0_trigger=thread0_trigger)
+                            thread0_trigger=thread0_trigger,
+                            pmu_cross_thread_only=pmu_cross_thread_only)
     if compiled.returncode != 0:
         print("Compile failed")
         return []
@@ -440,13 +521,17 @@ def run_one(no_trigger=False, context_switch=False, thread0_trigger=False):
             print(run.stderr)
         return []
 
-    print_pmu_output(run.stdout)
-    print_pmu_output(run.stderr)
+    pmu_values = parse_and_print_pmu_output(run.stdout)
+    pmu_values.update(parse_and_print_pmu_output(run.stderr))
+    pmu_results[pmu_result_key(no_trigger, context_switch,
+                               thread0_trigger,
+                               pmu_cross_thread_only)] = pmu_values
 
     raw_result_path, tsv_result_path = result_paths(
         no_trigger=no_trigger,
         context_switch=context_switch,
         thread0_trigger=thread0_trigger,
+        pmu_cross_thread_only=pmu_cross_thread_only,
     )
     path = raw_result_path
     with open(path, "w") as f:
@@ -700,6 +785,11 @@ if __name__ == "__main__":
         )
         print_summary(experiment5_rows, "Experiment5 context-switch no-trigger result:")
 
+    experiment6_rows = run_one(no_trigger=True, context_switch=True,
+                               pmu_cross_thread_only=True)
+    if experiment6_rows:
+        print_green("Experiment6 cross-thread-only PMU control completed")
+
     threshold_ns, threshold_source = effective_threshold_and_reclassify(
         baseline1_rows,
         baseline2_rows,
@@ -721,6 +811,8 @@ if __name__ == "__main__":
             f"  Experiment5 context-switch no-trigger line {predicted}: "
             f"avg={experiment5_rows[predicted]['avg_ns']} ns"
         )
+
+    print_pmu_exp5_comparison()
 
     if not args.no_plot:
         if baseline1_rows:

