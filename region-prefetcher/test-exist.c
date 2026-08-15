@@ -122,14 +122,38 @@ static void flush_page(uint8_t *page)
 }
 
 /*
- * 73 is coprime with the 257-page pool. Together with the round offset,
- * this visits pages in a deterministic permutation instead of ascending order.
+ * Fixed, collision-free permutation of all 257 pages. It is generated
+ * offline, not by a runtime PRNG. The first 13 entries are deliberately
+ * non-equidistant:
+ *   177,235,22,80,180,93,104,241,18,234,146,39,198
  */
+static const uint16_t page_order[REGION_POOL_PAGES] = {
+    177,235,22,80,180,93,104,241,18,234,146,39,198,137,141,238,
+    199,52,82,60,14,229,219,12,150,147,31,87,86,56,25,21,
+    72,206,194,64,101,76,17,209,166,173,1,192,3,233,139,6,
+    119,249,167,158,250,214,78,127,132,121,122,163,15,220,35,2,
+    149,247,67,151,13,195,211,89,114,57,203,66,188,83,36,75,
+    228,9,217,109,227,85,225,161,178,47,53,224,74,145,208,34,
+    165,115,169,98,187,207,186,152,133,157,252,189,253,215,103,202,
+    26,117,246,184,216,113,160,128,45,196,95,27,20,102,44,131,
+    134,81,0,176,123,126,213,155,237,230,162,61,212,129,97,144,
+    41,73,11,140,231,55,154,42,4,68,5,100,124,105,71,50,
+    70,159,88,142,92,223,49,112,183,33,204,210,79,96,32,172,
+    30,148,40,248,29,182,221,174,69,191,54,200,143,168,46,62,
+    244,106,190,10,108,255,222,37,242,94,135,136,125,130,179,43,
+    7,99,90,8,138,251,118,24,254,65,256,84,91,48,240,181,
+    156,193,63,51,185,236,232,201,171,170,226,110,107,245,38,28,
+    243,197,175,205,58,19,116,120,59,218,111,23,239,16,153,164,
+    77,
+};
+
 static size_t page_index(uint64_t round, size_t position)
 {
-    // uint64_t round_offset = ROTATE_PAGES ? round * 151u : 0;
-    // return (size_t)((round_offset + position * 73u) % REGION_POOL_PAGES);
-    return (size_t)((round * 151u + position * 73u) % REGION_POOL_PAGES);
+    // return (size_t)((round * 151u + position * 73u) % REGION_POOL_PAGES);
+    // size_t order_index = (size_t)((round * 151u + position) % REGION_POOL_PAGES);
+    size_t order_index =
+        (size_t)((round * 151u + position * 73u) % REGION_POOL_PAGES);
+    return page_order[order_index];
 }
 
 static void flush_training_pages(uint64_t round)
@@ -193,17 +217,6 @@ static inline __attribute__((always_inline)) void wait_for_prefetch(void)
                  ::: "memory");
 }
 
-static void unrelated_non_stride_stores(void)
-{
-    static const uint8_t pages[] = {0, 2, 1, 3};
-    static const uint8_t lines[] = {5, 23, 41, 12};
-
-    for (size_t i = 0; i < 4; i++) {
-        mStore(store_noise + (size_t)pages[i] * PAGE_SIZE +
-               (size_t)lines[i] * LINE_SIZE);
-        nops();
-    }
-}
 
 static void run_case(const char *name, trigger_fn_t trigger,
                      const uint8_t *trigger_lines, size_t trigger_accesses,
@@ -221,17 +234,6 @@ static void run_case(const char *name, trigger_fn_t trigger,
 
     pmu_reset_accumulated();
 
-    for (uint64_t round = 0; round < ROUNDS; round++) {
-        /* Reset all context prefetcher state, then retrain within this round. */
-
-        flush_training_pages(round);
-        uint8_t *target = region_pool +
-            page_index(round, TRAIN_REGIONS + EXTRA_REGIONS) * PAGE_SIZE;
-        /* Keep all cache maintenance outside the measured PMU window. */
-        flush_page(target);
-
-        cpp_rctx();
-
         int pmu_running = 0;
         if (*pmu_ready) {
             pmu_running = (pmu_start() == 0);
@@ -242,6 +244,16 @@ static void run_case(const char *name, trigger_fn_t trigger,
             }
         }
 
+    for (uint64_t round = 0; round < ROUNDS; round++) {
+        /* Reset all context prefetcher state, then retrain within this round. */
+
+        flush_training_pages(round);
+        uint8_t *target = region_pool +
+            page_index(round, TRAIN_REGIONS + EXTRA_REGIONS) * PAGE_SIZE;
+        /* Keep all cache maintenance outside the measured PMU window. */
+        flush_page(target);
+
+        cpp_rctx();
         /* Control and pattern share this training window; only pattern triggers. */
         train_repeated_footprint(round);
 
@@ -256,9 +268,6 @@ static void run_case(const char *name, trigger_fn_t trigger,
             (void)nanosleep(&prefetch_wait, NULL);
         }
 
-        if (pmu_running) {
-            pmu_stop_and_accumulate();
-        }
 
 #if ENABLE_CACHE_PROBE
         size_t probe_line = (size_t)((round * 37u + 11u) % LINES_PER_REGION);
@@ -274,6 +283,11 @@ static void run_case(const char *name, trigger_fn_t trigger,
         flush(probe_addr);
 #endif
     }
+
+    if (pmu_running) {
+            pmu_stop_and_accumulate();
+    }
+
 
     printf("\n[%s]\n", name);
     printf("# trigger_pc=%s direct_demand_loads_per_round=%zu\n",
