@@ -2,6 +2,7 @@
 import argparse
 import os
 import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -47,6 +48,8 @@ UTIL_INC = STORE_STRIDE_DIR
 BIN_DIR = REPO / "bin"
 BIN = BIN_DIR / "region-test-exist"
 RESULT_DIR = HERE / "res"
+PMU_MODULE_NAME = "prefetch_pmu_event"
+PMU_MODULE_DIR = REPO / "kernel-modules" / "prefetch-pmu-event"
 # DEFAULT_FOOTPRINT_LINES = [4, 19, 6, 27, 13, 1, 15]
 DEFAULT_FOOTPRINT_LINES = [4, 1,19]
 DEFAULT_TRIGGER_LINES = [28]
@@ -87,6 +90,12 @@ def parse_args():
         default=None,
         help="Timestamp source. Default is selected from --arch.",
     )
+    parser.add_argument(
+        "--type",
+        choices=("load", "store"),
+        default="load",
+        help="Instruction used for region training and triggers. Default: load",
+    )
     parser.add_argument("--rounds", type=int, default=4000,
                         help="ROUNDS macro. Default: 4000")
     parser.add_argument("--train-regions", type=int, default=32,
@@ -125,6 +134,8 @@ def parse_args():
 
     if args.arch == "Zen4":
         parser.error("region-prefetcher/test-exist.c supports AArch64 only")
+    if args.arch not in {"X925", "A725"}:
+        parser.error("direct prefetch PMU counters support only X925 and A725")
     if args.core is None:
         args.core = ARCH_CONFIG[args.arch]["core"]
     if args.timer is None:
@@ -139,6 +150,10 @@ def parse_args():
         parser.error("--train-regions must be >= 1")
     if args.core < 0:
         parser.error("--core must be >= 0")
+    if args.wait_ns != 0:
+        parser.error("direct-MRS PMU requires --wait-ns 0; use --wait-nops")
+    if args.pmu_settle_nops != 0 or args.pmu_settle_ns != 0:
+        parser.error("--pmu-settle-* is not used by the direct-MRS PMU path")
     try:
         args.footprint_lines_parsed = parse_line_list(args.footprint_lines)
     except ValueError:
@@ -180,6 +195,7 @@ def build(args, bin_path, enable_pmu, enable_cache_probe):
         f"-DPMU_SETTLE_WAIT_NS={args.pmu_settle_ns}",
         f"-DENABLE_PMU={1 if enable_pmu else 0}",
         f"-DENABLE_CACHE_PROBE={1 if enable_cache_probe else 0}",
+        f"-DACCESS_TYPE_STORE={int(args.type == 'store')}",
         f"-DPMU_CORE_X925={int(args.arch == 'X925')}",
         f"-DPMU_CORE_A55={int(args.arch == 'A55')}",
         timer_define_for_arch(args.arch, args.timer),
@@ -208,6 +224,105 @@ def run_binary(args, bin_path, mode):
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             env=env)
     return result.returncode, result.stdout
+
+
+def report_run_failure(mode, returncode, output):
+    if returncode == 0:
+        return False
+    if returncode < 0:
+        signum = -returncode
+        try:
+            signal_name = signal.Signals(signum).name
+        except ValueError:
+            signal_name = f"signal {signum}"
+        reason = f"terminated by {signal_name}"
+    else:
+        reason = f"exited with status {returncode}"
+    print(f"error: {mode} binary {reason}", file=sys.stderr)
+    if output:
+        print(output, end="" if output.endswith("\n") else "\n",
+              file=sys.stderr)
+    return True
+
+def run_module_script(script, *arguments):
+    cmd = ["sudo", str(script), *(str(value) for value in arguments)]
+    print("# module:", " ".join(cmd))
+    try:
+        result = subprocess.run(cmd, check=False)
+    except OSError as exc:
+        raise RuntimeError(f"cannot execute {' '.join(cmd)}: {exc}") from exc
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"{' '.join(cmd)} exited with status {result.returncode}"
+        )
+
+
+def unload_direct_pmu_module():
+    run_module_script(PMU_MODULE_DIR / "module_unload.sh")
+
+
+def load_direct_pmu_module(args):
+    module_dir = Path("/sys/module") / PMU_MODULE_NAME
+    if module_dir.is_dir():
+        target_path = module_dir / "parameters" / "target_cpu"
+        try:
+            target = target_path.read_text().strip()
+        except OSError:
+            target = "unknown"
+        raise RuntimeError(
+            f"{PMU_MODULE_NAME} is already loaded for CPU{target}; refusing "
+            "to replace an externally loaded instance. Unload it once with: "
+            f"sudo {PMU_MODULE_DIR / 'module_unload.sh'}"
+        )
+
+    run_module_script(PMU_MODULE_DIR / "module_load.sh", "--cpu", args.core)
+    try:
+        validate_direct_pmu_module(args)
+    except Exception:
+        unload_direct_pmu_module()
+        raise
+
+
+def validate_direct_pmu_module(args):
+    module_dir = Path("/sys/module") / PMU_MODULE_NAME
+    target_cpu_path = module_dir / "parameters" / "target_cpu"
+    load_script = PMU_MODULE_DIR / "module_load.sh"
+
+    if not target_cpu_path.is_file():
+        raise RuntimeError(
+            f"{PMU_MODULE_NAME} is not loaded; run: "
+            f"sudo {load_script} --cpu {args.core}"
+        )
+    try:
+        active_cpu = int(target_cpu_path.read_text().strip(), 0)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(
+            f"cannot read active PMU target from {target_cpu_path}: {exc}"
+        ) from exc
+    if active_cpu != args.core:
+        raise RuntimeError(
+            f"{PMU_MODULE_NAME} targets CPU{active_cpu}, but this test uses "
+            f"CPU{args.core}; unload it and run: sudo {load_script} "
+            f"--cpu {args.core}"
+        )
+    perf_user_access_path = Path("/proc/sys/kernel/perf_user_access")
+    if perf_user_access_path.is_file():
+        try:
+            perf_user_access = perf_user_access_path.read_text().strip()
+        except OSError as exc:
+            raise RuntimeError(
+                f"cannot read {perf_user_access_path}: {exc}"
+            ) from exc
+        if perf_user_access != "1":
+            raise RuntimeError(
+                "direct MRS is disabled by kernel.perf_user_access; "
+                "explicitly enable it with: sudo sysctl -w "
+                "kernel.perf_user_access=1"
+            )
+    print(
+        f"# direct PMU: {PMU_MODULE_NAME} loaded for CPU{active_cpu}; "
+        "reading PMEVCNTR4/5_EL0"
+    )
 
 
 def output_paths(args):
@@ -509,15 +624,32 @@ def main():
         print(f"# binary cache-only: {cache_bin}")
         return 0
 
-    pmu_code, pmu_text = run_binary(args, pmu_bin, "pmu-only")
-    print("# PMU-only result:")
-    if pmu_text:
-        print(pmu_text, end="" if pmu_text.endswith("\n") else "\n")
-    print_l2d_cache_hwprf_delta(pmu_text)
-    cache_code, cache_text = run_binary(args, cache_bin, "cache-only")
-    save_outputs(args, pmu_text, cache_text)
-    make_plots(args, pmu_text, cache_text)
-    return pmu_code or cache_code
+    try:
+        load_direct_pmu_module(args)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        pmu_code, pmu_text = run_binary(args, pmu_bin, "pmu-only")
+        if report_run_failure("PMU-only", pmu_code, pmu_text):
+            return 128 - pmu_code if pmu_code < 0 else pmu_code
+        print("# PMU-only result:")
+        if pmu_text:
+            print(pmu_text, end="" if pmu_text.endswith("\n") else "\n")
+        print_l2d_cache_hwprf_delta(pmu_text)
+        cache_code, cache_text = run_binary(args, cache_bin, "cache-only")
+        if report_run_failure("cache-only", cache_code, cache_text):
+            return 128 - cache_code if cache_code < 0 else cache_code
+        save_outputs(args, pmu_text, cache_text)
+        make_plots(args, pmu_text, cache_text)
+        return pmu_code or cache_code
+    finally:
+        try:
+            unload_direct_pmu_module()
+        except RuntimeError as exc:
+            print(f"error: automatic module unload failed: {exc}",
+                  file=sys.stderr)
 
 
 if __name__ == "__main__":

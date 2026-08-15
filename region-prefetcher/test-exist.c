@@ -1,15 +1,18 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
 #include <time.h>
+#include <unistd.h>
 
 #ifndef __aarch64__
-#error "This test requires AArch64 EL0 load and cache-maintenance instructions."
+#error "This test requires AArch64 EL0 memory-access and cache-maintenance instructions."
 #endif
 
 #include "../store-stride-prefetcher/until.h"
@@ -50,6 +53,15 @@
 #define CACHE_HIT_THRESHOLD_TICKS 200
 #endif
 
+#ifndef ACCESS_TYPE_STORE
+#define ACCESS_TYPE_STORE 0
+#endif
+
+#if ACCESS_TYPE_STORE
+#define REGION_ACCESS_TYPE_NAME "store"
+#else
+#define REGION_ACCESS_TYPE_NAME "load"
+#endif
 
 #ifndef PMU_CORE_X925
 #define PMU_CORE_X925 1
@@ -57,14 +69,89 @@
 #ifndef PMU_CORE_A55
 #define PMU_CORE_A55 0
 #endif
-#ifndef PMU_PRINT_ALL
-#define PMU_PRINT_ALL 1
+#include "../kernel-modules/prefetch-pmu-event/prefetch_pmu_ioctl.h"
+#include "../kernel-modules/prefetch-pmu-event/prefetch_pmu_event.h"
+
+static uint64_t pmu_l1_accumulated;
+static uint64_t pmu_l2_accumulated;
+static struct prefetch_pmu_snapshot pmu_before;
+static int pmu_device_fd = -1;
+
+static int pmu_setup(void)
+{
+#if ENABLE_PMU
+    pmu_device_fd = open(PREFETCH_PMU_DEVICE_PATH, O_RDONLY | O_CLOEXEC);
+    if (pmu_device_fd < 0) {
+        fprintf(stderr, "open %s failed: %s\n",
+                PREFETCH_PMU_DEVICE_PATH, strerror(errno));
+        return -1;
+    }
+#if PMU_CORE_X925
+    printf("# PMU source=direct-mrs core=Cortex-X925 "
+           "counter4=0x8154 counter5=0x8155 "
+           "window=trigger-plus-wait-per-round "
+           "rearm=once-per-experiment\n");
+#else
+    printf("# PMU source=direct-mrs core=Cortex-A725 "
+           "counter4=0x8154 counter5=0x8285 "
+           "window=trigger-plus-wait-per-round "
+           "rearm=once-per-experiment\n");
 #endif
-#ifndef PMU_PRINT_EVENT
-#define PMU_PRINT_EVENT NULL
+    if (ioctl(pmu_device_fd, PREFETCH_PMU_IOC_REARM) != 0) {
+        fprintf(stderr, "PMU rearm ioctl failed: %s\n", strerror(errno));
+        return -1;
+    }
+    return 0;
+#else
+    return -1;
 #endif
-#define PMU_WINDOW_NAME "training-plus-trigger-per-round"
-#include "../store-stride-prefetcher/pmu.h"
+}
+
+static void pmu_reset_accumulated(void)
+{
+    pmu_l1_accumulated = 0;
+    pmu_l2_accumulated = 0;
+}
+
+static int pmu_start(void)
+{
+#if ENABLE_PMU
+    pmu_before = prefetch_pmu_read();
+    return 0;
+#else
+    return -1;
+#endif
+}
+
+static void pmu_stop_and_accumulate(void)
+{
+#if ENABLE_PMU
+    struct prefetch_pmu_snapshot after = prefetch_pmu_read();
+
+    pmu_l1_accumulated +=
+        prefetch_pmu_delta(after.l1_hwprf, pmu_before.l1_hwprf);
+    pmu_l2_accumulated +=
+        prefetch_pmu_delta(after.l2_prefetch, pmu_before.l2_prefetch);
+#endif
+}
+
+static void pmu_print_accumulated(uint64_t rounds)
+{
+    double denominator = rounds == 0 ? 1.0 : (double)rounds;
+
+    printf("# PMU %-24s per_round=%.2f\n", "l1d_cache_hwprf",
+           (double)pmu_l1_accumulated / denominator);
+    printf("# PMU %-24s per_round=%.2f\n", "l2d_cache_hwprf",
+           (double)pmu_l2_accumulated / denominator);
+}
+
+static void pmu_cleanup(void)
+{
+    if (pmu_device_fd >= 0) {
+        close(pmu_device_fd);
+        pmu_device_fd = -1;
+    }
+}
 
 #if REGION_POOL_PAGES <= (TRAIN_REGIONS + EXTRA_REGIONS)
 #error "REGION_POOL_PAGES must cover training, extra, and target regions"
@@ -93,23 +180,35 @@ static const uint8_t trigger_lines[] = TRIGGER_LINES;
 static uint8_t *region_pool;
 static uint8_t *store_noise;
 
-/* Training and treatment trigger execute this exact same load PC. */
-__attribute__((noinline)) static void region_pattern_load(void *addr)
+/* Training and treatment trigger execute this exact same access PC. */
+__attribute__((noinline)) static void region_pattern_access(void *addr)
 {
+#if ACCESS_TYPE_STORE
+    asm volatile("strb w0, [%0]\n\t" :: "r"(addr) : "memory", "w0");
+#else
     asm volatile("ldrb w0, [%0]\n\t" :: "r"(addr) : "memory", "w0");
+#endif
 }
 
 /* The control trigger has no matching multi-line footprint history. */
-__attribute__((noinline)) static void control_trigger_load(void *addr)
+__attribute__((noinline)) static void control_trigger_access(void *addr)
 {
+#if ACCESS_TYPE_STORE
+    asm volatile("strb w0, [%0]\n\t" :: "r"(addr) : "memory", "w0");
+#else
     asm volatile("ldrb w0, [%0]\n\t" :: "r"(addr) : "memory", "w0");
+#endif
 }
 
 #if EXTRA_REGIONS > 0
 /* A third PC creates region turnover without adding to the learned pattern. */
-__attribute__((noinline)) static void extra_region_load(void *addr)
+__attribute__((noinline)) static void extra_region_access(void *addr)
 {
+#if ACCESS_TYPE_STORE
+    asm volatile("strb w0, [%0]\n\t" :: "r"(addr) : "memory", "w0");
+#else
     asm volatile("ldrb w0, [%0]\n\t" :: "r"(addr) : "memory", "w0");
+#endif
 }
 #endif
 
@@ -170,7 +269,7 @@ static void train_repeated_footprint(uint64_t round)
         uint8_t *page = region_pool + page_index(round, region) * PAGE_SIZE;
 
         for (size_t i = 0; i < sizeof(footprint) / sizeof(footprint[0]); i++) {
-            region_pattern_load(page + (size_t)footprint[i] * LINE_SIZE);
+            region_pattern_access(page + (size_t)footprint[i] * LINE_SIZE);
             nops();
         }
         mfence();
@@ -185,7 +284,7 @@ static void touch_extra_regions(uint64_t round)
         uint8_t *page = region_pool + page_index(round, position) * PAGE_SIZE;
 
         flush_page(page);
-        extra_region_load(page);
+        extra_region_access(page);
         nops();
     }
 #else
@@ -234,16 +333,6 @@ static void run_case(const char *name, trigger_fn_t trigger,
 
     pmu_reset_accumulated();
 
-        int pmu_running = 0;
-        if (*pmu_ready) {
-            pmu_running = (pmu_start() == 0);
-            if (!pmu_running) {
-                fprintf(stderr,
-                        "# PMU unavailable: counter group could not be started\n");
-                *pmu_ready = 0;
-            }
-        }
-
     for (uint64_t round = 0; round < ROUNDS; round++) {
         /* Reset all context prefetcher state, then retrain within this round. */
 
@@ -257,6 +346,15 @@ static void run_case(const char *name, trigger_fn_t trigger,
         /* Control and pattern share this training window; only pattern triggers. */
         train_repeated_footprint(round);
 
+        int pmu_running = 0;
+        if (*pmu_ready) {
+            pmu_running = (pmu_start() == 0);
+            if (!pmu_running) {
+                fprintf(stderr, "# direct PMU counter read failed\n");
+                *pmu_ready = 0;
+            }
+        }
+
         for (size_t i = 0; i < trigger_accesses; i++) {
             trigger(target + (size_t)trigger_lines[i] * LINE_SIZE);
             nops();
@@ -268,6 +366,9 @@ static void run_case(const char *name, trigger_fn_t trigger,
             (void)nanosleep(&prefetch_wait, NULL);
         }
 
+        if (pmu_running) {
+            pmu_stop_and_accumulate();
+        }
 
 #if ENABLE_CACHE_PROBE
         size_t probe_line = (size_t)((round * 37u + 11u) % LINES_PER_REGION);
@@ -284,14 +385,9 @@ static void run_case(const char *name, trigger_fn_t trigger,
 #endif
     }
 
-    if (pmu_running) {
-            pmu_stop_and_accumulate();
-    }
-
-
     printf("\n[%s]\n", name);
-    printf("# trigger_pc=%s direct_demand_loads_per_round=%zu\n",
-           trigger == region_pattern_load ? "trained" : "untrained-control",
+    printf("# trigger_pc=%s direct_demand_accesses_per_round=%zu\n",
+           trigger == region_pattern_access ? "trained" : "untrained-control",
            trigger_accesses);
     printf("# trigger_lines=");
     for (size_t i = 0; i < trigger_accesses; i++) {
@@ -375,6 +471,7 @@ int main(void)
         printf("%s%u", i == 0 ? "" : ",", footprint[i]);
     }
     printf("\n");
+    printf("# access_type=%s\n", REGION_ACCESS_TYPE_NAME);
     printf("# trigger_lines=");
     for (size_t i = 0; i < sizeof(trigger_lines) / sizeof(trigger_lines[0]); i++) {
         printf("%s%u", i == 0 ? "" : ",", trigger_lines[i]);
@@ -389,8 +486,7 @@ int main(void)
 #if ENABLE_PMU
     pmu_ready = (pmu_setup() == 0);
     if (!pmu_ready) {
-        fprintf(stderr,
-                "# PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
+        fprintf(stderr, "# direct PMU counter setup failed\n");
     }
 #else
     printf("# PMU disabled by ENABLE_PMU=0\n");
@@ -415,9 +511,9 @@ int main(void)
         }
     }
 
-    run_case(control_name, control_trigger_load, trigger_lines,
+    run_case(control_name, control_trigger_access, trigger_lines,
              0, &pmu_ready);
-    run_case(pattern_name, region_pattern_load, trigger_lines,
+    run_case(pattern_name, region_pattern_access, trigger_lines,
              sizeof(trigger_lines) / sizeof(trigger_lines[0]), &pmu_ready);
 
 #if ENABLE_PMU

@@ -78,13 +78,13 @@ struct pmu_read_value {
 static struct pmu_counter pmu_counters[] = {
     PMU_COUNTER("l1d_cache_hwprf",        0x8154),//Level 1 data cache hardware prefetch
     PMU_COUNTER("l2d_cache_hwprf",        0x8155),//Level 2 data cache hardware prefetch
-    PMU_COUNTER("L2D_CACHE_PRFM",        0x814A),//	Level 2 data cache preload or prefetch
+    // PMU_COUNTER("L2D_CACHE_PRFM",        0x814A),//	Level 2 data cache preload or prefetch
 
-    PMU_COUNTER("L1D_CACHE_REFILL_PRFM", 0x8146),//Level 1 data cache refill, preload or prefetch
-    PMU_COUNTER("L2D_CACHE_REFILL_PRFM", 0x814E),//Level 2 data cache refill, preload or prefetch
-    PMU_COUNTER("L3D_CACHE_REFILL_PRFM", 0x8153),//Level 3 data cache refill, preload or prefetch
-    PMU_COUNTER("l2d_cache_refill_hwprf", 0x81BD),
-    PMU_COUNTER("l3d_cache_refill_hwprf", 0x81BE),
+    // PMU_COUNTER("L1D_CACHE_REFILL_PRFM", 0x8146),//Level 1 data cache refill, preload or prefetch
+    // PMU_COUNTER("L2D_CACHE_REFILL_PRFM", 0x814E),//Level 2 data cache refill, preload or prefetch
+    // PMU_COUNTER("L3D_CACHE_REFILL_PRFM", 0x8153),//Level 3 data cache refill, preload or prefetch
+    // PMU_COUNTER("l2d_cache_refill_hwprf", 0x81BD),
+    // PMU_COUNTER("l3d_cache_refill_hwprf", 0x81BE),
 };
 #elif PMU_CORE_A55
 /* Cortex-A55 exposes prefetch-related cache refill events as 0xC0..0xC2. */
