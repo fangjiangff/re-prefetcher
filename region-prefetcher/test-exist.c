@@ -19,7 +19,7 @@
 #endif
 
 #ifndef TRAIN_REGIONS
-#define TRAIN_REGIONS 32
+#define TRAIN_REGIONS 8
 #endif
 
 #ifndef REGION_POOL_PAGES
@@ -35,7 +35,7 @@
 #endif
 
 #ifndef PREFETCH_WAIT_NS
-#define PREFETCH_WAIT_NS 10000
+#define PREFETCH_WAIT_NS 0
 #endif
 
 #ifndef ENABLE_CACHE_PROBE
@@ -81,10 +81,10 @@
  * prefetcher should not explain all six predicted lines.
  */
 #ifndef FOOTPRINT_LINES
-#define FOOTPRINT_LINES {4, 17, 6, 27, 13, 1, 15}
+#define FOOTPRINT_LINES {4, 1, 6, 12}
 #endif
 #ifndef TRIGGER_LINES
-#define TRIGGER_LINES {4, 17}
+#define TRIGGER_LINES {3}
 #endif
 
 static const uint8_t footprint[] = FOOTPRINT_LINES;
@@ -122,13 +122,22 @@ static void flush_page(uint8_t *page)
 }
 
 /*
- * 73 is coprime with the 257-page pool.  This visits pages in a permutation
- * instead of ascending virtual-address order, suppressing page-stride and
- * adjacent-region explanations for the result.
+ * 73 is coprime with the 257-page pool. Together with the round offset,
+ * this visits pages in a deterministic permutation instead of ascending order.
  */
 static size_t page_index(uint64_t round, size_t position)
 {
+    // uint64_t round_offset = ROTATE_PAGES ? round * 151u : 0;
+    // return (size_t)((round_offset + position * 73u) % REGION_POOL_PAGES);
     return (size_t)((round * 151u + position * 73u) % REGION_POOL_PAGES);
+}
+
+static void flush_training_pages(uint64_t round)
+{
+    for (size_t region = 0; region < TRAIN_REGIONS; region++) {
+        uint8_t *page = region_pool + page_index(round, region) * PAGE_SIZE;
+        flush_page(page);
+    }
 }
 
 static void train_repeated_footprint(uint64_t round)
@@ -136,7 +145,6 @@ static void train_repeated_footprint(uint64_t round)
     for (size_t region = 0; region < TRAIN_REGIONS; region++) {
         uint8_t *page = region_pool + page_index(round, region) * PAGE_SIZE;
 
-        flush_page(page);
         for (size_t i = 0; i < sizeof(footprint) / sizeof(footprint[0]); i++) {
             region_pattern_load(page + (size_t)footprint[i] * LINE_SIZE);
             nops();
@@ -215,6 +223,13 @@ static void run_case(const char *name, trigger_fn_t trigger,
 
     for (uint64_t round = 0; round < ROUNDS; round++) {
         /* Reset all context prefetcher state, then retrain within this round. */
+
+        flush_training_pages(round);
+        uint8_t *target = region_pool +
+            page_index(round, TRAIN_REGIONS + EXTRA_REGIONS) * PAGE_SIZE;
+        /* Keep all cache maintenance outside the measured PMU window. */
+        flush_page(target);
+
         cpp_rctx();
 
         int pmu_running = 0;
@@ -230,27 +245,17 @@ static void run_case(const char *name, trigger_fn_t trigger,
         /* Control and pattern share this training window; only pattern triggers. */
         train_repeated_footprint(round);
 
-      // touch_extra_regions(round);
-        uint8_t *target = region_pool + page_index(round, TRAIN_REGIONS + EXTRA_REGIONS) * PAGE_SIZE;
-        flush_page(target);
-
         for (size_t i = 0; i < trigger_accesses; i++) {
             trigger(target + (size_t)trigger_lines[i] * LINE_SIZE);
             nops();
         }
 
-        // unrelated_non_stride_stores();
-        // mStore(target + 38 * LINE_SIZE);
         nops();
         wait_for_prefetch();
         if (PREFETCH_WAIT_NS > 0) {
             (void)nanosleep(&prefetch_wait, NULL);
         }
 
-        // mfence();
-        
-        // int a = 10;
-        // int b = a >>1 + 11;
         if (pmu_running) {
             pmu_stop_and_accumulate();
         }
@@ -283,7 +288,7 @@ static void run_case(const char *name, trigger_fn_t trigger,
         pmu_print_accumulated(ROUNDS);
     }
 #if ENABLE_CACHE_PROBE
-    printf("# CACHE_PROBE timestamp=%s unit=%s threshold_ticks=%d\n",
+    printf("# CACHE_PROBE timestamp=%s unit=%s threshold=%d\n",
            TIMESTAMP_SOURCE_NAME, TIMESTAMP_UNIT_NAME, CACHE_HIT_THRESHOLD_TICKS);
     printf("# line\trole\tavg_latency\tsamples\thits_per_1000\n");
     for (size_t line = 0; line < LINES_PER_REGION; line++) {
