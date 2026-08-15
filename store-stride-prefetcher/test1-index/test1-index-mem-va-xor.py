@@ -56,7 +56,7 @@ def compile_test(args):
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DSTRIDE_ACCESS_LOAD={1 if args.access == 'load' else 0}",
-        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch in ('X925', 'A725') else 0}",
         f"-DENABLE_PMU={args.enable_pmu}",
         f"-DPMU_CORE_X925={1 if args.arch == 'X925' else 0}",
         f"-DPMU_CORE_A55={1 if args.arch == 'A55' else 0}",
@@ -65,7 +65,7 @@ def compile_test(args):
         SRC,
         UTIL_SRC,
     ]
-    if args.arch == "X925":
+    if args.arch in ("X925", "A725"):
         compile_cmd.insert(5, "-march=armv8.5-a+predres")
     return subprocess.run(compile_cmd)
 

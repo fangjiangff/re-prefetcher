@@ -288,7 +288,7 @@ def timer_define_for(arch):
 
 
 def arch_cflags_for(arch):
-    if arch == "X925":
+    if arch in ("X925", "A725"):
         return ["-march=armv8.5-a+predres"]
     return []
 
@@ -453,7 +453,7 @@ def compile_test(train_step, arch):
         f"-DNO_TRIGGER={1 if args.no_trigger else 0}",
         f"-DCONTEXT_SWITCH_BEFORE_TRIGGER={1 if args.context_switch else 0}",
         f"-DCONTEXT_SWITCH_YIELDS={args.context_switch_yields}",
-        f"-DENABLE_CPP_RCTX={1 if arch == 'X925' else 0}",
+        f"-DENABLE_CPP_RCTX={1 if arch in ('X925', 'A725') else 0}",
         "-o",
         OUT,
         SRC,

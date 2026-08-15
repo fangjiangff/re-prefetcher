@@ -358,7 +358,7 @@ def compile_test(arch):
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DACCESS_SEQUENCE={sequence_macro}",
         f"-DACCESS_SEQUENCE_LEN={len(args.sequence)}",
-        f"-DENABLE_CPP_RCTX={1 if arch == 'X925' else 0}",
+        f"-DENABLE_CPP_RCTX={1 if arch in ('X925', 'A725') else 0}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
         f"-DDUMMY_BUFFER_PAGES={args.dummy_buffer_pages}",

@@ -19,6 +19,19 @@
 #define PMU_PRINT_START_STATUS 1
 #endif
 
+/*
+ * Counters are always opened/read for every entry in pmu_counters[]. A
+ * consumer can narrow only the textual report without changing the PMU
+ * workload or counter multiplexing; NULL prints every counter as before.
+ */
+#ifndef PMU_PRINT_EVENT
+#define PMU_PRINT_EVENT NULL
+#endif
+
+#ifndef PMU_PRINT_ALL
+#define PMU_PRINT_ALL 0
+#endif
+
 #ifndef PMU_EXCLUDE_KERNEL
 #define PMU_EXCLUDE_KERNEL 1
 #endif
@@ -63,64 +76,15 @@ struct pmu_read_value {
 
 #if PMU_CORE_X925
 static struct pmu_counter pmu_counters[] = {
-    // for hardware prefetcher
-    // PMU_COUNTER("L1D_CACHE",0x0004),// Level 1 data cache access
-    // PMU_COUNTER("L1D_CACHE_MISS",0x8144),
-    // // PMU_COUNTER("l1d_cache_wr", 0x0041),//Level 1 data cache access, write
-    // // PMU_COUNTER("L1D_CACHE_PRFM",0x8142),
-    // PMU_COUNTER("L1D_CACHE_REFILL", 0x0003),
-    // PMU_COUNTER("L2D_CACHE_REFILL_RD",0x0052),
-    // PMU_COUNTER("L2D_CACHE_REFILL_WR", 0x0053),
-    // PMU_COUNTER("ST_SPEC", 0x0071),
-    // PMU_COUNTER("BR_MIS_PRED", 0x0010),
-    PMU_COUNTER("L1D_TLB", 0x0025),// Level 1 data cache refill, software prefetch
-    PMU_COUNTER("L1D_TLB_REFILL", 0x0005),// Level 1 data cache refill, software prefetch
-    PMU_COUNTER("L1D_CACHE_WR", 0x0041),// Level 1 data cache refill, software prefetch
-    
-    PMU_COUNTER("l1d_cache_hwprf", 0x8154),//Level 1 data cache hardware prefetch
-    PMU_COUNTER("l2d_cache_hwprf", 0x8155),// Level 2 data cache hardware prefetch
-    // PMU_COUNTER("l2d_cache_refill_prfm", 0x814e),// L2 refill caused by preload/prefetch
+    PMU_COUNTER("l1d_cache_hwprf",        0x8154),//Level 1 data cache hardware prefetch
+    PMU_COUNTER("l2d_cache_hwprf",        0x8155),//Level 2 data cache hardware prefetch
+    PMU_COUNTER("L2D_CACHE_PRFM",        0x814A),//	Level 2 data cache preload or prefetch
 
-        // for store
-    // {"st_retired", 0x0007, -1},
-    // {"st_spec",    0x0071, -1},//Operation speculatively executed, store
-    // // l1 d
-    // {"l1d_cache_miss", 0x8144, -1},
-    // {"l1d_cache_refill", 0x0003, -1},
-
-    // // // L2 d
-    // {"l2d_cache_wr", 0x0051, -1},
-    // {"l2d_cache_miss", 0x814c, -1},
-    // {"L2D_CACHE_REFILL_RD", 0x0052, -1},
-    // {"L2D_CACHE_REFILL_WR", 0x0053, -1},
-    // {"L2D_CACHE_WB_VICTIM", 0x0056, -1},
-    // {"L2D_CACHE_WB_CLEAN", 0x0057, -1},
-    // {"L2D_CACHE_INVAL", 0x0058, -1},
-    // {"l2d_cache_refill", 0x0017, -1},
-
-
-    // // for software prefetch
-    // {"prf_spec", 0x8087, -1},
-    // // {"l1d_cache_prfm", 0x8142, -1},
-    // {"l1d_cache_refill_prfm", 0x8146, -1},
-    // // // {"l2d_cache_prfm", 0x814a, -1},
-    // {"l2d_cache_refill_prfm", 0x814e, -1},
-    // // {"l3d_cache_refill_prfm", 0x8153, -1},
-    // {"l3d_cache", 0x002b, -1},
-    // {"l3d_cache_refill", 0x002a, -1},
-    // // {"l3d_cache_allocate", 0x0029, -1},
-    // // {"l3d_cache_lmiss_rd", 0x400b, -1},
-    // // for tlb
-    // {"l1d_tlb", 0x0025, -1},
-    // {"l1d_tlb_refill", 0x0005, -1},
-    // {"l2d_tlb", 0x002f, -1},
-    // {"l2d_tlb_refill", 0x002d, -1},
-    // {"dtlb_walk", 0x0034, -1},
-    //
-    // {"cpu_cycles", 0x0011, -1},
-    // {"inst_retired", 0x0008, -1},
-    // {"ll_cache_miss_rd", 0x0037, -1},
-    // {"stall_backend_membound", 0x8164, -1},
+    PMU_COUNTER("L1D_CACHE_REFILL_PRFM", 0x8146),//Level 1 data cache refill, preload or prefetch
+    PMU_COUNTER("L2D_CACHE_REFILL_PRFM", 0x814E),//Level 2 data cache refill, preload or prefetch
+    PMU_COUNTER("L3D_CACHE_REFILL_PRFM", 0x8153),//Level 3 data cache refill, preload or prefetch
+    PMU_COUNTER("l2d_cache_refill_hwprf", 0x81BD),
+    PMU_COUNTER("l3d_cache_refill_hwprf", 0x81BE),
 };
 #elif PMU_CORE_A55
 /* Cortex-A55 exposes prefetch-related cache refill events as 0xC0..0xC2. */
@@ -135,11 +99,11 @@ static struct pmu_counter pmu_counters[] = {
     // The counter counts each fetch triggered by L1 prefetchers
     PMU_COUNTER("l1d_cache_hwprf", 0x8154),//L1 数据预取器触发的 fetch 数；判断预取器是否启动
     // The counter counts each refill triggered by L1 prefetchers
-    PMU_COUNTER("l1d_cache_refill_hwprf", 0x81bc),// Level 1 data cache refill, hardware prefetch
+    // PMU_COUNTER("l1d_cache_refill_hwprf", 0x81bc),// Level 1 data cache refill, hardware prefetch
     // The counter counts each fetch counted by either L2D_CACHE_HWPRF or L2D_CACHE_PRFM
-    PMU_COUNTER("l2d_cache_prf", 0x8285),//L2 预取命中？
+    PMU_COUNTER("l2d_cache_hwprf", 0x8285),//L2 预取命中？ 包含了软件预取。。
     //The counter counts each refill counted by either L2D_CACHE_REFILL_HWPRF or L2D_CACHE_REFILL_PRFM.
-    PMU_COUNTER("l2d_cache_refill_prf", 0x828d),//preload/prefetch 引起的 L2 refill；同时包含硬件预取和软件 PRFM
+    // PMU_COUNTER("l2d_cache_refill_prf", 0x828d),//preload/prefetch 引起的 L2 refill；同时包含硬件预取和软件 PRFM
     // {"l1d_cache_refill", 0x0003, -1},
     // {"l2d_cache_refill", 0x0017, -1},
     // {"ll_cache_refill", 0x829a, -1},
@@ -428,6 +392,12 @@ static void pmu_print_accumulated(uint64_t rounds) {
         if (pmu_counters[i].fd < 0) {
             continue;
         }
+#if !PMU_PRINT_ALL
+        if (PMU_PRINT_EVENT != NULL &&
+            strcmp(pmu_counters[i].name, PMU_PRINT_EVENT) != 0) {
+            continue;
+        }
+#endif
 
         double scaled = (double)pmu_counters[i].accumulated_value;
         if (pmu_counters[i].accumulated_time_running != 0 &&

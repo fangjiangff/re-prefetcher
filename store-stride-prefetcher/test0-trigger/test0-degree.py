@@ -134,7 +134,7 @@ def ensure_parent(path):
 def arch_cflags_for(arch):
     if is_x86_arch(arch):
         return []
-    if arch == "X925":
+    if arch in ("X925", "A725"):
         return ["-march=armv8.5-a+predres"]
     return []
 
@@ -152,7 +152,7 @@ def compile_test(args):
         f"-DROUNDS={args.rounds}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
-        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch in ('X925', 'A725') else 0}",
         "-o",
         OUT,
         SRC,

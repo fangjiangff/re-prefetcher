@@ -18,7 +18,7 @@
 #define DEFAULT_THRESHOLD_NS 150
 
 static const size_t training_lines[] = {4, 19, 6, 27, 13, 1, 15};
-static const size_t trigger_line = 4;
+static const size_t trigger_lines[] = {4, 19};
 
 static uint8_t delay_array[100 * CACHE_LINE_SIZE] = {0};
 static uint8_t *mapping;
@@ -135,6 +135,15 @@ static int is_training_line(size_t line) {
     return 0;
 }
 
+static int is_trigger_line(size_t line) {
+    for (size_t i = 0; i < sizeof(trigger_lines) / sizeof(trigger_lines[0]); i++) {
+        if (trigger_lines[i] == line) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void run_test(const char *name, int touch_extra_regions,
                      int rounds, uint64_t hit_threshold_ns) {
     const size_t lines_per_page = PAGE_SIZE / CACHE_LINE_SIZE;
@@ -160,7 +169,9 @@ static void run_test(const char *name, int touch_extra_regions,
 
         flush_region(test_region, PAGE_SIZE);
 
-        train_or_trigger_access(test_region + trigger_line * CACHE_LINE_SIZE);
+        for (size_t i = 0; i < sizeof(trigger_lines) / sizeof(trigger_lines[0]); i++) {
+            train_or_trigger_access(test_region + trigger_lines[i] * CACHE_LINE_SIZE);
+        }
         mfence();
 
         size_t probe_line = (size_t)round % lines_per_page;
@@ -182,7 +193,7 @@ static void run_test(const char *name, int touch_extra_regions,
 
     for (size_t line = 0; line < lines_per_page; line++) {
         const char *role = ".";
-        if (line == trigger_line) {
+        if (is_trigger_line(line)) {
             role = "trigger";
         } else if (is_training_line(line)) {
             role = "expected_prefetch";
@@ -243,7 +254,7 @@ int main(int argc, char **argv) {
     printf("# SMS same-PC same-memory test\n");
     printf("# access mode: %s\n",
            use_sw_prefetch ? "software prefetch (prfm pldl1keep)" : "load (ldrb)");
-    printf("# training lines: 4, 1, 6, 7, 3, 11, 15; trigger line: 4\n");
+    printf("# training lines: 4, 19, 6, 27, 13, 1, 15; trigger lines: 4, 19\n");
     printf("# expected SMS prefetch lines after trigger: 1, 3, 6, 7, 11, 15\n");
 
     run_test("without_extra_region_accesses", 0, rounds, hit_threshold_ns);

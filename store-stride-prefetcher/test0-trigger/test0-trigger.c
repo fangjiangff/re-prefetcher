@@ -6,7 +6,7 @@
 #include "../until.h"
 // #include "victim.h" 
 
-#define Items 10240
+#define Items 262144
 
 #ifndef STRIDE_BYTES
 #define STRIDE_BYTES 64
@@ -22,6 +22,31 @@
 
 #ifndef ENABLE_CPP_RCTX
 #define ENABLE_CPP_RCTX 0
+#endif
+
+#ifndef ENABLE_PMU
+#define ENABLE_PMU 0
+#endif
+
+#if ENABLE_PMU
+#ifndef PMU_CORE_X925
+#define PMU_CORE_X925 ENABLE_CPP_RCTX
+#endif
+#ifndef PMU_CORE_A55
+#define PMU_CORE_A55 0
+#endif
+#ifndef PMU_WINDOW_NAME
+#define PMU_WINDOW_NAME "train-trigger-per-round"
+#endif
+#include "../pmu.h"
+
+#if PMU_CORE_X925
+#define SWEEP_PMU_EVENT_NAME "l2d_cache_hwprf"
+#elif PMU_CORE_A55
+#define SWEEP_PMU_EVENT_NAME "l2d_cache_refill_prefetch"
+#else
+#define SWEEP_PMU_EVENT_NAME "l2d_cache_prf"
+#endif
 #endif
 
 
@@ -45,22 +70,33 @@
 #error "Only one train access mode can be enabled"
 #endif
 
-// 64 cache lines.
-#ifndef MAX_STRIDE
-#define MAX_STRIDE 4096
+#ifndef MIN_STRIDE
+#define MIN_STRIDE 0
 #endif
 
+// Stride macros use cache-line units; byte addresses multiply by LINE_SIZE.
+#ifndef MAX_STRIDE
+#define MAX_STRIDE 64
+#endif
+
+
+#ifndef MIN_STEP
+#define MIN_STEP 1
+#endif
 
 #ifndef MAX_STEP
 #define MAX_STEP 20
 #endif
 
+#ifndef PROBE_CANDIDATES
+#define PROBE_CANDIDATES 10
+#endif
+
+#if !ENABLE_PMU && PROBE_CANDIDATES < 10
+#error "PROBE_CANDIDATES must be at least 10"
+#endif
 
 uint8_t array2[Items * LINE_SIZE] __attribute__((aligned(4096)));;
-
-#define MAX_STRIDE_LINES (MAX_STRIDE / LINE_SIZE)
-
-long long int latency_sum[MAX_STRIDE_LINES + 1][MAX_STEP + 1] = {{0}};
 
 uint8_t array1[100*LINE_SIZE]={0};
 
@@ -70,22 +106,6 @@ uint8_t array1[100*LINE_SIZE]={0};
 static uint8_t* dummy_buffer;
 static uint8_t* prefetcher_fill_buffer;
 
-static uint32_t shuffle_state = 0x9e3779b9u;
-
-static uint32_t next_shuffle_rand(void) {
-    shuffle_state = shuffle_state * 1664525u + 1013904223u;
-    return shuffle_state;
-}
-
-static void shuffle_ints(int *values, int count) {
-    for (int i = count - 1; i > 0; i--) {
-        int j = (int)(next_shuffle_rand() % (uint32_t)(i + 1));
-        int tmp = values[i];
-
-        values[i] = values[j];
-        values[j] = tmp;
-    }
-}
 
 void dummyAccesses(void){
   // dummyAccess(dummy_buffer, DUMMY_BUFFER_SIZE);
@@ -121,11 +141,36 @@ static void delay_after_trigger(void) {
     (void)dummy;
 }
 
+#if ENABLE_PMU
+static int find_sweep_pmu_counter(void) {
+    for (int i = 0; i < PMU_COUNTER_COUNT; i++) {
+        if (strcmp(pmu_counters[i].name, SWEEP_PMU_EVENT_NAME) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static double sweep_pmu_per_round(int counter_index, uint64_t rounds) {
+    const struct pmu_counter *counter = &pmu_counters[counter_index];
+    double scaled = (double)counter->accumulated_value;
+
+    if (counter->accumulated_time_running != 0 &&
+        counter->accumulated_time_running < counter->accumulated_time_enabled) {
+        scaled *= (double)counter->accumulated_time_enabled /
+                  (double)counter->accumulated_time_running;
+    }
+    return rounds != 0 ? scaled / (double)rounds : 0.0;
+}
+#endif
+
 
 int main(){
+#if !ENABLE_PMU
   register uint64_t time1, time2;
   volatile uint8_t * probe_addr;
   unsigned int junk = 0;
+#endif
 
 
   memset(array2,-1,Items*LINE_SIZE*sizeof(uint8_t));
@@ -154,14 +199,30 @@ int main(){
 //   mfence();
 
 
-  if (MAX_STRIDE % LINE_SIZE != 0) {
-    fprintf(stderr, "MAX_STRIDE must be a multiple of LINE_SIZE\n");
+  if (MAX_STRIDE < 1) {
+    fprintf(stderr, "MAX_STRIDE must be >= 1 cache line\n");
     return 1;
   }
-  if ((uint64_t)MAX_STEP * (uint64_t)MAX_STRIDE >= Items * LINE_SIZE) {
+  if (MIN_STRIDE < 0 || MIN_STRIDE > MAX_STRIDE) {
+    fprintf(stderr, "MIN_STRIDE must be >= 0 and <= MAX_STRIDE\n");
+    return 1;
+  }
+  if (MIN_STEP < 1 || MIN_STEP > MAX_STEP) {
+    fprintf(stderr, "MIN_STEP must be >= 1 and <= MAX_STEP\n");
+    return 1;
+  }
+#if ENABLE_PMU
+  if ((uint64_t)(MAX_STEP - 1) * (uint64_t)MAX_STRIDE >= Items) {
+    fprintf(stderr, "training range exceeds array2 size\n");
+    return 1;
+  }
+#else
+  if ((uint64_t)(MAX_STEP + PROBE_CANDIDATES - 1) *
+          (uint64_t)MAX_STRIDE >= Items) {
     fprintf(stderr, "probe range exceeds array2 size\n");
     return 1;
   }
+#endif
 
   printf("# %s %s-stride trigger sweep\n",
 #ifdef __x86_64__
@@ -181,39 +242,61 @@ int main(){
   );
   printf("# timer: %s %s\n", TIMESTAMP_SOURCE_NAME, TIMESTAMP_UNIT_NAME);
   printf("# ENABLE_CPP_RCTX=%d ENABLE_DUMMY_ACCESSES=%d "
-         "DUMMY_BUFFER_PAGES=%d DUMMY_BUFFER_SIZE=%u\n",
-         ENABLE_CPP_RCTX, ENABLE_DUMMY_ACCESSES,
+         "ENABLE_PMU=%d DUMMY_BUFFER_PAGES=%d DUMMY_BUFFER_SIZE=%u\n",
+         ENABLE_CPP_RCTX, ENABLE_DUMMY_ACCESSES, ENABLE_PMU,
          DUMMY_BUFFER_PAGES, DUMMY_BUFFER_SIZE);
-  printf("# stride_lines train_step avg_%s\n", TIMESTAMP_UNIT_NAME);
+  printf("# MIN_STRIDE=%d MAX_STRIDE=%d MIN_STEP=%d\n",
+         MIN_STRIDE, MAX_STRIDE, MIN_STEP);
+#if ENABLE_PMU
+  printf("# stride_lines train_step avg_%s\n", SWEEP_PMU_EVENT_NAME);
+#else
+  printf("# latency mode probes %d candidate positions after training\n",
+         PROBE_CANDIDATES);
+  printf("# stride_lines train_step best_probe_distance min_avg_%s"
+         " probe_avg_%s_d1...d%d\n",
+         TIMESTAMP_UNIT_NAME, TIMESTAMP_UNIT_NAME, PROBE_CANDIDATES);
+#endif
 
-  int stride_order[MAX_STRIDE_LINES];
-  int train_step_order[MAX_STEP];
-
-  for (int i = 0; i < MAX_STRIDE_LINES; i++) {
-      stride_order[i] = i + 1;
+#if ENABLE_PMU
+  if (pmu_setup() != 0) {
+      fprintf(stderr, "PMU unavailable: check perf_event permissions or PMU_DEVICE\n");
+      return 1;
   }
-  for (int i = 0; i < MAX_STEP; i++) {
-      train_step_order[i] = i + 1;
+  int sweep_pmu_counter = find_sweep_pmu_counter();
+  if (sweep_pmu_counter < 0 || pmu_counters[sweep_pmu_counter].fd < 0) {
+      fprintf(stderr, "PMU event %s is unavailable\n", SWEEP_PMU_EVENT_NAME);
+      pmu_cleanup();
+      return 1;
   }
+#endif
 
-  shuffle_ints(stride_order, MAX_STRIDE_LINES);
-  shuffle_ints(train_step_order, MAX_STEP);
-
-
-  for(int stride_idx = 0; stride_idx < MAX_STRIDE_LINES; stride_idx++){
+  for(int stride_idx = MIN_STRIDE; stride_idx <= MAX_STRIDE; stride_idx++){
   // for(int stride_idx = 4; stride_idx < 5; stride_idx++){
-      // int stride_lines = stride_order[stride_idx];
-    int stride_lines = stride_idx + 1;//stride = 5
-      int stride = stride_lines * LINE_SIZE;
-      for(int train_step_idx = 0; train_step_idx < MAX_STEP; train_step_idx++){
+    int stride_lines = stride_idx;
+      uint64_t stride = (uint64_t)stride_lines * LINE_SIZE;
+      for(int train_step_idx = MIN_STEP; train_step_idx <= MAX_STEP; train_step_idx++){
       //  for(int train_step_idx = 5; train_step_idx < 6; train_step_idx++){
-        //   int train_step = train_step_order[train_step_idx];
-          int train_step = train_step_idx + 1;//trian=6
+          int train_step = train_step_idx;
+#if ENABLE_PMU
+          pmu_reset_accumulated();
+#else
+          long long int probe_latency_sum[PROBE_CANDIDATES] = {0};
+          uint64_t probe_count[PROBE_CANDIDATES] = {0};
+#endif
           for(uint64_t atkRound = 0; atkRound < ROUNDS; ++atkRound) {
-            uint64_t probe_offset = (uint64_t)train_step * (uint64_t)stride;
+#if !ENABLE_PMU
+            int probe_index = (int)(atkRound % PROBE_CANDIDATES);
+            uint64_t probe_offset =
+                (uint64_t)(train_step + probe_index) * (uint64_t)stride;
+#endif
 
-            for (uint64_t offset = 0; offset < Items*LINE_SIZE; offset+=LINE_SIZE){
-                  flush(&array2[offset]);
+            int flush_step_count = train_step;
+#if !ENABLE_PMU
+            flush_step_count += PROBE_CANDIDATES;
+#endif
+            for (int flush_step = 0; flush_step < flush_step_count;
+                 flush_step++) {
+                  flush(array2 + ((uint64_t)flush_step * (uint64_t)stride));
             }
 
 // #if ENABLE_DUMMY_ACCESSES && !ENABLE_CPP_RCTX
@@ -221,6 +304,14 @@ int main(){
                                             DUMMY_BUFFER_PAGES, 6);
 // #endif
             mfence();
+#if ENABLE_PMU
+            if (pmu_start() != 0 || pmu_counters[sweep_pmu_counter].fd < 0) {
+                fprintf(stderr, "PMU event %s could not be started\n",
+                        SWEEP_PMU_EVENT_NAME);
+                pmu_cleanup();
+                return 1;
+            }
+#endif
 
             // reset prefetcher state
 #if ENABLE_CPP_RCTX
@@ -242,26 +333,62 @@ int main(){
               nops();
               struct timespec prefetch_wait = {.tv_sec = 0, .tv_nsec = 100};
               nanosleep(&prefetch_wait, NULL);
+#if ENABLE_PMU
+              pmu_stop_and_accumulate();
+#else
 
             //   delay_after_trigger();
               //probe
-              
-              
               probe_addr = array2 + probe_offset;
               
               time1 = timestamp();
             //   junk = *probe_addr;
               mStore_inline((void*)probe_addr);
               time2 = timestamp() - time1;
-              latency_sum[stride_lines][train_step] += time2;
+              probe_latency_sum[probe_index] += time2;
+              probe_count[probe_index]++;
+#endif
           }
-          printf("%d\t%d\t%lld\n",
+#if ENABLE_PMU
+          printf("%d\t%d\t%.2f\n",
                  stride_lines,
                  train_step,
-                 latency_sum[stride_lines][train_step]/ROUNDS);
+                 sweep_pmu_per_round(sweep_pmu_counter, ROUNDS));
+#else
+          long long int probe_avg[PROBE_CANDIDATES];
+          long long int min_avg = -1;
+          int best_probe_distance = 0;
+
+          for (int probe_index = 0; probe_index < PROBE_CANDIDATES;
+               probe_index++) {
+              probe_avg[probe_index] =
+                  probe_count[probe_index] != 0
+                      ? probe_latency_sum[probe_index] /
+                            (long long int)probe_count[probe_index]
+                      : -1;
+              if (probe_avg[probe_index] >= 0 &&
+                  (min_avg < 0 || probe_avg[probe_index] < min_avg)) {
+                  min_avg = probe_avg[probe_index];
+                  best_probe_distance = probe_index + 1;
+              }
+          }
+
+          printf("%d\t%d\t%d\t%lld",
+                 stride_lines, train_step, best_probe_distance, min_avg);
+          for (int probe_index = 0; probe_index < PROBE_CANDIDATES;
+               probe_index++) {
+              printf("\t%lld", probe_avg[probe_index]);
+          }
+          printf("\n");
+#endif
       }
   }
 
+#if ENABLE_PMU
+  pmu_cleanup();
+#endif
+#if !ENABLE_PMU
   (void)junk;
+#endif
   return 0;
 }

@@ -33,16 +33,20 @@ RESET = "\033[0m"
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Sweep store-stride trigger conditions and plot the first candidate prefetch latency."
+        description=("Sweep store-stride trigger conditions and plot either the first "
+                     "candidate latency or a hardware-prefetch PMU value.")
     )
     parser.add_argument("--arch", required=True, choices=arch_choices(),
                         help="Architecture label used to select default core.")
     parser.add_argument("--core", type=int, default=None,
                         help="Override CPU core used by taskset. Default is selected from --arch.")
-    parser.add_argument("--rounds", type=int, default=4000,
+    parser.add_argument("--rounds", type=int, default=1000,
                         help="Rounds per stride/access-count point. Default: 100")
-    parser.add_argument("--max-stride", type=int, default=2048,
-                        help="Maximum stride in bytes. Default: 1024(= 32 * 64)")
+    parser.add_argument("--max-stride", type=int, default=32,
+                        help=("Maximum stride in 64-byte cache lines. "
+                              "For example, 1 means 64 bytes. Default: 32"))
+    parser.add_argument("--min-step", type=int, default=1,
+                        help="Minimum access count. Default: 1")
     parser.add_argument("--max-step", type=int, default=20,
                         help="Maximum access count. Default: 10")
     parser.add_argument("--access", choices=["store", "load", "prefetch"],
@@ -58,6 +62,17 @@ def parse_args():
                         help="Timestamp source. Default is selected from --arch.")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
                         help="Compiler command. Default: $CC or gcc")
+    parser.add_argument("--enable-pmu", choices=[0, 1], type=int, default=0,
+                        help=("Use a hardware-prefetch PMU value instead of probing "
+                              "candidate positions' latency. X925 uses "
+                              "l2d_cache_hwprf. Default: 0"))
+    parser.add_argument("--probe-candidates", type=int, default=10,
+                        help=("Number of consecutive predicted positions sampled "
+                              "independently in latency mode. Must be >= 10. "
+                              "Default: 10"))
+    parser.add_argument("--min-stride", type=int, default=0,
+                        help=("Initial stride in 64-byte cache lines. "
+                              "For example, 1 means 64 bytes. Default: 0"))
     parser.add_argument("--output", default=None,
                         help="TSV output path. Default includes arch/core/access.")
     parser.add_argument("--raw-output", default=None,
@@ -81,10 +96,24 @@ def parse_args():
     }
     if args.timer not in supported_timers:
         parser.error(f"--timer {args.timer} is not supported for {args.arch}")
+    if args.enable_pmu and is_x86_arch(args.arch):
+        parser.error("--enable-pmu=1 requires an Arm architecture")
     if args.rounds < 1:
         parser.error("--rounds must be >= 1")
-    if args.max_stride < 64 or args.max_stride % 64 != 0:
-        parser.error("--max-stride must be a positive multiple of 64")
+    if not args.enable_pmu and args.probe_candidates < 10:
+        parser.error("--probe-candidates must be >= 10 in latency mode")
+    if not args.enable_pmu and args.rounds < args.probe_candidates:
+        parser.error("--rounds must be >= --probe-candidates in latency mode")
+    if args.min_stride < 0:
+        parser.error("--min-stride must be >= 0 (unit: 64 bytes)")
+    if args.min_stride > args.max_stride:
+        parser.error("--min-stride must be <= --max-stride")
+    if args.max_stride < 1:
+        parser.error("--max-stride must be >= 1 (unit: 64 bytes)")
+    if args.min_step < 1:
+        parser.error("--min-step must be >= 1")
+    if args.min_step > args.max_step:
+        parser.error("--min-step must be <= --max-step")
     if args.max_step < 1:
         parser.error("--max-step must be >= 1")
     if args.threshold_ns < 1:
@@ -93,14 +122,26 @@ def parse_args():
     return args
 
 
+def pmu_metric_name(arch):
+    if arch == "X925":
+        return "l2d_cache_hwprf"
+    if arch == "A55":
+        return "l2d_cache_refill_prefetch"
+    return "l2d_cache_prf"
+
+
 def result_name(args):
     timer_suffix = ""
     if args.timer != default_timer_for_arch(args.arch):
         timer_suffix = f"-timer{args.timer}"
+    pmu_suffix = "-pmu" if args.enable_pmu else ""
+    probe_suffix = "" if args.enable_pmu else f"-probes{args.probe_candidates}"
     return (
         f"{args.arch}-core{args.core}-trigger-sweep"
-        f"-{args.access}-maxstride{args.max_stride}-maxstep{args.max_step}"
-        f"{timer_suffix}"
+        f"-{args.access}-minstride{args.min_stride}lines"
+        f"-maxstride{args.max_stride}lines-minstep{args.min_step}"
+        f"-maxstep{args.max_step}"
+        f"{timer_suffix}{pmu_suffix}{probe_suffix}"
     )
 
 
@@ -136,9 +177,15 @@ def compile_test(args):
         f"-DROUNDS={args.rounds}",
         f"-DMAX_STRIDE={args.max_stride}",
         f"-DMAX_STEP={args.max_step}",
+        f"-DMIN_STEP={args.min_step}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
-        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch in ('X925', 'A725') else 0}",
+        f"-DENABLE_PMU={args.enable_pmu}",
+        f"-DPROBE_CANDIDATES={args.probe_candidates}",
+        f"-DMIN_STRIDE={args.min_stride}",
+        f"-DPMU_CORE_X925={1 if args.arch == 'X925' else 0}",
+        f"-DPMU_CORE_A55={1 if args.arch == 'A55' else 0}",
         "-o",
         OUT,
         SRC,
@@ -159,7 +206,7 @@ def run_test(args):
     )
 
 
-def parse_rows(text):
+def parse_rows(text, enable_pmu, probe_candidates=10):
     rows = []
     for line in text.splitlines():
         stripped = line.strip()
@@ -167,15 +214,32 @@ def parse_rows(text):
             continue
 
         parts = stripped.split()
-        if len(parts) != 3:
-            raise ValueError(f"unexpected output row: {line}")
+        stride_lines = int(parts[0])
+        train_step = int(parts[1])
+        if enable_pmu:
+            if len(parts) != 3:
+                raise ValueError(f"unexpected PMU output row: {line}")
+            value = float(parts[2])
+            best_probe_distance = None
+            probe_latencies = []
+        else:
+            expected_fields = 4 + probe_candidates
+            if len(parts) != expected_fields:
+                raise ValueError(
+                    f"expected {expected_fields} latency fields, got "
+                    f"{len(parts)}: {line}"
+                )
+            best_probe_distance = int(parts[2])
+            value = int(parts[3])
+            probe_latencies = [int(item) for item in parts[4:]]
 
-        stride_lines, train_step, avg_ns = (int(value) for value in parts)
         rows.append({
             "stride_lines": stride_lines,
             "stride_bytes": stride_lines * 64,
             "train_step": train_step,
-            "avg_ns": avg_ns,
+            "value": value,
+            "best_probe_distance": best_probe_distance,
+            "probe_latencies": probe_latencies,
         })
 
     if not rows:
@@ -183,39 +247,74 @@ def parse_rows(text):
     return rows
 
 
-def write_tsv(path, rows):
+def write_tsv(path, rows, enable_pmu, probe_candidates=10):
     ensure_parent(path)
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=["stride_lines", "stride_bytes", "train_step", "avg_ns"],
-            delimiter="\t",
+    value_field = "pmu_per_round" if enable_pmu else "avg_ns"
+    fieldnames = ["stride_lines", "stride_bytes", "train_step", value_field]
+    if not enable_pmu:
+        fieldnames.append("best_probe_distance")
+        fieldnames.extend(
+            f"probe_{distance}_avg_ns"
+            for distance in range(1, probe_candidates + 1)
         )
+
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter="\t")
         writer.writeheader()
-        writer.writerows(rows)
+        for row in rows:
+            output_row = {
+                "stride_lines": row["stride_lines"],
+                "stride_bytes": row["stride_bytes"],
+                "train_step": row["train_step"],
+                value_field: row["value"],
+            }
+            if not enable_pmu:
+                output_row["best_probe_distance"] = row["best_probe_distance"]
+                for distance, latency in enumerate(row["probe_latencies"], 1):
+                    output_row[f"probe_{distance}_avg_ns"] = latency
+            writer.writerow(output_row)
 
 
-def read_tsv(path):
+def read_tsv(path, enable_pmu, probe_candidates=10):
     rows = []
     with open(path, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
+        value_field = "pmu_per_round" if enable_pmu else "avg_ns"
+        if value_field not in (reader.fieldnames or []):
+            raise ValueError(f"TSV is missing required column: {value_field}")
         for row in reader:
+            probe_fields = [
+                f"probe_{distance}_avg_ns"
+                for distance in range(1, probe_candidates + 1)
+            ]
+            has_probe_details = (
+                not enable_pmu
+                and all(field in (reader.fieldnames or []) for field in probe_fields)
+            )
             rows.append({
                 "stride_lines": int(row["stride_lines"]),
                 "stride_bytes": int(row["stride_bytes"]),
                 "train_step": int(row["train_step"]),
-                "avg_ns": int(row["avg_ns"]),
+                "value": float(row[value_field]) if enable_pmu else int(row[value_field]),
+                "best_probe_distance": (
+                    None if enable_pmu else int(row.get("best_probe_distance") or 1)
+                ),
+                "probe_latencies": (
+                    [int(row[field]) for field in probe_fields]
+                    if has_probe_details else []
+                ),
             })
     if not rows:
         raise ValueError("no plottable TSV rows found")
     return rows
 
 
-def plot_heatmap(path, rows, title, unit):
+def plot_heatmap(path, rows, title, unit, enable_pmu=False, pmu_metric=None):
     try:
         import matplotlib.pyplot as plt
         import numpy as np
         import seaborn as sns
+        from matplotlib.colors import LinearSegmentedColormap, Normalize
     except ModuleNotFoundError as exc:
         print(f"Skipping heatmap: missing Python package '{exc.name}'.")
         print("Install plotting dependencies with:")
@@ -232,24 +331,35 @@ def plot_heatmap(path, rows, title, unit):
 
     matrix = np.full((len(stride_labels), len(step_labels)), np.nan)
     for row in rows:
-        matrix[stride_index[row["stride_lines"]], step_index[row["train_step"]]] = row["avg_ns"]
+        matrix[stride_index[row["stride_lines"]], step_index[row["train_step"]]] = row["value"]
 
     masked = np.ma.masked_invalid(matrix)
+    if enable_pmu:
+        heatmap_vmax = max(0.500001, float(np.nanmax(matrix)))
+        pmu_cmap = LinearSegmentedColormap.from_list(
+            "pmu_blues", ["#c6dbef", "#08306b"]
+        )
+        pmu_cmap.set_under("#d9d9d9")
+        heatmap_options = {
+            "cmap": pmu_cmap,
+            "norm": Normalize(vmin=0.5, vmax=heatmap_vmax),
+        }
+    else:
+        heatmap_options = {"cmap": "RdYlBu_r", "vmin": 0, "vmax": 200}
 
     width = max(8.0, 0.45 * len(step_labels) + 3.0)
     height = max(7.0, 0.18 * len(stride_labels) + 2.5)
     fig, ax = plt.subplots(figsize=(width, height))
     sns.heatmap(
         masked,
-        cmap="RdYlBu_r",
-        annot=False,
+        annot=enable_pmu,
+        fmt=".2f" if enable_pmu else ".0f",
+        annot_kws={"fontsize": 10} if enable_pmu else None,
         ax=ax,
-        # center=180,
-        vmin=0,
-        vmax=200,
         cbar=True,
         cbar_kws={"pad": 0.01},
         yticklabels=False,
+        **heatmap_options,
     )
 
     ax.set_title(title, loc="left", pad=8, fontsize=16)
@@ -265,7 +375,9 @@ def plot_heatmap(path, rows, title, unit):
 
     cbar = ax.collections[0].colorbar
     if cbar is not None:
-        cbar.set_label(f"Average reload latency ({unit})", fontsize=14)
+        label = (f"{pmu_metric} (events/round)" if enable_pmu
+                 else f"Average reload latency ({unit})")
+        cbar.set_label(label, fontsize=14)
         cbar.ax.tick_params(labelsize=12)
     fig.tight_layout()
     fig.savefig(path, dpi=300)
@@ -273,7 +385,7 @@ def plot_heatmap(path, rows, title, unit):
 
 
 def print_summary(rows, threshold_ns, unit):
-    prefetched = [row for row in rows if row["avg_ns"] <= threshold_ns]
+    prefetched = [row for row in rows if row["value"] <= threshold_ns]
 
     print(f"{GREEN}# trigger summary")
     print(f"# prefetch threshold: avg_{unit} <= {threshold_ns}")
@@ -299,7 +411,7 @@ def main():
     unit = timer_unit_for_arch(args.arch, args.timer)
 
     if args.plot_only:
-        rows = read_tsv(args.output)
+        rows = read_tsv(args.output, args.enable_pmu, args.probe_candidates)
     else:
         if not args.no_compile:
             compiled = compile_test(args)
@@ -319,12 +431,15 @@ def main():
         ensure_parent(args.raw_output)
         with open(args.raw_output, "w") as f:
             f.write(run.stdout)
-        rows = parse_rows(run.stdout)
-        write_tsv(args.output, rows)
+        rows = parse_rows(run.stdout, args.enable_pmu, args.probe_candidates)
+        write_tsv(args.output, rows, args.enable_pmu, args.probe_candidates)
         print(f"Saved TSV to {args.output}")
         print(f"Saved raw output to {args.raw_output}")
 
-    print_summary(rows, args.threshold_ns, unit)
+    if args.enable_pmu:
+        print(f"# PMU metric: {pmu_metric_name(args.arch)} (events/round)")
+    else:
+        print_summary(rows, args.threshold_ns, unit)
 
     if not args.no_plot:
         plot_heatmap(
@@ -332,6 +447,8 @@ def main():
             rows,
             f"{args.arch} core {args.core} {args.access} stride trigger sweep",
             unit,
+            bool(args.enable_pmu),
+            pmu_metric_name(args.arch),
         )
         print(f"Saved heatmap to {args.plot_output}")
 

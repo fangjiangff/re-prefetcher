@@ -31,8 +31,6 @@ DEFAULT_MAX_STEP = 40
 DEFAULT_STRIDE_LINES = 5
 DEFAULT_ROUNDS = 400
 DEFAULT_ACCESSES = ("load", "store")
-L1D_HWPRF_EVENT = "l1d_cache_hwprf"
-L1D_HWPRF_DELTA = "l1d_cache_hwprf_delta"
 
 PMU_VALUE_RE = re.compile(
     r"^# PMU\s+(?P<name>\S+)\s+per_round="
@@ -164,7 +162,7 @@ def compile_test(args: argparse.Namespace, train_step: int, access: str) -> None
         "-DPROBE_POSITIONS=1",
         "-DSINGLE_PROBE=1",
         "-DSINGLE_PROBE_POSITION=0",
-        f"-DENABLE_CPP_RCTX={int(args.arch == 'X925')}",
+        f"-DENABLE_CPP_RCTX={int(args.arch in ('X925', 'A725'))}",
         "-DENABLE_SCHED_YIELD=0",
         f"-DTRAIN_ACCESS_LOAD={int(access == 'load')}",
         f"-DTRAIN_ACCESS_PREFETCH={int(access == 'prefetch')}",
@@ -174,7 +172,7 @@ def compile_test(args: argparse.Namespace, train_step: int, access: str) -> None
         str(SOURCE),
         str(UTIL_SOURCE),
     ]
-    if args.arch == "X925":
+    if args.arch in ("X925", "A725"):
         command.insert(1, "-march=armv8.5-a+predres")
 
     result = subprocess.run(command, capture_output=True, text=True)
@@ -271,28 +269,6 @@ def collect(args: argparse.Namespace) -> tuple[list[dict[str, object]], list[str
             )
     return rows, event_names
 
-
-def add_l1d_hwprf_delta(
-    rows: list[dict[str, object]], event_names: list[str]
-) -> list[str]:
-    """Add the per-access change from the preceding train_step."""
-    if L1D_HWPRF_EVENT not in event_names:
-        return event_names
-
-    for access in {str(row["access"]) for row in rows}:
-        previous_value = 0.0
-        access_rows = sorted(
-            (row for row in rows if row["access"] == access),
-            key=lambda row: int(row["train_step"]),
-        )
-        for row in access_rows:
-            current_value = float(row[L1D_HWPRF_EVENT])
-            row[L1D_HWPRF_DELTA] = round(current_value - previous_value, 10)
-            previous_value = current_value
-
-    if L1D_HWPRF_DELTA not in event_names:
-        return [*event_names, L1D_HWPRF_DELTA]
-    return event_names
 
 def write_results(
     path: Path, rows: list[dict[str, object]], event_names: list[str]
@@ -437,7 +413,6 @@ def main() -> int:
             rows, event_names = read_results(args.output)
         else:
             rows, event_names = collect(args)
-        event_names = add_l1d_hwprf_delta(rows, event_names)
         if not args.plot_only:
             write_results(args.output, rows, event_names)
         if not args.no_plot:

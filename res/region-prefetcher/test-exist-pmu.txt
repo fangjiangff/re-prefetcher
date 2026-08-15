@@ -1,0 +1,31 @@
+# irregular repeated-region hardware-prefetch existence test
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=32 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=10000 cpp_rctx=each_round
+# footprint_lines=4,19,6,27,13,1,15
+# trigger_lines=3
+# PMU interpretation: control is training-only; pattern adds the trained-PC trigger sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU device=armv8_pmuv3_1 core=Cortex-X925 events=8/8 window=training-plus-trigger-per-round scope=thread exclude_user=0 exclude_kernel=1
+
+[untrained_pc_control_trigger_3]
+# trigger_pc=untrained-control direct_demand_loads_per_round=0
+# trigger_lines=
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=233.62
+# PMU L2D_CACHE_PRFM           per_round=0.00
+# PMU L1D_CACHE_REFILL_PRFM    per_round=0.00
+# PMU L2D_CACHE_REFILL_PRFM    per_round=0.00
+# PMU L3D_CACHE_REFILL_PRFM    per_round=0.00
+# PMU l2d_cache_refill_hwprf   per_round=0.00
+# PMU l3d_cache_refill_hwprf   per_round=0.00
+
+[pattern_trigger_3]
+# trigger_pc=trained direct_demand_loads_per_round=1
+# trigger_lines=3
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=236.08
+# PMU L2D_CACHE_PRFM           per_round=0.00
+# PMU L1D_CACHE_REFILL_PRFM    per_round=0.00
+# PMU L2D_CACHE_REFILL_PRFM    per_round=0.00
+# PMU L3D_CACHE_REFILL_PRFM    per_round=0.00
+# PMU l2d_cache_refill_hwprf   per_round=0.00
+# PMU l3d_cache_refill_hwprf   per_round=0.00

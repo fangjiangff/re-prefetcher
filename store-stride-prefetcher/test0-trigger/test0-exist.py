@@ -473,7 +473,7 @@ def compile_test(train_step, arch):
         f"-DSINGLE_PROBE={1 if args.probe_mode == 'single' else 0}",
         f"-DSINGLE_PROBE_POSITION={single_probe_position(train_step)}",
         f"-DCPU_ID=0",
-        f"-DENABLE_CPP_RCTX={1 if arch == 'X925' else 0}",
+        f"-DENABLE_CPP_RCTX={1 if arch in ('X925', 'A725') else 0}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
         f"-DTRAIN_ACCESS_PREFETCH={1 if args.access == 'prefetch' else 0}",
         f"-DDUMMY_BUFFER_PAGES={args.dummy_buffer_pages}",
@@ -492,7 +492,7 @@ def compile_test(train_step, arch):
     timer_define = timer_define_for(arch)
     if timer_define is not None:
         compile_cmd.insert(-4, timer_define)
-    if arch == "X925":
+    if arch in ("X925", "A725"):
         compile_cmd[1:1] = arch_cflags_for(arch)
     return subprocess.run(compile_cmd).returncode
 

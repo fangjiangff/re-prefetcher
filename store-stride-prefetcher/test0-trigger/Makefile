@@ -47,8 +47,8 @@ ENABLE_CPP_RCTX := 1
 PMU_CORE_X925 := 1
 else ifeq ($(ARCH),A725)
 DEFAULT_CORE := 4
-ARCH_CFLAGS :=
-ENABLE_CPP_RCTX := 0
+ARCH_CFLAGS := -march=armv8.5-a+predres
+ENABLE_CPP_RCTX := 1
 PMU_CORE_X925 := 0
 else
 $(error ARCH must be A725 or X925)

@@ -289,7 +289,7 @@ def timer_define():
 
 
 def arch_cflags():
-    if args.arch == "X925":
+    if args.arch in ("X925", "A725"):
         return ["-march=armv8.5-a+predres"]
     return []
 
@@ -398,7 +398,7 @@ def compile_test(no_trigger=False, context_switch=False, thread0_trigger=False,
         f"-DCONTEXT_SWITCH_ONLY={1 if context_switch else 0}",
         f"-DTHREAD0_TRIGGER={1 if thread0_trigger else 0}",
         f"-DPMU_CROSS_THREAD_ONLY={1 if pmu_cross_thread_only else 0}",
-        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch in ('X925', 'A725') else 0}",
         *pmu_defines(),
         "-o",
         OUT,

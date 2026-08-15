@@ -147,7 +147,7 @@ def compile_test(args, test_id):
         f"-DPROBE_POSITIONS={args.probe_positions}",
         f"-DREPEAT={args.repeat}",
         f"-DCPU_ID={args.core}",
-        f"-DENABLE_CPP_RCTX={1 if args.arch == 'X925' else 0}",
+        f"-DENABLE_CPP_RCTX={1 if args.arch in ('X925', 'A725') else 0}",
         f"-DPMU_CORE_X925={1 if args.arch == 'X925' else 0}",
         "-DPMU_CORE_A55=0",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
@@ -160,7 +160,7 @@ def compile_test(args, test_id):
     timer_define = timer_define_for_arch(args.arch, args.timer)
     if timer_define is not None:
         cmd.insert(-4, timer_define)
-    if args.arch == "X925":
+    if args.arch in ("X925", "A725"):
         cmd.insert(5, "-march=armv8.5-a+predres")
     return subprocess.run(cmd)
 

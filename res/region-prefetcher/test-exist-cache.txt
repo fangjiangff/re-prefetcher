@@ -1,0 +1,147 @@
+# irregular repeated-region hardware-prefetch existence test
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=32 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=10000 cpp_rctx=each_round
+# footprint_lines=4,19,6,27,13,1,15
+# trigger_lines=3
+# PMU interpretation: control is training-only; pattern adds the trained-PC trigger sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU disabled by ENABLE_PMU=0
+
+[untrained_pc_control_trigger_3]
+# trigger_pc=untrained-control direct_demand_loads_per_round=0
+# trigger_lines=
+# CACHE_PROBE timestamp=cntvct_el0 unit=ticks threshold_ticks=200
+# line	role	avg_latency	samples	hits_per_1000
+# PROBE  0	other              	291	63	365
+# PROBE  1	footprint_candidate	277	62	370
+# PROBE  2	other              	279	62	451
+# PROBE  3	other              	301	63	333
+# PROBE  4	footprint_candidate	306	63	317
+# PROBE  5	other              	284	62	403
+# PROBE  6	footprint_candidate	288	63	365
+# PROBE  7	other              	306	63	317
+# PROBE  8	other              	251	62	483
+# PROBE  9	other              	284	62	403
+# PROBE 10	other              	300	63	365
+# PROBE 11	other              	277	63	412
+# PROBE 12	other              	263	62	483
+# PROBE 13	footprint_candidate	283	63	365
+# PROBE 14	other              	314	63	301
+# PROBE 15	footprint_candidate	295	62	354
+# PROBE 16	other              	294	62	370
+# PROBE 17	other              	304	63	333
+# PROBE 18	other              	276	62	435
+# PROBE 19	footprint_candidate	276	62	435
+# PROBE 20	other              	284	63	396
+# PROBE 21	other              	258	63	444
+# PROBE 22	other              	273	62	451
+# PROBE 23	other              	298	63	333
+# PROBE 24	other              	276	63	428
+# PROBE 25	other              	296	62	354
+# PROBE 26	other              	302	62	370
+# PROBE 27	footprint_candidate	283	63	396
+# PROBE 28	other              	285	62	387
+# PROBE 29	other              	293	62	338
+# PROBE 30	other              	321	63	301
+# PROBE 31	other              	275	63	412
+# PROBE 32	other              	287	62	403
+# PROBE 33	other              	301	63	365
+# PROBE 34	other              	304	63	380
+# PROBE 35	other              	271	62	419
+# PROBE 36	other              	289	62	354
+# PROBE 37	other              	290	63	396
+# PROBE 38	other              	277	62	387
+# PROBE 39	other              	271	62	451
+# PROBE 40	other              	324	63	285
+# PROBE 41	other              	311	63	301
+# PROBE 42	other              	302	62	338
+# PROBE 43	other              	275	62	370
+# PROBE 44	other              	301	63	349
+# PROBE 45	other              	276	62	435
+# PROBE 46	other              	303	62	322
+# PROBE 47	other              	303	63	317
+# PROBE 48	other              	276	63	460
+# PROBE 49	other              	287	62	403
+# PROBE 50	other              	276	63	460
+# PROBE 51	other              	259	63	492
+# PROBE 52	other              	304	62	354
+# PROBE 53	other              	289	62	387
+# PROBE 54	other              	279	63	412
+# PROBE 55	other              	293	62	387
+# PROBE 56	other              	297	62	370
+# PROBE 57	other              	310	63	333
+# PROBE 58	other              	283	63	396
+# PROBE 59	other              	297	62	338
+# PROBE 60	other              	289	63	396
+# PROBE 61	other              	276	63	428
+# PROBE 62	other              	278	62	403
+# PROBE 63	other              	291	62	403
+
+[pattern_trigger_3]
+# trigger_pc=trained direct_demand_loads_per_round=1
+# trigger_lines=3
+# CACHE_PROBE timestamp=cntvct_el0 unit=ticks threshold_ticks=200
+# line	role	avg_latency	samples	hits_per_1000
+# PROBE  0	other              	334	63	380
+# PROBE  1	footprint_candidate	310	62	274
+# PROBE  2	other              	353	62	338
+# PROBE  3	direct             	31	63	1000
+# PROBE  4	footprint_candidate	277	63	428
+# PROBE  5	other              	32	62	1000
+# PROBE  6	footprint_candidate	287	63	412
+# PROBE  7	other              	342	63	349
+# PROBE  8	other              	290	62	387
+# PROBE  9	other              	361	62	354
+# PROBE 10	other              	268	63	460
+# PROBE 11	other              	353	63	317
+# PROBE 12	other              	38	62	1000
+# PROBE 13	footprint_candidate	299	63	349
+# PROBE 14	other              	362	63	285
+# PROBE 15	footprint_candidate	289	62	354
+# PROBE 16	other              	325	62	403
+# PROBE 17	other              	305	63	333
+# PROBE 18	other              	353	62	338
+# PROBE 19	footprint_candidate	297	62	322
+# PROBE 20	other              	348	63	317
+# PROBE 21	other              	303	63	333
+# PROBE 22	other              	303	62	322
+# PROBE 23	other              	354	63	317
+# PROBE 24	other              	294	63	349
+# PROBE 25	other              	355	62	306
+# PROBE 26	other              	347	62	338
+# PROBE 27	footprint_candidate	277	63	428
+# PROBE 28	other              	312	62	258
+# PROBE 29	other              	312	62	274
+# PROBE 30	other              	383	63	253
+# PROBE 31	other              	348	63	380
+# PROBE 32	other              	388	62	258
+# PROBE 33	other              	352	63	317
+# PROBE 34	other              	340	63	333
+# PROBE 35	other              	347	62	370
+# PROBE 36	other              	329	62	241
+# PROBE 37	other              	325	63	428
+# PROBE 38	other              	352	62	306
+# PROBE 39	other              	339	62	370
+# PROBE 40	other              	366	63	285
+# PROBE 41	other              	340	63	365
+# PROBE 42	other              	374	62	258
+# PROBE 43	other              	291	62	516
+# PROBE 44	other              	352	63	365
+# PROBE 45	other              	334	62	387
+# PROBE 46	other              	398	62	161
+# PROBE 47	other              	350	63	349
+# PROBE 48	other              	361	63	285
+# PROBE 49	other              	389	62	177
+# PROBE 50	other              	355	63	301
+# PROBE 51	other              	349	63	333
+# PROBE 52	other              	359	62	306
+# PROBE 53	other              	344	62	354
+# PROBE 54	other              	349	63	301
+# PROBE 55	other              	378	62	258
+# PROBE 56	other              	378	62	290
+# PROBE 57	other              	380	63	301
+# PROBE 58	other              	365	63	301
+# PROBE 59	other              	358	62	290
+# PROBE 60	other              	346	63	333
+# PROBE 61	other              	374	63	301
+# PROBE 62	other              	366	62	306
+# PROBE 63	other              	371	62	274
