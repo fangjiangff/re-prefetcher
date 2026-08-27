@@ -1,0 +1,10 @@
+# A725 CMC load-PC indexing experiment
+# train=node0..node63 trigger=node0@PC0 probe=node1 cpp_rctx=each_round
+# rounds=200 threshold_ns=96 training_replays=8 wait_nops=1000 enable_pmu=1 enable_cache_probe=1
+case	pc_mode	distinct_train_pcs	training_replays	samples	hits	hit_per_1000	avg_latency_ns	l1_events	avg_l1_pmu	l2_events	avg_l2_pmu
+untrained             	-1	0	0	200	0	0.000	140.160	0	0.0000	0	0.0000
+same_pc               	0	1	8	200	195	975.000	46.560	0	0.0000	7035	35.1750
+single_other_pc       	1	1	8	200	194	970.000	46.960	0	0.0000	6826	34.1300
+alternate_2_pc        	2	2	8	200	198	990.000	45.200	0	0.0000	6965	34.8250
+round_robin_8_pc      	3	8	8	200	197	985.000	46.160	0	0.0000	6895	34.4750
+rotate_pc_each_replay 	4	8	8	200	197	985.000	46.720	0	0.0000	6930	34.6500

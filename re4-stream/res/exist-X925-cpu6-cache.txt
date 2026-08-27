@@ -1,0 +1,141 @@
+# Stream Prefetcher existence test
+# rounds_per_line=200 threshold_ns=80 accesses=7 pool_pages=257 wait_nops=1000 cpp_rctx=each_sample
+# timer=cntvct_el0 cntfrq_el0=1000000000Hz enable_pmu=0 enable_cache_probe=1
+# Evidence: forward-only consecutive candidate hits that are absent in the nondirectional control.
+# PMU disabled by ENABLE_PMU=0
+
+[nondirectional_control]
+# pattern=8,29,15,43,18,47,34 samples=12800
+# line	role	probes	hits	per_1000	avg_latency_ns
+ 0	candidate	  200	    0	   0		  112
+ 1	candidate	  200	    0	   0		  112
+ 2	candidate	  200	    0	   0		  112
+ 3	candidate	  200	    0	   0		  110
+ 4	candidate	  200	    1	   5		  110
+ 5	candidate	  200	    0	   0		  173
+ 6	candidate	  200	    0	   0		  175
+ 7	candidate	  200	    0	   0		  169
+ 8	accessed 	  200	  200	1000		   27
+ 9	candidate	  200	    0	   0		  117
+10	candidate	  200	    0	   0		  111
+11	candidate	  200	    2	  10		  111
+12	candidate	  200	    0	   0		  139
+13	candidate	  200	    1	   5		  163
+14	candidate	  200	    0	   0		  166
+15	accessed 	  200	  200	1000		   27
+16	candidate	  200	    0	   0		  111
+17	candidate	  200	    0	   0		  156
+18	accessed 	  200	  200	1000		   27
+19	candidate	  200	    2	  10		  114
+20	candidate	  200	    0	   0		  112
+21	candidate	  200	    0	   0		  154
+22	candidate	  200	    0	   0		  179
+23	candidate	  200	    0	   0		  177
+24	candidate	  200	    0	   0		  170
+25	candidate	  200	    0	   0		  159
+26	candidate	  200	    1	   5		  112
+27	candidate	  200	    1	   5		  112
+28	candidate	  200	    3	  15		  112
+29	accessed 	  200	  200	1000		   26
+30	candidate	  200	    0	   0		  109
+31	candidate	  200	    0	   0		  107
+32	candidate	  200	    0	   0		  113
+33	candidate	  200	    0	   0		  112
+34	accessed 	  200	  200	1000		   26
+35	candidate	  200	    0	   0		  160
+36	candidate	  200	    0	   0		  177
+37	candidate	  200	    0	   0		  165
+38	candidate	  200	    0	   0		  122
+39	candidate	  200	    0	   0		  112
+40	candidate	  200	    0	   0		  105
+41	candidate	  200	    0	   0		  106
+42	candidate	  200	    0	   0		  112
+43	accessed 	  200	  200	1000		   27
+44	candidate	  200	    0	   0		  110
+45	candidate	  200	    0	   0		  113
+46	candidate	  200	    0	   0		  111
+47	accessed 	  200	  200	1000		   27
+48	candidate	  200	    1	   5		  106
+49	candidate	  200	    1	   5		  108
+50	candidate	  200	    0	   0		  110
+51	candidate	  200	    0	   0		  108
+52	candidate	  200	    0	   0		  112
+53	candidate	  200	    1	   5		  108
+54	candidate	  200	    1	   5		  112
+55	candidate	  200	    2	  10		  112
+56	candidate	  200	    0	   0		  122
+57	candidate	  200	    1	   5		  112
+58	candidate	  200	    0	   0		  110
+59	candidate	  200	    2	  10		  111
+60	candidate	  200	    0	   0		  109
+61	candidate	  200	    0	   0		  111
+62	candidate	  200	    1	   5		  109
+63	candidate	  200	    0	   0		  111
+
+[forward_irregular]
+# pattern=8,15,18,29,34,43,47 samples=12800
+# line	role	probes	hits	per_1000	avg_latency_ns
+ 0	candidate	  200	    1	   5		  108
+ 1	candidate	  200	    0	   0		  112
+ 2	candidate	  200	    1	   5		  114
+ 3	candidate	  200	    1	   5		  113
+ 4	candidate	  200	    0	   0		  162
+ 5	candidate	  200	    0	   0		  184
+ 6	candidate	  200	    0	   0		  168
+ 7	candidate	  200	    0	   0		  174
+ 8	accessed 	  200	  200	1000		   27
+ 9	candidate	  200	    0	   0		  178
+10	candidate	  200	    0	   0		  174
+11	candidate	  200	    0	   0		  174
+12	candidate	  200	    0	   0		  155
+13	candidate	  200	    0	   0		  113
+14	candidate	  200	    1	   5		  113
+15	accessed 	  200	  200	1000		   27
+16	candidate	  200	    0	   0		  114
+17	candidate	  200	    0	   0		  108
+18	accessed 	  200	  200	1000		   26
+19	candidate	  200	    1	   5		  113
+20	candidate	  200	    1	   5		  114
+21	candidate	  200	    0	   0		  127
+22	candidate	  200	    0	   0		  178
+23	candidate	  200	    0	   0		  178
+24	candidate	  200	    0	   0		  175
+25	candidate	  200	    0	   0		  160
+26	candidate	  200	    0	   0		  112
+27	candidate	  200	    0	   0		  112
+28	candidate	  200	    0	   0		  113
+29	accessed 	  200	  200	1000		   27
+30	candidate	  200	    1	   5		  114
+31	candidate	  200	    0	   0		  114
+32	candidate	  200	    0	   0		  160
+33	candidate	  200	    0	   0		  138
+34	accessed 	  200	  200	1000		   26
+35	candidate	  200	    1	   5		  113
+36	candidate	  200	    1	   5		  111
+37	candidate	  200	    1	   5		  153
+38	candidate	  200	    1	   5		  158
+39	candidate	  200	    0	   0		  177
+40	candidate	  200	    0	   0		  181
+41	candidate	  200	    1	   5		  164
+42	candidate	  200	    0	   0		  114
+43	accessed 	  200	  200	1000		   27
+44	candidate	  200	    1	   5		  113
+45	candidate	  200	    0	   0		  132
+46	candidate	  200	    0	   0		  168
+47	accessed 	  200	  200	1000		   26
+48	candidate	  200	    0	   0		  116
+49	candidate	  200	    0	   0		  112
+50	candidate	  200	    2	  10		  113
+51	candidate	  200	    0	   0		  110
+52	candidate	  200	    2	  10		  110
+53	candidate	  200	    0	   0		  120
+54	candidate	  200	    0	   0		  113
+55	candidate	  200	    0	   0		  110
+56	candidate	  200	    1	   5		  108
+57	candidate	  200	    0	   0		  113
+58	candidate	  200	    1	   5		  118
+59	candidate	  200	    0	   0		  123
+60	candidate	  200	    1	   5		  112
+61	candidate	  200	    1	   5		  110
+62	candidate	  200	    1	   5		  109
+63	candidate	  200	    0	   0		  110

@@ -1,0 +1,15 @@
+# Stream Prefetcher existence test
+# rounds_per_line=200 threshold_ns=120 accesses=7 pool_pages=257 wait_nops=1000 cpp_rctx=each_sample
+# timer=cntvct_el0 cntfrq_el0=1000000000Hz enable_pmu=1 enable_cache_probe=0
+# Evidence: forward-only consecutive candidate hits that are absent in the nondirectional control.
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285
+
+[nondirectional_control]
+# pattern=8,29,15,43,18,47,34 samples=12800
+# PMU l1d_cache_hwprf          per_sample=0.0000 total=0
+# PMU l2d_cache_hwprf          per_sample=0.3316 total=4244
+
+[forward_irregular]
+# pattern=8,15,18,29,34,43,47 samples=12800
+# PMU l1d_cache_hwprf          per_sample=0.0000 total=0
+# PMU l2d_cache_hwprf          per_sample=0.4430 total=5671

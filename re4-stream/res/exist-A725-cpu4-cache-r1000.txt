@@ -1,0 +1,141 @@
+# Stream Prefetcher existence test
+# rounds_per_line=1000 threshold_ns=120 accesses=7 pool_pages=257 wait_nops=1000 cpp_rctx=each_sample
+# timer=cntvct_el0 cntfrq_el0=1000000000Hz enable_pmu=0 enable_cache_probe=1
+# Evidence: forward-only consecutive candidate hits that are absent in the nondirectional control.
+# PMU disabled by ENABLE_PMU=0
+
+[nondirectional_control]
+# pattern=8,29,15,43,18,47,34 samples=64000
+# line	role	probes	hits	per_1000	avg_latency_ns
+ 0	candidate	 1000	  307	 307		  126
+ 1	candidate	 1000	  296	 296		  126
+ 2	candidate	 1000	  109	 109		  138
+ 3	candidate	 1000	    0	   0		  180
+ 4	candidate	 1000	   53	  53		  140
+ 5	candidate	 1000	   56	  56		  149
+ 6	candidate	 1000	   31	  31		  159
+ 7	candidate	 1000	   55	  55		  140
+ 8	accessed 	 1000	 1000	1000		   41
+ 9	candidate	 1000	   40	  40		  141
+10	candidate	 1000	   50	  50		  140
+11	candidate	 1000	   16	  16		  147
+12	candidate	 1000	    4	   4		  166
+13	candidate	 1000	   94	  94		  155
+14	candidate	 1000	    8	   8		  152
+15	accessed 	 1000	 1000	1000		   41
+16	candidate	 1000	   54	  54		  146
+17	candidate	 1000	    9	   9		  147
+18	accessed 	 1000	 1000	1000		   41
+19	candidate	 1000	    4	   4		  177
+20	candidate	 1000	    7	   7		  161
+21	candidate	 1000	   39	  39		  155
+22	candidate	 1000	   17	  17		  154
+23	candidate	 1000	    4	   4		  160
+24	candidate	 1000	  166	 166		  135
+25	candidate	 1000	  270	 270		  128
+26	candidate	 1000	  201	 201		  134
+27	candidate	 1000	   43	  43		  142
+28	candidate	 1000	   40	  40		  157
+29	accessed 	 1000	 1000	1000		   41
+30	candidate	 1000	   17	  17		  168
+31	candidate	 1000	   80	  80		  146
+32	candidate	 1000	   42	  42		  149
+33	candidate	 1000	   10	  10		  157
+34	accessed 	 1000	 1000	1000		   41
+35	candidate	 1000	    9	   9		  169
+36	candidate	 1000	   12	  12		  166
+37	candidate	 1000	   32	  32		  169
+38	candidate	 1000	   51	  51		  151
+39	candidate	 1000	   42	  42		  154
+40	candidate	 1000	   10	  10		  177
+41	candidate	 1000	   73	  73		  172
+42	candidate	 1000	   69	  69		  159
+43	accessed 	 1000	 1000	1000		   41
+44	candidate	 1000	   32	  32		  166
+45	candidate	 1000	   13	  13		  172
+46	candidate	 1000	  103	 103		  157
+47	accessed 	 1000	 1000	1000		   41
+48	candidate	 1000	   31	  31		  170
+49	candidate	 1000	    7	   7		  175
+50	candidate	 1000	    0	   0		  199
+51	candidate	 1000	   24	  24		  176
+52	candidate	 1000	   16	  16		  175
+53	candidate	 1000	   30	  30		  166
+54	candidate	 1000	    0	   0		  189
+55	candidate	 1000	   22	  22		  170
+56	candidate	 1000	   11	  11		  182
+57	candidate	 1000	    0	   0		  211
+58	candidate	 1000	   10	  10		  178
+59	candidate	 1000	   15	  15		  172
+60	candidate	 1000	   14	  14		  175
+61	candidate	 1000	   16	  16		  180
+62	candidate	 1000	   32	  32		  173
+63	candidate	 1000	    8	   8		  188
+
+[forward_irregular]
+# pattern=8,15,18,29,34,43,47 samples=64000
+# line	role	probes	hits	per_1000	avg_latency_ns
+ 0	candidate	 1000	    2	   2		  210
+ 1	candidate	 1000	   12	  12		  187
+ 2	candidate	 1000	   57	  57		  164
+ 3	candidate	 1000	   72	  72		  160
+ 4	candidate	 1000	   17	  17		  178
+ 5	candidate	 1000	    8	   8		  174
+ 6	candidate	 1000	   20	  20		  189
+ 7	candidate	 1000	   22	  22		  187
+ 8	accessed 	 1000	 1000	1000		   41
+ 9	candidate	 1000	   40	  40		  163
+10	candidate	 1000	   20	  20		  172
+11	candidate	 1000	   59	  59		  166
+12	candidate	 1000	   56	  56		  164
+13	candidate	 1000	   38	  38		  164
+14	candidate	 1000	   59	  59		  161
+15	accessed 	 1000	 1000	1000		   41
+16	candidate	 1000	   16	  16		  180
+17	candidate	 1000	   34	  34		  163
+18	accessed 	 1000	  999	 999		   44
+19	candidate	 1000	   67	  67		  153
+20	candidate	 1000	   47	  47		  164
+21	candidate	 1000	   28	  28		  164
+22	candidate	 1000	    4	   4		  175
+23	candidate	 1000	    2	   2		  180
+24	candidate	 1000	   33	  33		  166
+25	candidate	 1000	   66	  66		  160
+26	candidate	 1000	   38	  38		  171
+27	candidate	 1000	   36	  36		  155
+28	candidate	 1000	   21	  21		  159
+29	accessed 	 1000	 1000	1000		   41
+30	candidate	 1000	   31	  31		  164
+31	candidate	 1000	   53	  53		  157
+32	candidate	 1000	    5	   5		  195
+33	candidate	 1000	   48	  48		  156
+34	accessed 	 1000	 1000	1000		   41
+35	candidate	 1000	   72	  72		  151
+36	candidate	 1000	  143	 143		  153
+37	candidate	 1000	   41	  41		  160
+38	candidate	 1000	   35	  35		  161
+39	candidate	 1000	   41	  41		  155
+40	candidate	 1000	   12	  12		  174
+41	candidate	 1000	    2	   2		  174
+42	candidate	 1000	   28	  28		  179
+43	accessed 	 1000	 1000	1000		   41
+44	candidate	 1000	   21	  21		  182
+45	candidate	 1000	   14	  14		  185
+46	candidate	 1000	   51	  51		  163
+47	accessed 	 1000	 1000	1000		   41
+48	candidate	 1000	    3	   3		  204
+49	candidate	 1000	   16	  16		  173
+50	candidate	 1000	    5	   5		  194
+51	candidate	 1000	   19	  19		  172
+52	candidate	 1000	   26	  26		  172
+53	candidate	 1000	   22	  22		  169
+54	candidate	 1000	   10	  10		  182
+55	candidate	 1000	    7	   7		  192
+56	candidate	 1000	    4	   4		  199
+57	candidate	 1000	    0	   0		  211
+58	candidate	 1000	   36	  36		  169
+59	candidate	 1000	   36	  36		  169
+60	candidate	 1000	   15	  15		  176
+61	candidate	 1000	    2	   2		  190
+62	candidate	 1000	    1	   1		  191
+63	candidate	 1000	    7	   7		  188

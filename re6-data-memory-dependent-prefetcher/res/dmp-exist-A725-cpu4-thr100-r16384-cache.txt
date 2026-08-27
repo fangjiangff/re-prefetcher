@@ -1,0 +1,198 @@
+# DMP/AoP existence test (GoFetch no-deref + FetchBench pointer array)
+# rounds=16384 threshold_ns=100 sources=256 pointers_per_source=8 mapping_pages=2304 wait_nops=1000 cpp_rctx=each_sample
+# source and pointer target share one <4-GiB mapping; targets are sparse randomized cache lines.
+# DMP evidence: pointer_content_no_deref has target cache hits above nonpointer_control; pointer_array_two_dereferences is supporting evidence.
+# timer=cntvct_el0 cntfrq_el0=1000000000Hz enable_pmu=0 enable_cache_probe=1
+# PMU disabled by ENABLE_PMU=0
+
+[idle_no_activation]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    1	   0		  156
+1	 2048	    3	   1		  155
+2	 2048	    2	   0		  152
+3	 2048	    6	   2		  153
+4	 2048	    3	   1		  154
+5	 2048	    2	   0		  158
+6	 2048	    2	   0		  158
+7	 2048	    2	   0		  155
+
+[nonpointer_control]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    1	   0		  141
+1	 2048	    4	   1		  146
+2	 2048	    2	   0		  145
+3	 2048	    2	   0		  151
+4	 2048	    1	   0		  145
+5	 2048	    3	   1		  144
+6	 2048	    1	   0		  148
+7	 2048	    3	   1		  138
+
+[nonpointer_shuffled_targets]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    2	   0		  150
+1	 2048	    2	   0		  147
+2	 2048	    2	   0		  155
+3	 2048	    3	   1		  158
+4	 2048	    1	   0		  152
+5	 2048	    0	   0		  158
+6	 2048	    2	   0		  163
+7	 2048	    6	   2		  153
+
+[pointer_content_no_deref]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    5	   2		  144
+1	 2048	    3	   1		  147
+2	 2048	    5	   2		  138
+3	 2048	    2	   0		  143
+4	 2048	    2	   0		  144
+5	 2048	    0	   0		  162
+6	 2048	    1	   0		  149
+7	 2048	    2	   0		  148
+
+[pointer_array_loads_only]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    4	   1		  153
+1	 2048	    3	   1		  147
+2	 2048	    4	   1		  150
+3	 2048	    2	   0		  152
+4	 2048	    4	   1		  146
+5	 2048	    3	   1		  150
+6	 2048	    1	   0		  154
+7	 2048	    5	   2		  152
+
+[pointer_array_one_dereference]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    1	   0		  143
+1	 2048	    4	   1		  142
+2	 2048	    3	   1		  146
+3	 2048	    4	   1		  145
+4	 2048	    1	   0		  148
+5	 2048	    2	   0		  150
+6	 2048	    1	   0		  149
+7	 2048	    3	   1		  150
+
+[pointer_array_two_dereferences]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    0	   0		  158
+1	 2048	    0	   0		  147
+2	 2048	    2	   0		  147
+3	 2048	    3	   1		  150
+4	 2048	    1	   0		  153
+5	 2048	    5	   2		  145
+6	 2048	    4	   1		  145
+7	 2048	    2	   0		  146
+
+[pointer_array_first_deref_nextline]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    0	   0		  191
+1	 2048	    0	   0		  186
+2	 2048	    1	   0		  192
+3	 2048	    0	   0		  190
+4	 2048	    0	   0		  197
+5	 2048	    0	   0		  186
+6	 2048	    0	   0		  186
+7	 2048	    2	   0		  189
+
+[pointer_array_second_deref_nextline]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    1	   0		  188
+1	 2048	    0	   0		  186
+2	 2048	    1	   0		  179
+3	 2048	    0	   0		  176
+4	 2048	    0	   0		  182
+5	 2048	    1	   0		  195
+6	 2048	    1	   0		  184
+7	 2048	    0	   0		  188
+
+[pointer_array_ahead4]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    0	   0		  142
+1	 2048	    6	   2		  139
+2	 2048	    2	   0		  148
+3	 2048	    5	   2		  146
+4	 2048	    2	   0		  138
+5	 2048	    1	   0		  143
+6	 2048	    1	   0		  138
+7	 2048	    4	   1		  138
+
+[pointer_array_ahead2]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    4	   1		  144
+1	 2048	    2	   0		  149
+2	 2048	    2	   0		  152
+3	 2048	    3	   1		  151
+4	 2048	    1	   0		  161
+5	 2048	    1	   0		  163
+6	 2048	    0	   0		  159
+7	 2048	    1	   0		  158
+
+[pointer_array_ahead3]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    3	   1		  163
+1	 2048	    2	   0		  161
+2	 2048	    0	   0		  155
+3	 2048	    0	   0		  157
+4	 2048	    2	   0		  149
+5	 2048	    3	   1		  147
+6	 2048	    3	   1		  148
+7	 2048	    2	   0		  165
+
+[pointer_array_ahead5]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    3	   1		  143
+1	 2048	    2	   0		  144
+2	 2048	    2	   0		  148
+3	 2048	    2	   0		  149
+4	 2048	    2	   0		  142
+5	 2048	    4	   1		  143
+6	 2048	    4	   1		  139
+7	 2048	    4	   1		  146
+
+[pointer_array_ahead6]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    3	   1		  141
+1	 2048	    2	   0		  143
+2	 2048	    1	   0		  143
+3	 2048	    6	   2		  141
+4	 2048	    2	   0		  144
+5	 2048	    2	   0		  151
+6	 2048	    2	   0		  156
+7	 2048	    2	   0		  149
+
+[pointer_array_loads_only_ahead2]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    2	   0		  151
+1	 2048	    2	   0		  150
+2	 2048	    0	   0		  154
+3	 2048	    5	   2		  147
+4	 2048	    4	   1		  151
+5	 2048	    2	   0		  150
+6	 2048	    2	   0		  148
+7	 2048	    1	   0		  144
+
+[pointer_array_one_dereference_ahead2]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    1	   0		  149
+1	 2048	    1	   0		  156
+2	 2048	    3	   1		  155
+3	 2048	    1	   0		  153
+4	 2048	    1	   0		  164
+5	 2048	    0	   0		  162
+6	 2048	    3	   1		  163
+7	 2048	    4	   1		  157

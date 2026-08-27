@@ -1,0 +1,171 @@
+# --- PMU-only run ---
+# irregular repeated-region hardware-prefetch existence test
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=32 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: control is training-only; pattern adds the trained-PC trigger sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[untrained_pc_control_trigger_28]
+# trigger_pc=untrained-control direct_demand_accesses_per_round=0
+# trigger_lines=
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+[pattern_trigger_28]
+# trigger_pc=trained direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# --- cache-only run ---
+# irregular repeated-region hardware-prefetch existence test
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=32 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: control is training-only; pattern adds the trained-PC trigger sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU disabled by ENABLE_PMU=0
+
+[untrained_pc_control_trigger_28]
+# trigger_pc=untrained-control direct_demand_accesses_per_round=0
+# trigger_lines=
+# CACHE_PROBE timestamp=cntvct_el0 unit=ticks threshold=100
+# line	role	avg_latency	samples	hits_per_1000
+# PROBE  0	other              	151	63	0
+# PROBE  1	footprint_candidate	149	62	0
+# PROBE  2	other              	152	62	0
+# PROBE  3	other              	150	63	0
+# PROBE  4	footprint_candidate	153	63	0
+# PROBE  5	other              	149	62	0
+# PROBE  6	other              	151	63	0
+# PROBE  7	other              	153	63	0
+# PROBE  8	other              	148	62	0
+# PROBE  9	other              	151	62	0
+# PROBE 10	other              	150	63	0
+# PROBE 11	other              	152	63	0
+# PROBE 12	other              	148	62	0
+# PROBE 13	other              	151	63	0
+# PROBE 14	other              	150	63	0
+# PROBE 15	other              	150	62	0
+# PROBE 16	other              	148	62	0
+# PROBE 17	other              	153	63	0
+# PROBE 18	other              	151	62	0
+# PROBE 19	footprint_candidate	151	62	0
+# PROBE 20	other              	147	63	15
+# PROBE 21	other              	151	63	0
+# PROBE 22	other              	151	62	0
+# PROBE 23	other              	151	63	15
+# PROBE 24	other              	155	63	0
+# PROBE 25	other              	149	62	0
+# PROBE 26	other              	151	62	0
+# PROBE 27	other              	148	63	0
+# PROBE 28	other              	151	62	0
+# PROBE 29	other              	152	62	0
+# PROBE 30	other              	149	63	0
+# PROBE 31	other              	153	63	0
+# PROBE 32	other              	152	62	0
+# PROBE 33	other              	150	63	0
+# PROBE 34	other              	154	63	0
+# PROBE 35	other              	151	62	0
+# PROBE 36	other              	152	62	0
+# PROBE 37	other              	151	63	0
+# PROBE 38	other              	151	62	0
+# PROBE 39	other              	151	62	0
+# PROBE 40	other              	151	63	0
+# PROBE 41	other              	151	63	0
+# PROBE 42	other              	152	62	0
+# PROBE 43	other              	149	62	0
+# PROBE 44	other              	153	63	0
+# PROBE 45	other              	152	62	0
+# PROBE 46	other              	152	62	0
+# PROBE 47	other              	151	63	0
+# PROBE 48	other              	152	63	0
+# PROBE 49	other              	152	62	0
+# PROBE 50	other              	149	63	0
+# PROBE 51	other              	151	63	0
+# PROBE 52	other              	154	62	0
+# PROBE 53	other              	148	62	0
+# PROBE 54	other              	152	63	0
+# PROBE 55	other              	150	62	0
+# PROBE 56	other              	152	62	0
+# PROBE 57	other              	150	63	0
+# PROBE 58	other              	152	63	0
+# PROBE 59	other              	151	62	0
+# PROBE 60	other              	149	63	0
+# PROBE 61	other              	152	63	0
+# PROBE 62	other              	141	62	80
+# PROBE 63	other              	150	62	0
+
+[pattern_trigger_28]
+# trigger_pc=trained direct_demand_accesses_per_round=1
+# trigger_lines=28
+# CACHE_PROBE timestamp=cntvct_el0 unit=ticks threshold=100
+# line	role	avg_latency	samples	hits_per_1000
+# PROBE  0	other              	149	63	0
+# PROBE  1	footprint_candidate	146	62	0
+# PROBE  2	other              	150	62	0
+# PROBE  3	other              	147	63	0
+# PROBE  4	footprint_candidate	146	63	0
+# PROBE  5	other              	148	62	0
+# PROBE  6	other              	147	63	0
+# PROBE  7	other              	145	63	31
+# PROBE  8	other              	147	62	0
+# PROBE  9	other              	145	62	0
+# PROBE 10	other              	149	63	0
+# PROBE 11	other              	148	63	0
+# PROBE 12	other              	145	62	0
+# PROBE 13	other              	151	63	0
+# PROBE 14	other              	148	63	0
+# PROBE 15	other              	145	62	0
+# PROBE 16	other              	148	62	0
+# PROBE 17	other              	149	63	0
+# PROBE 18	other              	146	62	0
+# PROBE 19	footprint_candidate	144	62	0
+# PROBE 20	other              	152	63	0
+# PROBE 21	other              	149	63	0
+# PROBE 22	other              	145	62	0
+# PROBE 23	other              	147	63	0
+# PROBE 24	other              	148	63	0
+# PROBE 25	other              	53	62	1000
+# PROBE 26	other              	148	62	0
+# PROBE 27	other              	148	63	0
+# PROBE 28	direct             	50	62	1000
+# PROBE 29	other              	152	62	0
+# PROBE 30	other              	147	63	0
+# PROBE 31	other              	148	63	0
+# PROBE 32	other              	146	62	0
+# PROBE 33	other              	150	63	0
+# PROBE 34	other              	182	63	0
+# PROBE 35	other              	146	62	0
+# PROBE 36	other              	146	62	0
+# PROBE 37	other              	148	63	0
+# PROBE 38	other              	147	62	0
+# PROBE 39	other              	146	62	0
+# PROBE 40	other              	150	63	0
+# PROBE 41	other              	148	63	0
+# PROBE 42	other              	146	62	0
+# PROBE 43	other              	52	62	1000
+# PROBE 44	other              	148	63	0
+# PROBE 45	other              	146	62	0
+# PROBE 46	other              	145	62	0
+# PROBE 47	other              	148	63	0
+# PROBE 48	other              	150	63	0
+# PROBE 49	other              	147	62	0
+# PROBE 50	other              	150	63	0
+# PROBE 51	other              	147	63	0
+# PROBE 52	other              	146	62	0
+# PROBE 53	other              	152	62	0
+# PROBE 54	other              	147	63	0
+# PROBE 55	other              	148	62	0
+# PROBE 56	other              	146	62	0
+# PROBE 57	other              	149	63	0
+# PROBE 58	other              	150	63	0
+# PROBE 59	other              	148	62	0
+# PROBE 60	other              	148	63	0
+# PROBE 61	other              	148	63	0
+# PROBE 62	other              	136	62	80
+# PROBE 63	other              	147	62	0

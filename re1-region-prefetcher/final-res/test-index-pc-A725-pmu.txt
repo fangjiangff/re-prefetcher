@@ -1,0 +1,1082 @@
+# ---- diff_bit=3 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500000128 diff_bit=3 xor=0x0000000000000008
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_3]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=4 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500000130 diff_bit=4 xor=0x0000000000000010
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_4]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=5 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500000100 diff_bit=5 xor=0x0000000000000020
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_5]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=6 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500000160 diff_bit=6 xor=0x0000000000000040
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_6]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=7 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x00000005000001a0 diff_bit=7 xor=0x0000000000000080
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_7]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=8 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500000020 diff_bit=8 xor=0x0000000000000100
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_8]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=9 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500000320 diff_bit=9 xor=0x0000000000000200
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_9]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=10 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500000520 diff_bit=10 xor=0x0000000000000400
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_10]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=11 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500000920 diff_bit=11 xor=0x0000000000000800
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_11]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=12 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500001120 diff_bit=12 xor=0x0000000000001000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_12]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=13 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500002120 diff_bit=13 xor=0x0000000000002000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_13]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.01
+
+# ---- diff_bit=14 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500004120 diff_bit=14 xor=0x0000000000004000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_14]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=15 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500008120 diff_bit=15 xor=0x0000000000008000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_15]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=16 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500010120 diff_bit=16 xor=0x0000000000010000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_16]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=17 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500020120 diff_bit=17 xor=0x0000000000020000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_17]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=18 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500040120 diff_bit=18 xor=0x0000000000040000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_18]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=19 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500080120 diff_bit=19 xor=0x0000000000080000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_19]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=20 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500100120 diff_bit=20 xor=0x0000000000100000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_20]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=21 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500200120 diff_bit=21 xor=0x0000000000200000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_21]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=22 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500400120 diff_bit=22 xor=0x0000000000400000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_22]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=23 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000500800120 diff_bit=23 xor=0x0000000000800000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_23]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=24 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000501000120 diff_bit=24 xor=0x0000000001000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_24]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=25 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000502000120 diff_bit=25 xor=0x0000000002000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_25]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=26 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000504000120 diff_bit=26 xor=0x0000000004000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_26]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=27 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000508000120 diff_bit=27 xor=0x0000000008000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_27]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=0.00
+
+# ---- diff_bit=28 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000510000120 diff_bit=28 xor=0x0000000010000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_28]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=29 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000520000120 diff_bit=29 xor=0x0000000020000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_29]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=30 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000540000120 diff_bit=30 xor=0x0000000040000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_30]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=31 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000580000120 diff_bit=31 xor=0x0000000080000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_31]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=32 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000400000120 diff_bit=32 xor=0x0000000100000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_32]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=33 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000700000120 diff_bit=33 xor=0x0000000200000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_33]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=34 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000100000120 diff_bit=34 xor=0x0000000400000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_34]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=35 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000000d00000120 diff_bit=35 xor=0x0000000800000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_35]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=36 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000001500000120 diff_bit=36 xor=0x0000001000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_36]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=37 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000002500000120 diff_bit=37 xor=0x0000002000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_37]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=38 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000004500000120 diff_bit=38 xor=0x0000004000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_38]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=39 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000008500000120 diff_bit=39 xor=0x0000008000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_39]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=40 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000010500000120 diff_bit=40 xor=0x0000010000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_40]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=41 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000020500000120 diff_bit=41 xor=0x0000020000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_41]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=42 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000040500000120 diff_bit=42 xor=0x0000040000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_42]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=43 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000080500000120 diff_bit=43 xor=0x0000080000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_43]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=44 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000100500000120 diff_bit=44 xor=0x0000100000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_44]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=45 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000200500000120 diff_bit=45 xor=0x0000200000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_45]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=46 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000400500000120 diff_bit=46 xor=0x0000400000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_46]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- diff_bit=47 ----
+# region-prefetcher PC-index bit-flip test
+# PC model: dynamic mmap gadgets trainer_pc=0x0000000500000120 trigger_pc=0x0000800500000120 diff_bit=47 xor=0x0000800000000000
+# region_bytes=4096 lines_per_region=64 rounds=4000 train_regions=1 extra_regions=0 pool_pages=257 wait_nops=1000 wait_ns=0 cpp_rctx=each_round
+# footprint_lines=4,1,19
+# access_type=load
+# trigger_lines=28
+# PMU interpretation: compare same_pc with bit_N; both issue the same target-region demand sequence
+# PMU HWPRF values count implementation-defined prefetch events, not necessarily unique cache lines
+# PMU source=direct-mrs core=Cortex-A725 counter4=0x8154 counter5=0x8285 window=trigger-plus-wait-per-round rearm=once-per-experiment
+
+[same_pc]
+# trigger_pc=same-as-trainer direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+[bit_47]
+# trigger_pc=xor-bit direct_demand_accesses_per_round=1
+# trigger_lines=28
+# PMU l1d_cache_hwprf          per_round=0.00
+# PMU l2d_cache_hwprf          per_round=2.00
+
+# ---- PMU bit summary ----
+diff_bit	mapped	same_pc_l1_per_round	same_pc_l2_per_round	flipped_pc_l1_per_round	flipped_pc_l2_per_round	l2_delta
+3	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+4	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+5	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+6	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+7	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+8	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+9	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+10	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+11	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+12	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+13	yes	0.0000	2.0000	0.0000	0.0100	-1.9900
+14	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+15	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+16	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+17	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+18	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+19	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+20	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+21	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+22	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+23	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+24	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+25	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+26	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+27	yes	0.0000	2.0000	0.0000	0.0000	-2.0000
+28	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+29	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+30	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+31	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+32	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+33	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+34	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+35	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+36	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+37	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+38	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+39	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+40	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+41	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+42	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+43	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+44	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+45	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+46	yes	0.0000	2.0000	0.0000	2.0000	+0.0000
+47	yes	0.0000	2.0000	0.0000	2.0000	+0.0000

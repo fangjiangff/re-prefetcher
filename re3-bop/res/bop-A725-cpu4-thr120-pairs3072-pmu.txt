@@ -1,0 +1,31 @@
+# BOP existence and offset-relocation test
+# offset_lines=16 offset_bytes=1024 wrong_offset_lines=8
+# batches=100 train_pairs=3072 trigger_batch=64 pages=4096 threshold_ns=120 wait_nops=2000 train_pcs=16
+# train pairs and trigger pages are disjoint within each batch
+# all triggers complete before any target is probed
+# PMU core=Cortex-A725 events=0x8154,0x8285
+
+[untrained_expected_offset]
+# train_mode=0 probe_delta_lines=16 batches=100
+# PMU l1d_cache_hwprf          total=0 per_trigger=0.000000
+# PMU l2d_cache_hwprf          total=8 per_trigger=0.001250
+
+[random_delta_control]
+# train_mode=1 probe_delta_lines=16 batches=100
+# PMU l1d_cache_hwprf          total=157 per_trigger=0.024531
+# PMU l2d_cache_hwprf          total=253 per_trigger=0.039531
+
+[fixed_offset_expected]
+# train_mode=2 probe_delta_lines=16 batches=100
+# PMU l1d_cache_hwprf          total=220 per_trigger=0.034375
+# PMU l2d_cache_hwprf          total=6287 per_trigger=0.982344
+
+[fixed_offset_nextline_control]
+# train_mode=2 probe_delta_lines=1 batches=100
+# PMU l1d_cache_hwprf          total=240 per_trigger=0.037500
+# PMU l2d_cache_hwprf          total=6212 per_trigger=0.970625
+
+[fixed_offset_wrong_control]
+# train_mode=2 probe_delta_lines=8 batches=100
+# PMU l1d_cache_hwprf          total=150 per_trigger=0.023438
+# PMU l2d_cache_hwprf          total=6320 per_trigger=0.987500

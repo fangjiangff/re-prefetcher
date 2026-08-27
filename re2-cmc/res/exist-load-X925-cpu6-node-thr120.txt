@@ -1,0 +1,157 @@
+# CMC next-node timing test
+# access mode: load
+# test mode: node
+# timer: cntvct_el0, cntfrq_el0=1000000000 Hz
+# rounds=40000 threshold_ns=120 training_replays=10
+# chain_nodes=128 control_nodes=16 mapping_pages=512
+# each row accesses node[n] once, then probes node[n+1].
+
+[node_next]
+# node	next	page	line	role		probes	hits	per_1000	avg_latency_ns
+  0	  1	505	36	next_after_node	   313	  100	 319		  125
+  1	  2	 97	33	next_after_node	   313	   93	 297		  124
+  2	  3	468	26	next_after_node	   313	   98	 313		 9725
+  3	  4	472	17	next_after_node	   313	   92	 293		  127
+  4	  5	424	39	next_after_node	   313	  100	 319		  126
+  5	  6	 81	57	next_after_node	   313	   76	 242		  130
+  6	  7	418	19	next_after_node	   313	   74	 236		  129
+  7	  8	 14	21	next_after_node	   313	   66	 210		  132
+  8	  9	234	22	next_after_node	   313	   92	 293		  125
+  9	 10	 95	34	next_after_node	   313	   96	 306		  125
+ 10	 11	215	15	next_after_node	   313	   94	 300		  125
+ 11	 12	315	27	next_after_node	   313	   97	 309		  124
+ 12	 13	 34	32	next_after_node	   313	  102	 325		  122
+ 13	 14	347	 1	next_after_node	   313	   78	 249		  127
+ 14	 15	483	52	next_after_node	   313	   84	 268		  128
+ 15	 16	268	49	next_after_node	   313	   83	 265		  122
+ 16	 17	334	59	next_after_node	   313	   66	 210		  138
+ 17	 18	414	 0	next_after_node	   313	   65	 207		  138
+ 18	 19	207	 9	next_after_node	   313	   89	 284		  128
+ 19	 20	254	57	next_after_node	   313	   84	 268		  125
+ 20	 21	456	44	next_after_node	   313	  102	 325		  123
+ 21	 22	493	32	next_after_node	   313	   91	 290		  133
+ 22	 23	504	 4	next_after_node	   313	   70	 223		  130
+ 23	 24	442	16	next_after_node	   313	  108	 345		  121
+ 24	 25	 33	 7	next_after_node	   313	   82	 261		  128
+ 25	 26	141	53	next_after_node	   313	   91	 290		  126
+ 26	 27	386	62	next_after_node	   313	   88	 281		  128
+ 27	 28	257	60	next_after_node	   313	   87	 277		  124
+ 28	 29	455	46	next_after_node	   313	   67	 214		  132
+ 29	 30	166	27	next_after_node	   313	   88	 281		  126
+ 30	 31	444	60	next_after_node	   313	   22	  70		  159
+ 31	 32	396	29	next_after_node	   313	   83	 265		  129
+ 32	 33	142	56	next_after_node	   313	   97	 309		  126
+ 33	 34	282	52	next_after_node	   313	   96	 306		  126
+ 34	 35	476	48	next_after_node	   313	  106	 338		  121
+ 35	 36	162	44	next_after_node	   313	   86	 274		  128
+ 36	 37	199	51	next_after_node	   313	   87	 277		  127
+ 37	 38	329	40	next_after_node	   313	  101	 322		  124
+ 38	 39	 38	14	next_after_node	   313	   88	 281		  127
+ 39	 40	390	25	next_after_node	   313	   81	 258		  129
+ 40	 41	510	 2	next_after_node	   313	   45	 143		  150
+ 41	 42	364	19	next_after_node	   313	   90	 287		  125
+ 42	 43	 21	57	next_after_node	   313	   85	 271		  127
+ 43	 44	447	51	next_after_node	   313	   80	 255		  129
+ 44	 45	509	38	next_after_node	   313	  100	 319		  126
+ 45	 46	 89	38	next_after_node	   313	  103	 329		  123
+ 46	 47	302	31	next_after_node	   313	   94	 300		  128
+ 47	 48	508	47	next_after_node	   313	   80	 255		  132
+ 48	 49	 90	21	next_after_node	   313	  101	 322		  125
+ 49	 50	179	45	next_after_node	   313	   92	 293		  125
+ 50	 51	296	 3	next_after_node	   313	   89	 284		  128
+ 51	 52	358	 4	next_after_node	   313	   99	 316		  127
+ 52	 53	 12	 5	next_after_node	   313	   96	 306		  124
+ 53	 54	  4	41	next_after_node	   313	  102	 325		  124
+ 54	 55	212	37	next_after_node	   313	  107	 341		  123
+ 55	 56	107	27	next_after_node	   313	   96	 306		  124
+ 56	 57	 26	26	next_after_node	   313	   91	 290		  124
+ 57	 58	308	51	next_after_node	   313	   52	 166		  148
+ 58	 59	411	14	next_after_node	   313	  100	 319		  123
+ 59	 60	198	40	next_after_node	   313	   95	 303		  127
+ 60	 61	108	48	next_after_node	   313	   92	 293		  122
+ 61	 62	154	36	next_after_node	   313	   68	 217		  131
+ 62	 63	247	12	next_after_node	   313	   86	 274		  124
+ 63	 64	136	43	next_after_node	   313	   76	 242		  125
+ 64	 65	 94	58	next_after_node	   312	   98	 314		  122
+ 65	 66	  7	24	next_after_node	   312	   98	 314		  122
+ 66	 67	 79	58	next_after_node	   312	   89	 285		  126
+ 67	 68	416	19	next_after_node	   312	   95	 304		  126
+ 68	 69	145	59	next_after_node	   312	   89	 285		  124
+ 69	 70	328	22	next_after_node	   312	   94	 301		  124
+ 70	 71	369	63	next_after_node	   312	   93	 298		  126
+ 71	 72	289	11	next_after_node	   312	   85	 272		  126
+ 72	 73	209	31	next_after_node	   312	   92	 294		  122
+ 73	 74	265	41	next_after_node	   312	   88	 282		  126
+ 74	 75	106	51	next_after_node	   312	   86	 275		  125
+ 75	 76	276	20	next_after_node	   312	  106	 339		  121
+ 76	 77	161	63	next_after_node	   312	  105	 336		  122
+ 77	 78	449	61	next_after_node	   312	  101	 323		  122
+ 78	 79	361	53	next_after_node	   312	   91	 291		  127
+ 79	 80	197	 3	next_after_node	   312	   78	 250		  128
+ 80	 81	407	16	next_after_node	   312	   93	 298		  122
+ 81	 82	481	47	next_after_node	   312	   89	 285		  127
+ 82	 83	243	55	next_after_node	   312	   94	 301		  124
+ 83	 84	304	10	next_after_node	   312	   77	 246		  123
+ 84	 85	389	 3	next_after_node	   312	   94	 301		  124
+ 85	 86	258	43	next_after_node	   312	   85	 272		  126
+ 86	 87	130	53	next_after_node	   312	   82	 262		  128
+ 87	 88	280	46	next_after_node	   312	  101	 323		  126
+ 88	 89	 45	31	next_after_node	   312	  101	 323		  121
+ 89	 90	253	 2	next_after_node	   312	  104	 333		  124
+ 90	 91	391	42	next_after_node	   312	  101	 323		  121
+ 91	 92	351	 6	next_after_node	   312	   92	 294		  123
+ 92	 93	375	 4	next_after_node	   312	   89	 285		  123
+ 93	 94	114	55	next_after_node	   312	  102	 326		 9802
+ 94	 95	134	50	next_after_node	   312	  104	 333		  122
+ 95	 96	 64	13	next_after_node	   312	   85	 272		  128
+ 96	 97	175	18	next_after_node	   312	   98	 314		  129
+ 97	 98	123	55	next_after_node	   312	   95	 304		  125
+ 98	 99	259	14	next_after_node	   312	   95	 304		  125
+ 99	100	408	39	next_after_node	   312	  110	 352		  120
+100	101	433	62	next_after_node	   312	   90	 288		  127
+101	102	429	40	next_after_node	   312	  102	 326		  123
+102	103	 68	51	next_after_node	   312	   91	 291		  125
+103	104	251	51	next_after_node	   312	  108	 346		  120
+104	105	297	32	next_after_node	   312	  102	 326		  122
+105	106	352	18	next_after_node	   312	   85	 272		 9756
+106	107	 67	50	next_after_node	   312	   64	 205		  131
+107	108	451	51	next_after_node	   312	   98	 314		  123
+108	109	193	10	next_after_node	   312	   93	 298		  124
+109	110	270	25	next_after_node	   312	   94	 301		  124
+110	111	423	60	next_after_node	   312	   49	 157		  146
+111	112	201	15	next_after_node	   312	   96	 307		  126
+112	113	299	31	next_after_node	   312	   94	 301		  123
+113	114	310	 7	next_after_node	   312	   71	 227		  139
+114	115	417	 9	next_after_node	   312	  102	 326		  121
+115	116	462	14	next_after_node	   312	   85	 272		  126
+116	117	357	15	next_after_node	   312	   90	 288		  123
+117	118	478	37	next_after_node	   312	   83	 266		  122
+118	119	474	49	next_after_node	   312	   89	 285		 9753
+119	120	370	52	next_after_node	   312	   86	 275		  124
+120	121	343	61	next_after_node	   312	   95	 304		  121
+121	122	214	39	next_after_node	   312	   84	 269		  125
+122	123	453	39	next_after_node	   312	   98	 314		  124
+123	124	415	51	next_after_node	   312	  109	 349		  124
+124	125	464	 8	next_after_node	   312	  119	 381		  119
+125	126	192	 5	next_after_node	   312	  102	 326		  124
+126	127	432	 8	next_after_node	   312	  104	 333		  126
+127	  0	 29	35	next_after_node	   312	   88	 282		  128
+
+[controls]
+# idx	page	line	role		probes	avg_latency_ns
+ 0	117	35	control		  2500	  134
+ 1	436	42	control		  2500	  118
+ 2	480	31	control		  2500	  119
+ 3	 28	30	control		  2500	  127
+ 4	490	26	control		  2500	  121
+ 5	291	 2	control		  2500	  123
+ 6	445	 5	control		  2500	  124
+ 7	 35	 7	control		  2500	  120
+ 8	502	18	control		  2500	  127
+ 9	224	 7	control		  2500	 1323
+10	 56	49	control		  2500	  122
+11	  2	56	control		  2500	  137
+12	448	20	control		  2500	  122
+13	 98	 7	control		  2500	  123
+14	293	28	control		  2500	  122
+15	104	27	control		  2500	  122

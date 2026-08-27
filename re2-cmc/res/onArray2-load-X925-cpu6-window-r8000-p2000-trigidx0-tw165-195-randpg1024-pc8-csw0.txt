@@ -1,0 +1,267 @@
+# arm64 CMC irregular-load prefetch latency map
+# access mode: load (ldrb)
+# test_mode=window
+# sequence_length=256 line_size=64 rounds=8000 probe_positions=2000
+# trigger_index=0 trigger_position=1384 trigger_offset_bytes=88576
+# trigger_range=[165,195)
+# random_access_pages=1024 random_access_lines=65536 random_access_pcs=8
+# context_switch_flush=disabled each round
+# timer: clock_gettime(CLOCK_MONOTONIC) ns
+# position	offset_bytes	avg_ns	probes
+array_index=  0, offset_bytes=1384 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=  1, offset_bytes= 217 * LINE_SIZE, avg_ns=        96, probes=    4
+array_index=  2, offset_bytes=1746 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index=  3, offset_bytes= 905 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=  4, offset_bytes=  63 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=  5, offset_bytes=1297 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index=  6, offset_bytes=1881 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=  7, offset_bytes= 452 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=  8, offset_bytes=1016 * LINE_SIZE, avg_ns=        84, probes=    4
+array_index=  9, offset_bytes= 733 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index= 10, offset_bytes=1549 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 11, offset_bytes= 320 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 12, offset_bytes=1974 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index= 13, offset_bytes= 118 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index= 14, offset_bytes=1672 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 15, offset_bytes= 861 * LINE_SIZE, avg_ns=        96, probes=    4
+array_index= 16, offset_bytes=1435 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 17, offset_bytes=  29 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index= 18, offset_bytes=1264 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 19, offset_bytes=1991 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index= 20, offset_bytes= 582 * LINE_SIZE, avg_ns=        60, probes=    4
+array_index= 21, offset_bytes=1048 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 22, offset_bytes= 301 * LINE_SIZE, avg_ns=       100, probes=    4
+array_index= 23, offset_bytes=1793 * LINE_SIZE, avg_ns=        80, probes=    4
+array_index= 24, offset_bytes= 936 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 25, offset_bytes=1461 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 26, offset_bytes= 705 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index= 27, offset_bytes=1918 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 28, offset_bytes= 155 * LINE_SIZE, avg_ns=       108, probes=    4
+array_index= 29, offset_bytes=1127 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 30, offset_bytes= 487 * LINE_SIZE, avg_ns=        88, probes=    4
+array_index= 31, offset_bytes=1329 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 32, offset_bytes= 768 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index= 33, offset_bytes=1856 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index= 34, offset_bytes= 244 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 35, offset_bytes= 977 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 36, offset_bytes=1690 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 37, offset_bytes= 604 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index= 38, offset_bytes=1518 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 39, offset_bytes= 396 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 40, offset_bytes=1943 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index= 41, offset_bytes=  81 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index= 42, offset_bytes=1215 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 43, offset_bytes=1739 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 44, offset_bytes= 534 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 45, offset_bytes=1086 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 46, offset_bytes= 199 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index= 47, offset_bytes=1607 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 48, offset_bytes= 894 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 49, offset_bytes= 136 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 50, offset_bytes=1822 * LINE_SIZE, avg_ns=        80, probes=    4
+array_index= 51, offset_bytes= 675 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 52, offset_bytes=1151 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 53, offset_bytes= 348 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 54, offset_bytes=1426 * LINE_SIZE, avg_ns=        80, probes=    4
+array_index= 55, offset_bytes=1899 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index= 56, offset_bytes=  59 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 57, offset_bytes=1003 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 58, offset_bytes=1577 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 59, offset_bytes= 821 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 60, offset_bytes= 226 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 61, offset_bytes=1755 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index= 62, offset_bytes= 646 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 63, offset_bytes=1238 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 64, offset_bytes=1870 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 65, offset_bytes= 514 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 66, offset_bytes= 961 * LINE_SIZE, avg_ns=        96, probes=    4
+array_index= 67, offset_bytes=1473 * LINE_SIZE, avg_ns=        96, probes=    4
+array_index= 68, offset_bytes= 287 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 69, offset_bytes=1666 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 70, offset_bytes=1104 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 71, offset_bytes=  35 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index= 72, offset_bytes=1984 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 73, offset_bytes= 739 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index= 74, offset_bytes=1301 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 75, offset_bytes= 470 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index= 76, offset_bytes=1837 * LINE_SIZE, avg_ns=       100, probes=    4
+array_index= 77, offset_bytes= 912 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 78, offset_bytes= 257 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index= 79, offset_bytes=1542 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 80, offset_bytes=1196 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 81, offset_bytes= 704 * LINE_SIZE, avg_ns=       176, probes=    4
+array_index= 82, offset_bytes=1711 * LINE_SIZE, avg_ns=       108, probes=    4
+array_index= 83, offset_bytes= 103 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 84, offset_bytes=1935 * LINE_SIZE, avg_ns=        64, probes=    4
+array_index= 85, offset_bytes= 568 * LINE_SIZE, avg_ns=        88, probes=    4
+array_index= 86, offset_bytes=1347 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 87, offset_bytes= 808 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 88, offset_bytes=1499 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index= 89, offset_bytes= 376 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 90, offset_bytes=1808 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 91, offset_bytes= 621 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 92, offset_bytes=1073 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 93, offset_bytes= 192 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index= 94, offset_bytes=1644 * LINE_SIZE, avg_ns=        68, probes=    4
+array_index= 95, offset_bytes= 984 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index= 96, offset_bytes= 443 * LINE_SIZE, avg_ns=       108, probes=    4
+array_index= 97, offset_bytes=1259 * LINE_SIZE, avg_ns=       100, probes=    4
+array_index= 98, offset_bytes= 187 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index= 99, offset_bytes=1776 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index=100, offset_bytes= 693 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=101, offset_bytes=1185 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=102, offset_bytes=  21 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=103, offset_bytes=1526 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=104, offset_bytes= 872 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=105, offset_bytes=1408 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=106, offset_bytes= 331 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index=107, offset_bytes=1962 * LINE_SIZE, avg_ns=        80, probes=    4
+array_index=108, offset_bytes= 529 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=109, offset_bytes=1027 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=110, offset_bytes=1588 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=111, offset_bytes= 753 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index=112, offset_bytes= 241 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=113, offset_bytes=1698 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=114, offset_bytes=1117 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=115, offset_bytes= 410 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=116, offset_bytes=1906 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=117, offset_bytes= 647 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=118, offset_bytes=1221 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index=119, offset_bytes=  84 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=120, offset_bytes=1459 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=121, offset_bytes=1817 * LINE_SIZE, avg_ns=        84, probes=    4
+array_index=122, offset_bytes= 999 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=123, offset_bytes= 271 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=124, offset_bytes=1631 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=125, offset_bytes= 721 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index=126, offset_bytes=1374 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index=127, offset_bytes= 497 * LINE_SIZE, avg_ns=       100, probes=    4
+array_index=128, offset_bytes= 185 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index=129, offset_bytes=1569 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=130, offset_bytes= 928 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=131, offset_bytes=1987 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=132, offset_bytes= 115 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=133, offset_bytes=1318 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=134, offset_bytes= 566 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index=135, offset_bytes=1741 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=136, offset_bytes= 805 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=137, offset_bytes= 151 * LINE_SIZE, avg_ns=       108, probes=    4
+array_index=138, offset_bytes=1888 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=139, offset_bytes=1009 * LINE_SIZE, avg_ns=        88, probes=    4
+array_index=140, offset_bytes= 366 * LINE_SIZE, avg_ns=       108, probes=    4
+array_index=141, offset_bytes= 142 * LINE_SIZE, avg_ns=        96, probes=    4
+array_index=142, offset_bytes=1658 * LINE_SIZE, avg_ns=       100, probes=    4
+array_index=143, offset_bytes= 603 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=144, offset_bytes=1247 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=145, offset_bytes= 913 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=146, offset_bytes=  46 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index=147, offset_bytes=1951 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index=148, offset_bytes= 783 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=149, offset_bytes=1095 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index=150, offset_bytes=1703 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=151, offset_bytes= 319 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index=152, offset_bytes=1396 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=153, offset_bytes= 682 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=154, offset_bytes=1865 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=155, offset_bytes= 537 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=156, offset_bytes= 234 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=157, offset_bytes=1591 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=158, offset_bytes=1199 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index=159, offset_bytes= 907 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=160, offset_bytes=  75 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=161, offset_bytes=1335 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=162, offset_bytes=1768 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=163, offset_bytes= 451 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index=164, offset_bytes= 101 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index=165, offset_bytes=1947 * LINE_SIZE, avg_ns=        44, probes=    4
+array_index=166, offset_bytes= 844 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=167, offset_bytes=1268 * LINE_SIZE, avg_ns=        44, probes=    4
+array_index=168, offset_bytes= 579 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=169, offset_bytes=1486 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=170, offset_bytes=1929 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=171, offset_bytes= 306 * LINE_SIZE, avg_ns=        92, probes=    4
+array_index=172, offset_bytes=1139 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=173, offset_bytes= 618 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=174, offset_bytes=1719 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=175, offset_bytes= 488 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=176, offset_bytes= 863 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=177, offset_bytes=  26 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=178, offset_bytes=1831 * LINE_SIZE, avg_ns=        52, probes=    4
+array_index=179, offset_bytes=1002 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=180, offset_bytes= 154 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=181, offset_bytes=1412 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=182, offset_bytes= 746 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=183, offset_bytes=1971 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=184, offset_bytes= 391 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=185, offset_bytes=1283 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=186, offset_bytes= 572 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=187, offset_bytes=1649 * LINE_SIZE, avg_ns=        40, probes=    4
+array_index=188, offset_bytes= 959 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=189, offset_bytes= 208 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=190, offset_bytes=1536 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=191, offset_bytes= 897 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=192, offset_bytes= 121 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=193, offset_bytes=1801 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=194, offset_bytes= 436 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=195, offset_bytes=1079 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=196, offset_bytes=1892 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=197, offset_bytes= 653 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=198, offset_bytes=1362 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=199, offset_bytes=  14 * LINE_SIZE, avg_ns=       112, probes=    4
+array_index=200, offset_bytes=1995 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=201, offset_bytes= 834 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=202, offset_bytes=1176 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index=203, offset_bytes= 263 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index=204, offset_bytes=1451 * LINE_SIZE, avg_ns=       116, probes=    4
+array_index=205, offset_bytes= 702 * LINE_SIZE, avg_ns=        96, probes=    4
+array_index=206, offset_bytes=1728 * LINE_SIZE, avg_ns=       100, probes=    4
+array_index=207, offset_bytes= 951 * LINE_SIZE, avg_ns=        80, probes=    4
+array_index=208, offset_bytes= 328 * LINE_SIZE, avg_ns=       100, probes=    4
+array_index=209, offset_bytes=1601 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index=210, offset_bytes=1229 * LINE_SIZE, avg_ns=        84, probes=    4
+array_index=211, offset_bytes=  64 * LINE_SIZE, avg_ns=       100, probes=    4
+array_index=212, offset_bytes=1879 * LINE_SIZE, avg_ns=       124, probes=    4
+array_index=213, offset_bytes= 505 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index=214, offset_bytes=1113 * LINE_SIZE, avg_ns=       120, probes=    4
+array_index=215, offset_bytes= 779 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index=216, offset_bytes=1490 * LINE_SIZE, avg_ns=       128, probes=    4
+array_index=217, offset_bytes= 219 * LINE_SIZE, avg_ns=        84, probes=    4
+array_index=218, offset_bytes=1958 * LINE_SIZE, avg_ns=        64, probes=    4
+array_index=219, offset_bytes= 642 * LINE_SIZE, avg_ns=        64, probes=    4
+array_index=220, offset_bytes=1309 * LINE_SIZE, avg_ns=        88, probes=    4
+array_index=221, offset_bytes= 888 * LINE_SIZE, avg_ns=        80, probes=    4
+array_index=222, offset_bytes=  33 * LINE_SIZE, avg_ns=        88, probes=    4
+array_index=223, offset_bytes=1679 * LINE_SIZE, avg_ns=        84, probes=    4
+array_index=224, offset_bytes=1018 * LINE_SIZE, avg_ns=        64, probes=    4
+array_index=225, offset_bytes= 554 * LINE_SIZE, avg_ns=        68, probes=    4
+array_index=226, offset_bytes=1826 * LINE_SIZE, avg_ns=        80, probes=    4
+array_index=227, offset_bytes= 293 * LINE_SIZE, avg_ns=        80, probes=    4
+array_index=228, offset_bytes=1189 * LINE_SIZE, avg_ns=        60, probes=    4
+array_index=229, offset_bytes= 738 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=230, offset_bytes=1583 * LINE_SIZE, avg_ns=        64, probes=    4
+array_index=231, offset_bytes= 970 * LINE_SIZE, avg_ns=       108, probes=    4
+array_index=232, offset_bytes= 405 * LINE_SIZE, avg_ns=        68, probes=    4
+array_index=233, offset_bytes=1901 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=234, offset_bytes= 626 * LINE_SIZE, avg_ns=        64, probes=    4
+array_index=235, offset_bytes=1354 * LINE_SIZE, avg_ns=        88, probes=    4
+array_index=236, offset_bytes= 168 * LINE_SIZE, avg_ns=        88, probes=    4
+array_index=237, offset_bytes=1779 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index=238, offset_bytes= 856 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=239, offset_bytes=1122 * LINE_SIZE, avg_ns=        68, probes=    4
+array_index=240, offset_bytes= 477 * LINE_SIZE, avg_ns=        40, probes=    4
+array_index=241, offset_bytes=1443 * LINE_SIZE, avg_ns=        80, probes=    4
+array_index=242, offset_bytes=1968 * LINE_SIZE, avg_ns=        48, probes=    4
+array_index=243, offset_bytes= 711 * LINE_SIZE, avg_ns=        96, probes=    4
+array_index=244, offset_bytes= 126 * LINE_SIZE, avg_ns=        80, probes=    4
+array_index=245, offset_bytes=1617 * LINE_SIZE, avg_ns=        64, probes=    4
+array_index=246, offset_bytes= 998 * LINE_SIZE, avg_ns=        68, probes=    4
+array_index=247, offset_bytes= 352 * LINE_SIZE, avg_ns=        72, probes=    4
+array_index=248, offset_bytes=1844 * LINE_SIZE, avg_ns=        60, probes=    4
+array_index=249, offset_bytes= 589 * LINE_SIZE, avg_ns=       108, probes=    4
+array_index=250, offset_bytes=1206 * LINE_SIZE, avg_ns=        84, probes=    4
+array_index=251, offset_bytes= 817 * LINE_SIZE, avg_ns=        84, probes=    4
+array_index=252, offset_bytes=1531 * LINE_SIZE, avg_ns=        96, probes=    4
+array_index=253, offset_bytes=  40 * LINE_SIZE, avg_ns=       100, probes=    4
+array_index=254, offset_bytes=1733 * LINE_SIZE, avg_ns=       104, probes=    4
+array_index=255, offset_bytes=1081 * LINE_SIZE, avg_ns=        84, probes=    4
+

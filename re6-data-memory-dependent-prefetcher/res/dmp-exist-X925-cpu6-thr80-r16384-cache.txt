@@ -1,0 +1,42 @@
+# DMP/AoP existence test (GoFetch no-deref + FetchBench pointer array)
+# rounds=16384 threshold_ns=80 sources=256 pointers_per_source=8 mapping_pages=2304 wait_nops=1000 cpp_rctx=each_sample
+# source and pointer target share one <4-GiB mapping; targets are sparse randomized cache lines.
+# DMP evidence: pointer_content_no_deref has target cache hits above nonpointer_control; pointer_array_two_dereferences is supporting evidence.
+# timer=cntvct_el0 cntfrq_el0=1000000000Hz enable_pmu=0 enable_cache_probe=1
+# PMU disabled by ENABLE_PMU=0
+
+[nonpointer_control]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    5	   2		  129
+1	 2048	    3	   1		  124
+2	 2048	    1	   0		  130
+3	 2048	    2	   0		  131
+4	 2048	    3	   1		  125
+5	 2048	    1	   0		  125
+6	 2048	    3	   1		  122
+7	 2048	    5	   2		  116
+
+[pointer_content_no_deref]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    6	   2		  127
+1	 2048	    3	   1		  133
+2	 2048	    1	   0		  134
+3	 2048	    2	   0		  132
+4	 2048	    1	   0		  132
+5	 2048	    4	   1		  126
+6	 2048	    4	   1		  122
+7	 2048	    2	   0		  132
+
+[pointer_array_two_dereferences]
+# samples=16384
+# slot	probes	hits	per_1000	avg_latency_ns
+0	 2048	    5	   2		  130
+1	 2048	    2	   0		  132
+2	 2048	    2	   0		  127
+3	 2048	    3	   1		  128
+4	 2048	    4	   1		  129
+5	 2048	    6	   2		  126
+6	 2048	    4	   1		  131
+7	 2048	    5	   2		  129
