@@ -12,10 +12,11 @@ RUN_PREFIX ?=
 
 STRIDE_BYTES ?= 320
 TRAIN_STEP ?= 3
+TRAIN_START_LINE ?= 3
 ROUNDS ?= 40000
 PROBE_POSITIONS ?= 100
 SINGLE_PROBE ?= 0
-SINGLE_PROBE_POSITION ?= $(shell expr $(TRAIN_STEP) \* $(STRIDE_BYTES) / 64)
+SINGLE_PROBE_POSITION ?= $(shell expr $(TRAIN_STEP) \* $(STRIDE_BYTES) / 64 + $(TRAIN_START_LINE))
 DUMMY_BUFFER_PAGES ?= 10
 DUMMY_PRFM_PER_PAGE ?= 64
 ENABLE_DUMMY_ACCESSES ?= 1
@@ -40,6 +41,10 @@ else
 $(error ACCESS must be store, load, or prefetch)
 endif
 
+ENABLE_PMU := 1
+PMU_CORE_KP920 := 0
+CALIBRATE_PROBE := 0
+
 ifeq ($(ARCH),X925)
 DEFAULT_CORE := 6
 ARCH_CFLAGS := -march=armv8.5-a+predres
@@ -50,8 +55,15 @@ DEFAULT_CORE := 4
 ARCH_CFLAGS := -march=armv8.5-a+predres
 ENABLE_CPP_RCTX := 1
 PMU_CORE_X925 := 0
+else ifeq ($(ARCH),KP920)
+DEFAULT_CORE := 0
+ARCH_CFLAGS := -march=armv8-a
+ENABLE_CPP_RCTX := 0
+PMU_CORE_X925 := 0
+PMU_CORE_KP920 := 1
+CALIBRATE_PROBE := 1
 else
-$(error ARCH must be A725 or X925)
+$(error ARCH must be A725, X925, or KP920)
 endif
 
 ifeq ($(strip $(CORE)),)
@@ -61,12 +73,16 @@ endif
 CPPFLAGS += \
 	-DSTRIDE_BYTES=$(STRIDE_BYTES) \
 	-DTRAIN_STEP=$(TRAIN_STEP) \
+	-DTRAIN_START_LINE=$(TRAIN_START_LINE) \
 	-DROUNDS=$(ROUNDS) \
 	-DPROBE_POSITIONS=$(PROBE_POSITIONS) \
 	-DSINGLE_PROBE=$(SINGLE_PROBE) \
 	-DSINGLE_PROBE_POSITION=$(SINGLE_PROBE_POSITION) \
 	-DENABLE_CPP_RCTX=$(ENABLE_CPP_RCTX) \
+	-DENABLE_PMU=$(ENABLE_PMU) \
+	-DCALIBRATE_PROBE=$(CALIBRATE_PROBE) \
 	-DPMU_CORE_X925=$(PMU_CORE_X925) \
+	-DPMU_CORE_KP920=$(PMU_CORE_KP920) \
 	-DTRAIN_ACCESS_LOAD=$(TRAIN_ACCESS_LOAD) \
 	-DTRAIN_ACCESS_PREFETCH=$(TRAIN_ACCESS_PREFETCH) \
 	-DDUMMY_BUFFER_PAGES=$(DUMMY_BUFFER_PAGES) \
@@ -114,8 +130,8 @@ clean:
 	rm -f $(TARGET)
 
 help:
-	@echo "Build: make [ARCH=A725|X925] [ACCESS=store|load|prefetch]"
-	@echo "Run:   make run [ARCH=A725|X925] [CORE=N] [PMU_DEVICE=name]"
+	@echo "Build: make [ARCH=A725|X925|KP920] [ACCESS=store|load|prefetch]"
+	@echo "Run:   make run [ARCH=A725|X925|KP920] [CORE=N] [PMU_DEVICE=name]"
 	@echo "Compare dummy off/on: make compare-dummy ARCH=X925"
 	@echo "Compare flush barrier off/on: make compare-flush-barrier ARCH=X925"
 	@echo "Dummy PRFM density: make run DUMMY_BUFFER_PAGES=16 DUMMY_PRFM_PER_PAGE=32"

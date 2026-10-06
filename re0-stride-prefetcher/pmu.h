@@ -7,6 +7,10 @@
 #define PMU_CORE_X925 0
 #endif
 
+#ifndef PMU_CORE_KP920
+#define PMU_CORE_KP920 0
+#endif
+
 #ifndef PMU_CORE_A55
 #define PMU_CORE_A55 0
 #endif
@@ -70,11 +74,16 @@ struct pmu_read_value {
 #define PMU_COUNTER(counter_name, counter_event) \
     {counter_name, counter_event, -1, 0, 0, 0}
 
-#if PMU_CORE_X925 && PMU_CORE_A55
+#if (PMU_CORE_X925 + PMU_CORE_A55 + PMU_CORE_KP920) > 1
 #error "Only one PMU_CORE_* target can be selected"
 #endif
 
-#if PMU_CORE_X925
+#if PMU_CORE_KP920
+/* HIP08: Prefetch request from LSU, not a PRFM instruction counter. */
+static struct pmu_counter pmu_counters[] = {
+    PMU_COUNTER("PRF_REQ", 0x6013),
+};
+#elif PMU_CORE_X925
 static struct pmu_counter pmu_counters[] = {
     PMU_COUNTER("l1d_cache_hwprf",        0x8154),//Level 1 data cache hardware prefetch
     PMU_COUNTER("l2d_cache_hwprf",        0x8155),//Level 2 data cache hardware prefetch
@@ -127,7 +136,9 @@ static struct pmu_counter pmu_counters[] = {
     ((int)(sizeof(pmu_counters) / sizeof(pmu_counters[0])))
 
 static const char *pmu_core_name(void) {
-#if PMU_CORE_X925
+#if PMU_CORE_KP920
+    return "KP920";
+#elif PMU_CORE_X925
     return "Cortex-X925";
 #elif PMU_CORE_A55
     return "Cortex-A55";
@@ -275,13 +286,16 @@ static int pmu_setup_target(pid_t pid, int cpu) {
         attr.size = sizeof(attr);
         attr.config = pmu_counters[i].event;
         attr.disabled = 1;
+#if PMU_CORE_KP920
+        attr.pinned = 1;
+#endif
         attr.exclude_user = PMU_EXCLUDE_USER;
         attr.exclude_kernel = PMU_EXCLUDE_KERNEL;
         attr.exclude_hv = 1;
         attr.read_format = PERF_FORMAT_TOTAL_TIME_ENABLED |
                            PERF_FORMAT_TOTAL_TIME_RUNNING;
 
-        /* Open events independently so the kernel can multiplex them. */
+        /* Independent counters; KP920 pins its single PRF_REQ event. */
         int fd = (int)pmu_perf_event_open(&attr, pid, cpu, -1, 0);
         if (fd < 0) {
             fprintf(stderr,
@@ -370,6 +384,9 @@ static void pmu_stop_and_accumulate(void) {
         if (ioctl(pmu_counters[i].fd, PERF_EVENT_IOC_DISABLE, 0) != 0) {
             fprintf(stderr, "PMU: failed to stop %s: %s\n",
                     pmu_counters[i].name, strerror(errno));
+#if PMU_CORE_KP920
+            exit(EXIT_FAILURE);
+#endif
             continue;
         }
 
@@ -378,9 +395,18 @@ static void pmu_stop_and_accumulate(void) {
             (ssize_t)sizeof(result)) {
             fprintf(stderr, "PMU: failed to read %s: %s\n",
                     pmu_counters[i].name, strerror(errno));
+#if PMU_CORE_KP920
+            exit(EXIT_FAILURE);
+#endif
             continue;
         }
 
+#if PMU_CORE_KP920
+        if (result.time_running == 0 || result.time_running != result.time_enabled) {
+            fprintf(stderr, "PMU: PRF_REQ was not fully scheduled; counts discarded\n");
+            exit(EXIT_FAILURE);
+        }
+#endif
         pmu_counters[i].accumulated_value += result.value;
         pmu_counters[i].accumulated_time_enabled += result.time_enabled;
         pmu_counters[i].accumulated_time_running += result.time_running;
@@ -393,8 +419,9 @@ static void pmu_print_accumulated(uint64_t rounds) {
             continue;
         }
 #if !PMU_PRINT_ALL
-        if (PMU_PRINT_EVENT != NULL &&
-            strcmp(pmu_counters[i].name, PMU_PRINT_EVENT) != 0) {
+        const char *print_event = PMU_PRINT_EVENT;
+        if (print_event != NULL &&
+            strcmp(pmu_counters[i].name, print_event) != 0) {
             continue;
         }
 #endif
@@ -407,9 +434,18 @@ static void pmu_print_accumulated(uint64_t rounds) {
                 (double)pmu_counters[i].accumulated_time_enabled /
                 (double)pmu_counters[i].accumulated_time_running;
         }
+#if PMU_CORE_KP920
+        printf("# PMU %-24s event=0x%llx total=%llu per_round=%.6f windows=%llu\n",
+               pmu_counters[i].name,
+               (unsigned long long)pmu_counters[i].event,
+               (unsigned long long)pmu_counters[i].accumulated_value,
+               rounds ? scaled / (double)rounds : 0.0,
+               (unsigned long long)rounds);
+#else
         printf("# PMU %-24s per_round=%.2f\n",
                pmu_counters[i].name,
                rounds != 0 ? scaled / (double)rounds : 0.0);
+#endif
     }
 }
 

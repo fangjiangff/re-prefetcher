@@ -1,5 +1,15 @@
 ARCH_CONFIG = {
+    "KP920": {
+        "core": 0,
+        "timer": "cntvct",
+        # test0-exist calibrates its cache-probe threshold on the local CPU.
+        "threshold_ns": 5,
+        "support_pmu": True,
+        "support_cpp_rctx": False,
+    },
     "X925": {
+        "support_pmu": True,
+        "support_cpp_rctx": True,
         "core": 6,
         "timer": "cntvct",
         "threshold_ns": 80,
@@ -13,6 +23,8 @@ ARCH_CONFIG = {
         },
     },
     "A725": {
+        "support_pmu": True,
+        "support_cpp_rctx": True,
         "core": 4,
         "timer": "cntvct",
         "threshold_ns": 120,
@@ -26,6 +38,8 @@ ARCH_CONFIG = {
         },
     },
     "A78": {
+        "support_pmu": True,
+        "support_cpp_rctx": False,
         "core": 4,
         "timer": "cntvct",
         "threshold_ns": 150,
@@ -39,6 +53,8 @@ ARCH_CONFIG = {
         },
     },
     "A55": {
+        "support_pmu": True,
+        "support_cpp_rctx": False,
         "core": 1,
         "timer": "gettime",
         "threshold_ns": 120,
@@ -52,6 +68,8 @@ ARCH_CONFIG = {
         },
     },
     "A76": {
+        "support_pmu": True,
+        "support_cpp_rctx": False,
         "core": 1,
         "timer": "cntvct",
         "threshold_ns": 170,
@@ -65,6 +83,8 @@ ARCH_CONFIG = {
         },
     },
     "A53": {
+        "support_pmu": True,
+        "support_cpp_rctx": False,
         "core": 0,
         "timer": "cntvct",
         "threshold_ns": 170,
@@ -78,6 +98,8 @@ ARCH_CONFIG = {
         },
     },
     "Zen4": {
+        "support_pmu": True,
+        "support_cpp_rctx": False,
         "core": 0,
         "timer": "gettime",
         "threshold_ns": 170,
