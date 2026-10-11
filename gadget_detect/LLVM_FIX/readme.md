@@ -2,7 +2,7 @@
 
 This note describes how to download, patch, build, and run the customized LLVM/Clang used by `RSbypassSP/gadget_detect` for AArch64 gadget detection.
 
-The current AArch64 pass detects six gadget classes:
+The current AArch64 pass detects seven gadget classes:
 
 ```text
 Control-flow load Gadgets Found in
@@ -11,9 +11,14 @@ Control-flow store Gadgets Found in
 Data-flow store Gadgets Found in
 Control-flow swp Gadgets Found in
 Data-flow swp Gadgets Found in
+Control-flow dual-address Gadgets Found in
 ```
 
 Here `swp` means software prefetch. On AArch64, the pass recognizes `PRFM` and `PRFUM` machine instructions.
+
+The dual-address class finds two load/store operations controlled by the same
+secret-dependent branch. Both operations must use the same base register and
+have a fixed byte-offset difference between 64 and 1984, inclusive.
 
 ## Analyzer Source and Patch
 

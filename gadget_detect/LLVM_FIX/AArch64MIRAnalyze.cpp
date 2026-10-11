@@ -382,6 +382,51 @@ static StringRef dataFlowType(MemoryGadgetKind Kind) {
   return "data-flow-unknown";
 }
 
+struct FixedMemoryAccess {
+  MachineInstr *MI;
+  const MachineOperand *Base;
+  int64_t Offset;
+};
+
+static bool getFixedMemoryAccess(MachineInstr &MI, const AArch64InstrInfo *TII,
+                                 const TargetRegisterInfo *TRI,
+                                 FixedMemoryAccess &Access) {
+  if (!TII || MI.isCall() || !MI.mayLoadOrStore() ||
+      isSoftwarePrefetch(MI, TII))
+    return false;
+
+  const MachineOperand *Base;
+  int64_t Offset;
+  bool OffsetIsScalable;
+  if (!TII->getMemOperandWithOffset(MI, Base, Offset, OffsetIsScalable, TRI) ||
+      OffsetIsScalable || !Base->isReg())
+    return false;
+
+  Access = {&MI, Base, Offset};
+  return true;
+}
+
+static bool haveSameBase(const MachineOperand &LHS, const MachineOperand &RHS) {
+  return LHS.isReg() && RHS.isReg() && LHS.getReg() == RHS.getReg();
+}
+
+static bool isDualAddressPair(const FixedMemoryAccess &First,
+                              const FixedMemoryAccess &Second) {
+  if (!haveSameBase(*First.Base, *Second.Base))
+    return false;
+
+  uint64_t Distance = First.Offset < Second.Offset
+                          ? static_cast<uint64_t>(Second.Offset - First.Offset)
+                          : static_cast<uint64_t>(First.Offset - Second.Offset);
+  return Distance >= 64 && Distance <= 1984;
+}
+
+static const char *memoryAccessName(const MachineInstr &MI) {
+  if (MI.mayLoad() && MI.mayStore())
+    return "load/store";
+  return MI.mayLoad() ? "load" : "store";
+}
+
 static MachineInstr *findFirstMemoryOpOnBranchPath(MachineBasicBlock *Start,
                                                    MachineBasicBlock *BranchMBB,
                                                    MachinePostDominatorTree *MPDT,
@@ -551,6 +596,104 @@ static bool reportDataFlowMemoryGadget(
   return false;
 }
 
+static bool reportControlFlowDualAddressGadget(
+    MachineFunction &MF, MachinePostDominatorTree *MPDT,
+    const SmallDenseMap<unsigned, unsigned, 32> &TaintRegs,
+    const TargetRegisterInfo *TRI, const AArch64InstrInfo *TII, int ArgIndex,
+    SmallSet<std::string, 32> &SeenGadgets) {
+  for (auto &BranchMBB : MF) {
+    if (BranchMBB.succ_size() <= 1)
+      continue;
+
+    MachineInstr *TaintedCondMI = nullptr;
+    MachineInstr *BranchMI = nullptr;
+    if (!isSecretDependentBranch(BranchMBB, TaintRegs, TRI, TaintedCondMI,
+                                 BranchMI))
+      continue;
+
+    DenseMap<MachineBasicBlock *, SmallVector<FixedMemoryAccess, 8>> Reaching;
+    SmallVector<MachineBasicBlock *, 8> WorkList;
+    SmallPtrSet<MachineBasicBlock *, 16> Queued;
+    SmallPtrSet<MachineBasicBlock *, 16> Processed;
+    for (MachineBasicBlock *Succ : BranchMBB.successors()) {
+      Reaching.try_emplace(Succ);
+      if (Queued.insert(Succ).second)
+        WorkList.push_back(Succ);
+    }
+
+    while (!WorkList.empty()) {
+      MachineBasicBlock *MBB = WorkList.pop_back_val();
+      Queued.erase(MBB);
+      if (MPDT && MPDT->dominates(MBB, &BranchMBB))
+        continue;
+      bool FirstVisit = Processed.insert(MBB).second;
+
+      SmallVector<FixedMemoryAccess, 8> Accesses = Reaching[MBB];
+      for (MachineInstr &MI : *MBB) {
+        FixedMemoryAccess Current;
+        if (!getFixedMemoryAccess(MI, TII, TRI, Current))
+          continue;
+
+        for (const FixedMemoryAccess &Previous : Accesses) {
+          if (!isDualAddressPair(Previous, Current))
+            continue;
+
+          StringRef Type = "control-flow-dual-address";
+          if (!markIfNew(SeenGadgets,
+                         getDedupKey(Type, Previous.MI, Current.MI)))
+            continue;
+
+          uint64_t Distance =
+              Previous.Offset < Current.Offset
+                  ? static_cast<uint64_t>(Current.Offset - Previous.Offset)
+                  : static_cast<uint64_t>(Previous.Offset - Current.Offset);
+          std::cout << " Control-flow dual-address Gadgets Found in ---->  "
+                    << MF.getName().str()
+                    << "\n\t[+] Secret-dependent branch at: "
+                    << filenameFromMI(BranchMI) << ":" << lineFromMI(BranchMI)
+                    << " (BB#" << BranchMI->getParent()->getNumber() << ")"
+                    << "\n\t[+] First " << memoryAccessName(*Previous.MI)
+                    << " at: " << filenameFromMI(Previous.MI) << ":"
+                    << lineFromMI(Previous.MI) << " (BB#"
+                    << Previous.MI->getParent()->getNumber() << ", offset "
+                    << Previous.Offset << ")"
+                    << "\n\t[+] Second " << memoryAccessName(MI)
+                    << " at: " << filenameFromMI(&MI) << ":" << lineFromMI(&MI)
+                    << " (BB#" << MI.getParent()->getNumber() << ", offset "
+                    << Current.Offset << ")"
+                    << "\n\t[+] Address distance: " << Distance << " bytes"
+                    << "\n\t[+] Taint Info: livein " << ArgIndex << std::endl;
+          return true;
+        }
+
+        bool AlreadyPresent = false;
+        for (const FixedMemoryAccess &Access : Accesses)
+          AlreadyPresent |= Access.MI == &MI;
+        if (!AlreadyPresent)
+          Accesses.push_back(Current);
+      }
+
+      for (MachineBasicBlock *Succ : MBB->successors()) {
+        auto &SuccAccesses = Reaching[Succ];
+        bool Changed = false;
+        for (const FixedMemoryAccess &Access : Accesses) {
+          bool AlreadyPresent = false;
+          for (const FixedMemoryAccess &SuccAccess : SuccAccesses)
+            AlreadyPresent |= SuccAccess.MI == Access.MI;
+          if (!AlreadyPresent) {
+            SuccAccesses.push_back(Access);
+            Changed = true;
+          }
+        }
+        if ((FirstVisit || Changed) && Queued.insert(Succ).second)
+          WorkList.push_back(Succ);
+      }
+    }
+  }
+
+  return false;
+}
+
 char AArch64MIRAnalyzePass::ID = 0;
 
 void AArch64MIRAnalyzePass::getAnalysisUsage(AnalysisUsage &AU) const {
@@ -611,6 +754,8 @@ bool AArch64MIRAnalyzePass::runOnMachineFunction(MachineFunction &MF) {
     reportDataFlowMemoryGadget(MF, TaintRegs, TRI, TII, ArgIndex,
                                MemoryGadgetKind::SoftwarePrefetch,
                                SeenGadgets);
+    reportControlFlowDualAddressGadget(MF, MPDT, TaintRegs, TRI, TII,
+                                       ArgIndex, SeenGadgets);
 
   }
 

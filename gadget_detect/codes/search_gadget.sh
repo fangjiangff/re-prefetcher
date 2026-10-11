@@ -3,12 +3,22 @@
 set -u
 set -o pipefail
 
-# Run this script from anywhere. It uses RSbypassSP/gadget_detect/codes as root.
+# Run this script from anywhere. It uses this codes directory as root.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LLVM_BIN="$ROOT_DIR/../llvm-project/build/bin"
 CLANG="$LLVM_BIN/clang"
 CLANGXX="$LLVM_BIN/clang++"
 LOCAL_PREFIX="$ROOT_DIR/local"
+DUAL_ONLY_LOGS="${DUAL_ONLY_LOGS:-0}"
+DUAL_LOG_FILTER="$ROOT_DIR/filter_dual_log.awk"
+
+case "$DUAL_ONLY_LOGS" in
+  0|1) ;;
+  *)
+    printf "[!] DUAL_ONLY_LOGS must be 0 or 1\n" >&2
+    exit 2
+    ;;
+esac
 
 TARGET="aarch64-unknown-linux-gnu"
 NPROC="$(nproc)"
@@ -22,13 +32,13 @@ export PKG_CONFIG_PATH="$LOCAL_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONF
 export LD_LIBRARY_PATH="$LOCAL_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # AArch64 gadget detector + aggressive LLVM automatic loop software prefetching.
-PREFETCH_FLAGS="-mllvm -aarch64-enable-loop-data-prefetch=true"
-PREFETCH_FLAGS+=" -mllvm -prefetch-distance=2048"
-PREFETCH_FLAGS+=" -mllvm -min-prefetch-stride=1"
-PREFETCH_FLAGS+=" -mllvm -max-prefetch-iters-ahead=100000"
-PREFETCH_FLAGS+=" -mllvm -loop-prefetch-writes=true"
+PREFETCH_FLAGS="-mllvm=-aarch64-enable-loop-data-prefetch=true"
+PREFETCH_FLAGS+=" -mllvm=-prefetch-distance=2048"
+PREFETCH_FLAGS+=" -mllvm=-min-prefetch-stride=1"
+PREFETCH_FLAGS+=" -mllvm=-max-prefetch-iters-ahead=100000"
+PREFETCH_FLAGS+=" -mllvm=-loop-prefetch-writes=true"
 
-CFLAGS="--target=$TARGET -mcpu=kryo -O2 $PREFETCH_FLAGS -mllvm -aarch64-mir-analyze -g"
+CFLAGS="--target=$TARGET -mcpu=kryo -O2 $PREFETCH_FLAGS -mllvm=-aarch64-mir-analyze -g"
 CXXFLAGS="$CFLAGS"
 
 LIB_NAMES=(libgcrypt libsodium wolfssl openssl mbedTLS BearSSL Nettle PQClean)
@@ -56,22 +66,30 @@ count_marker() {
 }
 
 print_summary_table() {
-  local types=(
-    "Control-flow load"
-    "Data-flow load"
-    "Control-flow store"
-    "Data-flow store"
-    "Control-flow swp"
-    "Data-flow swp"
-  )
-  local markers=(
-    "Control-flow load Gadgets Found in"
-    "Data-flow load Gadgets Found in"
-    "Control-flow store Gadgets Found in"
-    "Data-flow store Gadgets Found in"
-    "Control-flow swp Gadgets Found in"
-    "Data-flow swp Gadgets Found in"
-  )
+  local types markers
+  if [ "$DUAL_ONLY_LOGS" = 1 ]; then
+    types=("Control-flow dual-address")
+    markers=("Control-flow dual-address Gadgets Found in")
+  else
+    types=(
+      "Control-flow load"
+      "Data-flow load"
+      "Control-flow store"
+      "Data-flow store"
+      "Control-flow swp"
+      "Data-flow swp"
+      "Control-flow dual-address"
+    )
+    markers=(
+      "Control-flow load Gadgets Found in"
+      "Data-flow load Gadgets Found in"
+      "Control-flow store Gadgets Found in"
+      "Data-flow store Gadgets Found in"
+      "Control-flow swp Gadgets Found in"
+      "Data-flow swp Gadgets Found in"
+      "Control-flow dual-address Gadgets Found in"
+    )
+  fi
 
   : > "$SUMMARY_FILE"
   {
@@ -103,10 +121,30 @@ run_build() {
 
   printf "[+] Building %-8s -> %s\n" "$name" "$log_file"
   : > "$log_file"
-  if "$build_func" >> "$log_file" 2>&1; then
+  if [ "$DUAL_ONLY_LOGS" = 0 ]; then
+    if "$build_func" >> "$log_file" 2>&1; then
+      printf "[+] %-8s done\n" "$name"
+    else
+      printf "[!] %-8s failed; see %s\n" "$name" "$log_file"
+    fi
+    return
+  fi
+
+  local raw_log="${log_file%.log}_build.log"
+  local build_status=0
+  : > "$raw_log"
+  "$build_func" >> "$raw_log" 2>&1 || build_status=$?
+
+  if ! awk -f "$DUAL_LOG_FILTER" "$raw_log" > "$log_file"; then
+    printf "[!] Failed to filter %s\n" "$raw_log" >&2
+    return 1
+  fi
+
+  if [ "$build_status" -eq 0 ]; then
+    rm -f "$raw_log"
     printf "[+] %-8s done\n" "$name"
   else
-    printf "[!] %-8s failed; see %s\n" "$name" "$log_file"
+    printf "[!] %-8s failed; see %s\n" "$name" "$raw_log"
   fi
 }
 
@@ -220,6 +258,7 @@ echo "[+] CLANG        = $CLANG"
 echo "[+] TARGET       = $TARGET"
 echo "[+] CFLAGS       = $CFLAGS"
 echo "[+] GPGRT_CONFIG = $GPGRT_CONFIG"
+echo "[+] DUAL_ONLY_LOGS = $DUAL_ONLY_LOGS"
 echo
 
 run_build libgcrypt "${LOG_FILES[0]}" build_libgcrypt

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "id": "cortex-a725-cpu4",
+  "label": "A725",
+  "architecture": "aarch64",
+  "cpu": {"model": "Cortex-A725", "core": 4, "midr": null},
+  "timing": {"source": "cntvct", "unit": "ns", "cache_hit_threshold": 120, "calibration_required": true},
+  "pmu": {
+    "mode": "direct_mrs",
+    "module": "prefetch_pmu_event",
+    "events": {"l1d_cache_hwprf": "0x8154", "l2d_cache_hwprf": "0x8285"},
+    "limitations": ["0x8285 includes hardware and software prefetch"]
+  },
+  "capabilities": ["aarch64", "cpu_affinity", "cache_flush", "cache_probe", "cntvct", "cpp_rctx", "direct_pmu"],
+  "execution": {"affinity_required": true, "isolated_cpu_recommended": true, "privilege_policy": "approve_module_management"}
+}

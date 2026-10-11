@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "id": "cortex-x925-cpu6",
+  "label": "X925",
+  "architecture": "aarch64",
+  "cpu": {"model": "Cortex-X925", "core": 6, "midr": null},
+  "timing": {"source": "cntvct", "unit": "ns", "cache_hit_threshold": 80, "calibration_required": true},
+  "pmu": {
+    "mode": "direct_mrs",
+    "module": "prefetch_pmu_event",
+    "events": {"l1d_cache_hwprf": "0x8154", "l2d_cache_hwprf": "0x8155"},
+    "limitations": ["implementation-defined events are not one-to-one cache-line counts"]
+  },
+  "capabilities": ["aarch64", "cpu_affinity", "cache_flush", "cache_probe", "cntvct", "cpp_rctx", "direct_pmu"],
+  "execution": {"affinity_required": true, "isolated_cpu_recommended": true, "privilege_policy": "approve_module_management"}
+}

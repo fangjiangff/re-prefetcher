@@ -1,0 +1,26 @@
+# BOP existence and offset-relocation test
+# offset_lines=7 offset_bytes=448
+# rounds=100 train_pairs=1000 trigger_batch=1 pages=8192 threshold_ns=100 wait_nops=2000 train_pcs=16
+# pre_trigger_action=none
+# strict_training=1 training_flush=each training_noise_loads=0 trigger_slot_policy=fixed_tail
+# random_control_match=matched_mate_page_class_and_line_range
+# probe_interpretation=measurable
+# layout_span_pages=1 training_slot_first=0 training_slot_count=1000 trigger_slot_first=8191 trigger_slot_count=1
+# train pairs and trigger pages are disjoint within each round
+# all triggers complete before any target is probed
+# PMU core=Cortex-A725 events=0x8154,0x8285
+
+[untrained]
+# train_mode=0 train_offset_lines=7 probe_delta_lines=7 rounds=100
+# pre_trigger_action=none
+# CACHE probes=100 hits=0 hits_per_1000=0 avg_latency_ns=165.76 threshold_ns=100
+
+[random_delta_control]
+# train_mode=2 train_offset_lines=- probe_delta_lines=7 rounds=100
+# pre_trigger_action=none
+# CACHE probes=100 hits=0 hits_per_1000=0 avg_latency_ns=157.60 threshold_ns=100
+
+[fixed_offset_expected]
+# train_mode=1 train_offset_lines=7 probe_delta_lines=7 rounds=100
+# pre_trigger_action=none
+# CACHE probes=100 hits=0 hits_per_1000=0 avg_latency_ns=160.16 threshold_ns=100
