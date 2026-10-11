@@ -12,8 +12,8 @@ SRC = os.path.join(BASE_DIR, "test0-policy-old.c")
 UTIL_SRC = os.path.join(BASE_DIR, "until.c")
 OUT = os.path.join(BASE_DIR, "bin", "test0-policy-old")
 
-DEFAULT_SEQUENCE = "0,24,11"
-DEFAULT_ROUNDS = 40000
+DEFAULT_SEQUENCE = "24,11,53"
+DEFAULT_ROUNDS = 4000
 DEFAULT_PROBE_POSITIONS = 100
 GREEN = "\033[32m"
 RED = "\033[31m"
@@ -66,6 +66,10 @@ def parse_args():
     parser.add_argument("--probe-positions", type=int,
                         default=DEFAULT_PROBE_POSITIONS,
                         help=f"Probe cache lines 0..N-1. Default: {DEFAULT_PROBE_POSITIONS}")
+    parser.add_argument("--probe-pos", type=int, default=16,
+                        help="Cache-line index to probe once after training. Default: 16")
+    parser.add_argument("--cpp-rctx", action="store_true",
+                        help="Execute CPP RCTX before each training round (X925/A725 only).")
     parser.add_argument("--hit-threshold-ns", type=int, default=None,
                         help="Line is reported as possible-prefetched when avg latency <= this value. Default is selected from --arch.")
     parser.add_argument("--timer", choices=["gettime", "rdtsc"], default="gettime",
@@ -100,12 +104,18 @@ def parse_args():
         parser.error("--rounds must be >= 1")
     if args.probe_positions < 1:
         parser.error("--probe-positions must be >= 1")
+    if not 0 <= args.probe_pos < args.probe_positions:
+        parser.error("--probe-pos must be >= 0 and < --probe-positions")
     if max(args.sequence) >= args.probe_positions:
         parser.error("--probe-positions must be greater than every sequence line")
     if args.dummy_buffer_pages < 1:
         parser.error("--dummy-buffer-pages must be >= 1")
     if args.hit_threshold_ns is not None and args.hit_threshold_ns < 1:
         parser.error("--hit-threshold-ns must be >= 1")
+    requested_arches = parse_csv_list(args.arches) if args.arches is not None else (
+        [args.arch] if args.arch is not None else list(arch_choices()))
+    if args.cpp_rctx and any(arch not in {"X925", "A725"} for arch in requested_arches):
+        parser.error("--cpp-rctx requires explicitly selecting only X925/A725")
     return args
 
 
@@ -176,7 +186,8 @@ def result_name(arch, core):
     dummy_suffix = "" if args.dummy_buffer_pages == 10 else f"-dummypages{args.dummy_buffer_pages}"
     return (
         f"{arch}-core{core}-policy-seq{sequence_name(args.sequence)}"
-        f"-{args.access}{timer_suffix}{dummy_suffix}"
+        f"-{args.access}{timer_suffix}{dummy_suffix}-rounds{args.rounds}-probe{args.probe_pos}"
+        f"{'-cpp-rctx' if args.cpp_rctx else ''}"
     )
 
 
@@ -276,6 +287,8 @@ def compile_test(arch):
         "-static",
         f"-DROUNDS={args.rounds}",
         f"-DPROBE_POSITIONS={args.probe_positions}",
+        f"-DPROBE_POS={args.probe_pos}",
+        f"-DENABLE_CPP_RCTX={int(args.cpp_rctx)}",
         f"-DACCESS_SEQUENCE={sequence_macro}",
         f"-DACCESS_SEQUENCE_LEN={len(args.sequence)}",
         f"-DTRAIN_ACCESS_LOAD={1 if args.access == 'load' else 0}",
@@ -287,6 +300,8 @@ def compile_test(arch):
         UTIL_SRC,
     ]
     timer_define = timer_define_for(arch)
+    if args.cpp_rctx:
+        compile_cmd.insert(1, "-march=armv8.5-a+predres")
     if timer_define is not None:
         compile_cmd.insert(-4, timer_define)
     return subprocess.run(compile_cmd).returncode
@@ -406,6 +421,7 @@ def run_one(arch, core):
         f"access={args.access}, arch={arch}, core={core}, "
         f"sequence={args.sequence}, rounds={args.rounds}, "
         f"probe_positions={args.probe_positions}, "
+        f"probe_pos={args.probe_pos}, "
         f"threshold={threshold} {unit}, "
         f"timer={args.timer if is_x86_arch(arch) else 'arch-default'}"
     )
@@ -423,6 +439,7 @@ def run_one(arch, core):
         return []
     with open(raw_path_for(arch, core), "w") as f:
         f.write(run.stdout)
+    print(run.stdout, end="")
     rows = parse_output(run.stdout, arch)
     if rows:
         write_tsv(rows, tsv_path_for(arch, core))

@@ -28,6 +28,30 @@ class BopRunnerPmuBindingTests(unittest.TestCase):
     def setUpClass(cls):
         cls.driver = load_driver()
 
+    def test_training_access_type(self):
+        for access_type, options in (("load", []), ("load", ["--type", "load"]),
+                                     ("store", ["--type", "store"])):
+            with self.subTest(access_type=access_type, options=options):
+                with mock.patch.object(sys, "argv", [str(DRIVER), *options]):
+                    args = self.driver.parse_args()
+                self.assertEqual(args.type, access_type)
+                with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+                    self.driver, "RESULT_DIR", Path(directory)
+                ):
+                    paths = [self.driver.output_paths(args)[0],
+                             self.driver.sweep_output_paths(args)[0],
+                             self.driver.offset_sweep_output_path(args)]
+                for path in paths:
+                    self.assertEqual("-store" in path.stem, access_type == "store")
+        self.assertNotEqual(self.driver.binary_path("cache", "load"),
+                            self.driver.binary_path("cache", "store"))
+
+    def test_invalid_training_access_type_is_rejected(self):
+        with mock.patch.object(sys, "argv", [str(DRIVER), "--type", "invalid"]):
+            with mock.patch("sys.stderr"), self.assertRaises(SystemExit) as error:
+                self.driver.parse_args()
+        self.assertEqual(error.exception.code, 2)
+
     def test_loaded_module_on_another_cpu_is_unloaded_and_rebound(self):
         state = {"loaded": True, "target_cpu": 6}
         calls = []

@@ -15,6 +15,14 @@
 #define PROBE_POSITIONS 100
 #endif
 
+#ifndef PROBE_POS
+#define PROBE_POS 16
+#endif
+
+#ifndef ENABLE_CPP_RCTX
+#define ENABLE_CPP_RCTX 0
+#endif
+
 #ifndef ACCESS_SEQUENCE
 #define ACCESS_SEQUENCE 0, 24, 11
 #endif
@@ -40,6 +48,7 @@
 #endif
 
 #define DUMMY_BUFFER_SIZE (PAGE_SIZE * DUMMY_BUFFER_PAGES)
+#define TRAIN_PC_COUNT 16
 
 static const int access_sequence[ACCESS_SEQUENCE_LEN] = { ACCESS_SEQUENCE };
 static uint8_t *dummy_buffer;
@@ -58,13 +67,43 @@ static void dummyAccesses(void) {
 
 static inline __attribute__((always_inline)) void policy_access(void *addr) {
 #if TRAIN_ACCESS_PREFETCH
-    mPrefetch_noinline(addr);
+    mPrefetch_inline(addr);
 #elif TRAIN_ACCESS_LOAD
-    mLoad_noinline(addr);
+    mLoad_inline(addr);
 #else
-    mStore_noinline(addr);
+    mStore_inline(addr);
 #endif
 }
+
+// Prevent the compiler from merging the distinct access PCs.
+#define DEFINE_ACCESS(number) \
+    static __attribute__((noinline, noclone, no_icf)) void train_pc##number(void *addr) { \
+        policy_access(addr); \
+    }
+
+DEFINE_ACCESS(0)
+DEFINE_ACCESS(1)
+DEFINE_ACCESS(2)
+DEFINE_ACCESS(3)
+DEFINE_ACCESS(4)
+DEFINE_ACCESS(5)
+DEFINE_ACCESS(6)
+DEFINE_ACCESS(7)
+DEFINE_ACCESS(8)
+DEFINE_ACCESS(9)
+DEFINE_ACCESS(10)
+DEFINE_ACCESS(11)
+DEFINE_ACCESS(12)
+DEFINE_ACCESS(13)
+DEFINE_ACCESS(14)
+DEFINE_ACCESS(15)
+
+static void (*const train_pcs[TRAIN_PC_COUNT])(void *) = {
+    train_pc0, train_pc1, train_pc2, train_pc3,
+    train_pc4, train_pc5, train_pc6, train_pc7,
+    train_pc8, train_pc9, train_pc10, train_pc11,
+    train_pc12, train_pc13, train_pc14, train_pc15,
+};
 
 static void delay_after_accesses(void) {
     uint64_t dummy = 0;
@@ -107,6 +146,8 @@ static void print_header(uint64_t rounds) {
     printf("# rounds=%llu probe_positions=%d\n",
            (unsigned long long)rounds, PROBE_POSITIONS);
     printf("# timer: %s %s\n", TIMESTAMP_SOURCE_NAME, TIMESTAMP_UNIT_NAME);
+    printf("# training PCs: %d; one PC per round, rotating\n", TRAIN_PC_COUNT);
+    printf("# ENABLE_CPP_RCTX=%d\n", ENABLE_CPP_RCTX);
     printf("# position\toffset_bytes\tavg_%s\tprobes\n", TIMESTAMP_UNIT_NAME);
 }
 
@@ -135,6 +176,10 @@ int main(void) {
         fprintf(stderr, "PROBE_POSITIONS exceeds array2 line count\n");
         return 1;
     }
+    if (PROBE_POS < 0 || PROBE_POS >= PROBE_POSITIONS) {
+        fprintf(stderr, "PROBE_POS must be in [0, PROBE_POSITIONS)\n");
+        return 1;
+    }
 
     memset(array2, -1, Items * LINE_SIZE * sizeof(uint8_t));
 
@@ -158,39 +203,61 @@ int main(void) {
 
     print_header(rounds);
     // printf(rounds);
+    for (uint64_t offset = 0; offset < Items * LINE_SIZE; offset += LINE_SIZE) {
+        flush(&array2[offset]);
+    }
+
     for (uint64_t atkRound = 0; atkRound < rounds; atkRound++) {
         // dummyAccesses();
+#if ENABLE_CPP_RCTX
+        asm volatile("cpp rctx, xzr\n\tdsb sy\n\tisb" ::: "memory");
+#endif
 
-        for (uint64_t offset = 0; offset < Items * LINE_SIZE; offset += LINE_SIZE) {
-            flush(&array2[offset]);
-        }
+        // for (uint64_t offset = 0; offset < Items * LINE_SIZE; offset += LINE_SIZE) {
+        //     flush(&array2[offset]);
+        // }
         // mfence();
-
+        
+        // shortcut: PCs repeat every 16 rounds; enlarge the pool for a longer reuse interval.
+        void (*train_access)(void *) = train_pcs[atkRound % TRAIN_PC_COUNT];
         for (int i = 0; i < ACCESS_SEQUENCE_LEN; i++) {
-            policy_access(array2 + access_sequence[i] * LINE_SIZE);
+            train_access(array2 + access_sequence[i] * LINE_SIZE);
         }
 
         // delay_after_accesses();
 
-        int probe_pos = atkRound % PROBE_POSITIONS;
-        probe_addr = array2 + probe_pos * LINE_SIZE;
+        // int probe_pos = atkRound % PROBE_POSITIONS;
+        // probe_addr = array2 + probe_pos * LINE_SIZE;
 
-        time1 = timestamp();
-        junk = *probe_addr;
-        time2 = timestamp() - time1;
+        // time1 = timestamp();
+        // junk = *probe_addr;
+        // // mStore_noinline((void *)probe_addr);
+        // time2 = timestamp() - time1;
 
-        latency_sum[probe_pos] += time2;
-        probe_count[probe_pos]++;
+        // latency_sum[probe_pos] += time2;
+        // probe_count[probe_pos]++;
     }
 
-    for (int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
-        long long int avg = 0;
-        if (probe_count[probe_pos] > 0) {
-            avg = latency_sum[probe_pos] / probe_count[probe_pos];
-        }
-        printf("%3d\t%12d\t%10lld\t%5d\n",
-               probe_pos, probe_pos * LINE_SIZE, avg, probe_count[probe_pos]);
-    }
+
+    //probe a specical address to test
+    int probe_pos = PROBE_POS;
+    probe_addr = array2 + probe_pos * LINE_SIZE;
+    time1 = timestamp();
+    junk = *probe_addr;
+    time2 = timestamp() - time1;
+    latency_sum[probe_pos] += time2;
+    probe_count[probe_pos]++;
+    printf("%3d\t%12d\t%10lld\t%5d\n",
+           probe_pos, probe_pos * LINE_SIZE, latency_sum[probe_pos], probe_count[probe_pos]);
+
+    // for (int probe_pos = 0; probe_pos < PROBE_POSITIONS; probe_pos++) {
+    //     long long int avg = 0;
+    //     if (probe_count[probe_pos] > 0) {
+    //         avg = latency_sum[probe_pos] / probe_count[probe_pos];
+    //     }
+    //     printf("%3d\t%12d\t%10lld\t%5d\n",
+    //            probe_pos, probe_pos * LINE_SIZE, avg, probe_count[probe_pos]);
+    // }
 
     (void)junk;
     return 0;

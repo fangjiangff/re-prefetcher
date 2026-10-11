@@ -83,6 +83,8 @@ def parse_args():
     parser.add_argument("--rounds", type=int, default=100)
     parser.add_argument("--threshold-ns", type=int)
     parser.add_argument("--train-pairs", type=int, default=1024)
+    parser.add_argument("--type", choices=("load", "store"), default="load",
+                        help="Training and trigger access type (probes remain loads).")
     parser.add_argument(
         "--offset", "--offset-lines", dest="offset_lines", type=int,
         default=DEFAULT_OFFSET_LINES,
@@ -100,7 +102,7 @@ def parse_args():
     parser.add_argument(
         "--pre-trigger-action", choices=PRE_TRIGGER_ACTIONS, default="none",
         help=(
-            "Action to run after training/setup and before trigger loads: "
+            "Action to run after training/setup and before trigger accesses: "
             "none, syscall, yield, nanosleep, cpp_rctx, or process."
         ),
     )
@@ -159,12 +161,13 @@ def parse_args():
     return args
 
 
-def binary_path(kind):
-    return BIN_DIR / f"test-bop-{kind}"
+def binary_path(kind, access_type="load"):
+    suffix = "-store" if access_type == "store" else ""
+    return BIN_DIR / f"test-bop-{kind}{suffix}"
 
 
 def build(args, kind, enable_pmu, enable_cache_probe):
-    output = binary_path(kind)
+    output = binary_path(kind, args.type)
     BIN_DIR.mkdir(parents=True, exist_ok=True)
     command = [
         args.cc,
@@ -178,6 +181,7 @@ def build(args, kind, enable_pmu, enable_cache_probe):
         f"-DENABLE_PMU={int(enable_pmu)}",
         f"-DENABLE_CACHE_PROBE={int(enable_cache_probe)}",
         f"-DPREFETCH_WAIT_NOPS={args.wait_nops}",
+        f"-DTRAIN_STORE={int(args.type == 'store')}",
         f"-DPMU_CORE_X925={int(args.arch == 'X925')}",
         str(SRC),
         str(UTIL_SRC),
@@ -194,12 +198,9 @@ def run_arguments(args):
         str(args.threshold_ns),
         str(args.train_pairs),
         str(args.trigger_batch),
+        str(args.offset_lines),
     ]
-    if args.sweep_offsets or args.offset_lines != DEFAULT_OFFSET_LINES:
-        arguments.append(str(args.offset_lines))
     if args.pre_trigger_action != "none":
-        if len(arguments) == 4:
-            arguments.append(str(args.offset_lines))
         arguments.append(str(PRE_TRIGGER_ACTIONS[args.pre_trigger_action]))
     return arguments
 
@@ -210,7 +211,7 @@ def run_binary(args, binary, kind):
     command = [
         "taskset", "-c", str(args.core), str(binary), *run_arguments(args)
     ]
-    print(f"# run {kind}:", " ".join(command))
+    print(f"# run {kind} offset_lines={args.offset_lines}:", " ".join(command))
     completed = subprocess.run(
         command, check=False, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -415,10 +416,8 @@ def print_summary(pmu_text, cache_text):
 
 
 def output_paths(args):
-    offset_part = (
-        "" if args.offset_lines == DEFAULT_OFFSET_LINES
-        else f"-off{args.offset_lines}"
-    )
+    type_part = "-store" if args.type == "store" else ""
+    offset_part = f"-off{args.offset_lines}"
     action_part = (
         "" if args.pre_trigger_action == "none"
         else f"-pre{args.pre_trigger_action}"
@@ -429,7 +428,7 @@ def output_paths(args):
         RESULT_DIR.mkdir(parents=True, exist_ok=True)
         combined = RESULT_DIR / (
             f"bop-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
-            f"pairs{args.train_pairs}{offset_part}{action_part}.txt"
+            f"pairs{args.train_pairs}{offset_part}{action_part}{type_part}.txt"
         )
     combined.parent.mkdir(parents=True, exist_ok=True)
     return (
@@ -524,10 +523,8 @@ def parsed_sweep(samples):
 
 
 def sweep_output_paths(args):
-    offset_part = (
-        "" if args.offset_lines == DEFAULT_OFFSET_LINES
-        else f"-off{args.offset_lines}"
-    )
+    type_part = "-store" if args.type == "store" else ""
+    offset_part = f"-off{args.offset_lines}"
     action_part = (
         "" if args.pre_trigger_action == "none"
         else f"-pre{args.pre_trigger_action}"
@@ -538,7 +535,7 @@ def sweep_output_paths(args):
         RESULT_DIR.mkdir(parents=True, exist_ok=True)
         table_path = RESULT_DIR / (
             f"bop-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
-            f"train-pairs-sweep{offset_part}{action_part}.tsv"
+            f"train-pairs-sweep{offset_part}{action_part}{type_part}.tsv"
         )
     plot_path = (Path(args.plot) if args.plot
                  else table_path.with_suffix(".png"))
@@ -643,6 +640,7 @@ def plot_sweep_results(args, samples):
 
 
 def offset_sweep_output_path(args):
+    type_part = "-store" if args.type == "store" else ""
     if args.output:
         path = Path(args.output)
     else:
@@ -654,7 +652,8 @@ def offset_sweep_output_path(args):
         )
         path = RESULT_DIR / (
             f"bop-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
-            f"pairs{args.train_pairs}-{suffix}{action_part}.tsv"
+            f"pairs{args.train_pairs}-{suffix}-off{OFFSET_SWEEP[0]}-{OFFSET_SWEEP[-1]}"
+            f"{action_part}{type_part}.tsv"
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
@@ -948,11 +947,11 @@ def main():
     args = parse_args()
     binaries = {}
     if args.pmu:
-        binaries["pmu"] = binary_path("pmu") if args.no_build else build(
+        binaries["pmu"] = binary_path("pmu", args.type) if args.no_build else build(
             args, "pmu", enable_pmu=True, enable_cache_probe=False
         )
     if args.cache_probe:
-        binaries["cache"] = binary_path("cache") if args.no_build else build(
+        binaries["cache"] = binary_path("cache", args.type) if args.no_build else build(
             args, "cache", enable_pmu=False, enable_cache_probe=True
         )
 
@@ -1011,7 +1010,7 @@ def main():
             args.train_pairs = train_pairs
             outputs = {}
             if args.sweep_train_pairs:
-                print(f"\n# train-pairs sweep: {train_pairs}")
+                print(f"\n# train-pairs sweep: {train_pairs} offset_lines={args.offset_lines}")
 
             if args.pmu:
                 code, text = run_binary(args, binaries["pmu"], "PMU-only")

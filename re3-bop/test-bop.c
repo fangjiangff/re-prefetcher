@@ -33,6 +33,15 @@
 #ifndef PREFETCH_WAIT_NOPS
 #define PREFETCH_WAIT_NOPS 2000
 #endif
+#ifndef TRAIN_STORE
+#define TRAIN_STORE 0
+#endif
+
+#if TRAIN_STORE
+#define TRAIN_ACCESS_ASM(reg) "str xzr, [%0]"
+#else
+#define TRAIN_ACCESS_ASM(reg) "ldr " #reg ", [%0]"
+#endif
 
 #define TRAIN_NOISE_ACCESSES 0
 
@@ -40,7 +49,7 @@
 #include "../kernel-modules/prefetch-pmu-event/prefetch_pmu_event.h"
 
 #define LINES_PER_PAGE (PAGE_SIZE / LINE_SIZE)
-#define DEFAULT_BOP_OFFSET_LINES 6
+#define DEFAULT_BOP_OFFSET_LINES 16
 #define TRAIN_PC_COUNT 16
 #define POOL_PAGES 8192
 #define DEFAULT_ROUNDS 100
@@ -136,7 +145,7 @@ static inline uint64_t ticks_to_ns(uint64_t ticks)
 #define DEFINE_ACCESS(number, reg)                                      \
     __attribute__((noinline)) static void train_pc##number(void *addr)   \
     {                                                                    \
-        asm volatile("ldr " #reg ", [%0]"                              \
+        asm volatile(TRAIN_ACCESS_ASM(reg)                             \
                      :: "r"(addr) : #reg, "memory");                    \
     }
 
@@ -164,10 +173,10 @@ static access_function const train_pcs[TRAIN_PC_COUNT] = {
     train_pc12, train_pc13, train_pc14, train_pc15,
 };
 
-/* No training access uses this load PC. */
+/* No training access uses this PC. */
 __attribute__((noinline)) static void bop_trigger_access(void *addr)
 {
-    asm volatile("ldr x17, [%0]" :: "r"(addr) : "x17", "memory");
+    asm volatile(TRAIN_ACCESS_ASM(x17) :: "r"(addr) : "x17", "memory");
 }
 
 static inline __attribute__((always_inline)) void wait_for_prefetch(void)
@@ -312,7 +321,7 @@ static void train_bop(enum train_mode mode, size_t round, size_t train_pairs,
         }
         mate = page_addr(page, mate_line);
 
-        /* Keep both demand loads cold even if base triggers mate early. */
+        /* Keep both accesses cold even if base triggers mate early. */
         flush(base);
         mfence();
         flush(mate);
@@ -837,6 +846,7 @@ int main(int argc, char **argv)
            pre_trigger_action_name(pre_trigger_action));
     printf("# strict_training=1 training_flush=each "
            "training_noise_loads=0 trigger_slot_policy=fixed_tail\n");
+    printf("# training_access_type=%s\n", TRAIN_STORE ? "store" : "load");
     printf("# random_control_match=%s\n",
            offset_base_line_count(offset_lines) == 1 ?
            "partial_singleton_line_range" :
