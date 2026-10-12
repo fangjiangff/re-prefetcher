@@ -192,6 +192,13 @@ static uint8_t *page_addr(size_t page, size_t line)
     return mapping + page * PAGE_SIZE + line * LINE_SIZE;
 }
 
+static void flush_pool_mapping(void)
+{
+    for (size_t offset = 0; offset < mapping_size; offset += LINE_SIZE)
+        flush(mapping + offset);
+    mfence();
+}
+
 static size_t offset_span_pages(size_t offset_lines)
 {
     return offset_lines / LINES_PER_PAGE + 1u;
@@ -321,12 +328,6 @@ static void train_bop(enum train_mode mode, size_t round, size_t train_pairs,
         }
         mate = page_addr(page, mate_line);
 
-        /* Keep both accesses cold even if base triggers mate early. */
-        flush(base);
-        mfence();
-        flush(mate);
-        mfence();
-
         train_pcs[(i * 5u) % TRAIN_PC_COUNT](base);
         nops();
         /* Insert unrelated memory accesses between Xi and Xi+d. */
@@ -366,11 +367,7 @@ static void prepare_trigger_batch(size_t round, size_t trigger_batch,
 
         triggers[i] = page_addr(page, line);
         targets[i] = page_addr(page, line + probe_delta);
-        flush(triggers[i]);
-        if (targets[i] != triggers[i])
-            flush(targets[i]);
     }
-    mfence();
 }
 
 static ssize_t read_full(int fd, void *buffer, size_t length)
@@ -627,8 +624,17 @@ static void run_case(const char *name, enum train_mode mode,
                      enum pre_trigger_action pre_trigger_action)
 {
     struct case_stats stats = {0};
-    void **triggers = calloc(trigger_batch, sizeof(*triggers));
-    void **targets = calloc(trigger_batch, sizeof(*targets));
+    size_t batch_slots;
+    void **triggers;
+    void **targets;
+
+    if (rounds > SIZE_MAX / trigger_batch) {
+        fprintf(stderr, "trigger batch size overflow\n");
+        exit(1);
+    }
+    batch_slots = rounds * trigger_batch;
+    triggers = calloc(batch_slots, sizeof(*triggers));
+    targets = calloc(batch_slots, sizeof(*targets));
 
 #if !ENABLE_CACHE_PROBE
     (void)threshold_ns;
@@ -639,18 +645,27 @@ static void run_case(const char *name, enum train_mode mode,
         exit(1);
     }
 
+    for (size_t round = 0; round < rounds; round++)
+        prepare_trigger_batch(0, trigger_batch, probe_delta,
+                              layout_offset, span_pages,
+                              triggers + round * trigger_batch,
+                              targets + round * trigger_batch);
+
     for (size_t round = 0; round < rounds; round++) {
+        void **round_triggers = triggers + round * trigger_batch;
+#if ENABLE_CACHE_PROBE
+        void **round_targets = targets + round * trigger_batch;
+#endif
 #if ENABLE_PMU
         struct prefetch_pmu_snapshot before = {0};
         struct prefetch_pmu_snapshot after = {0};
 #endif
 
+        flush_pool_mapping();
         cpp_rctx();
         // post_train_accesses(round, 500);
 
-        train_bop(mode, round, train_pairs, train_offset, span_pages);
-        prepare_trigger_batch(round, trigger_batch, probe_delta,
-                              layout_offset, span_pages, triggers, targets);
+        train_bop(mode, 0, train_pairs, train_offset, span_pages);
         // run_pre_trigger_action(pre_trigger_action);
        
 
@@ -660,7 +675,7 @@ static void run_case(const char *name, enum train_mode mode,
 #endif
 
         for (size_t i = 0; i < trigger_batch; i++)
-            bop_trigger_access(triggers[i]);
+            bop_trigger_access(round_triggers[i]);
         wait_for_prefetch();
         
 #if ENABLE_PMU
@@ -675,7 +690,7 @@ static void run_case(const char *name, enum train_mode mode,
         /* A coprime permutation separates trigger order from probe order. */
         for (size_t k = 0; k < trigger_batch; k++) {
             size_t i = (k * 37u + 11u) % trigger_batch;
-            uint64_t latency = timed_reload_ns(targets[i]);
+            uint64_t latency = timed_reload_ns(round_targets[i]);
 
             stats.latency_ns += latency;
             stats.probes++;
@@ -844,8 +859,11 @@ int main(int argc, char **argv)
            TRAIN_PC_COUNT, TRAIN_NOISE_ACCESSES);
     printf("# pre_trigger_action=%s\n",
            pre_trigger_action_name(pre_trigger_action));
-    printf("# strict_training=1 training_flush=each "
+    printf("# strict_training=0 training_flush=mapping_each_round "
            "training_noise_loads=0 trigger_slot_policy=fixed_tail\n");
+    printf("# compatibility_diagnostic=round_flush_before_training\n");
+    printf("# trigger_address_policy=precomputed_before_rounds\n");
+    printf("# sequence_round_policy=fixed_round_0\n");
     printf("# training_access_type=%s\n", TRAIN_STORE ? "store" : "load");
     printf("# random_control_match=%s\n",
            offset_base_line_count(offset_lines) == 1 ?
