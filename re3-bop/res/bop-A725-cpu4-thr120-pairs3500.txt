@@ -1,7 +1,0 @@
-# BOP cache-probe and PMU results from separate runs
-case	train_mode	probe_delta_lines	batches	probes	hits	hits_per_1000	avg_latency_ns	l1_total	l1_per_trigger	l2_total	l2_per_trigger
-untrained_expected_offset	0	16	100	6400	1440	225	144.01	0	0.000000	15	0.002344
-random_delta_control	1	16	100	6400	422	65	171.75	181	0.028281	267	0.041719
-fixed_offset_expected	2	16	100	6400	6398	999	45.66	276	0.043125	6391	0.998594
-fixed_offset_nextline_control	2	1	100	6400	165	25	192.76	302	0.047188	6402	1.000312
-fixed_offset_wrong_control	2	8	100	6400	155	24	196.22	225	0.035156	6505	1.016406

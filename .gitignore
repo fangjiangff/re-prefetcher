@@ -20,8 +20,21 @@ bin/
 /src/bin/
 
 # Generated local result/cache directories
+res/
 /cmc/res/
 .matplotlib/
+
+# Kernel module build outputs
+/kernel-modules/**/*.o
+/kernel-modules/**/*.ko
+/kernel-modules/**/*.mod
+/kernel-modules/**/*.mod.c
+/kernel-modules/**/.*.cmd
+/kernel-modules/**/.tmp_versions/
+/kernel-modules/**/Module.symvers
+/kernel-modules/**/modules.order
+/kernel-modules/bop-el0-el1/test_bop_el0_el1
+/kernel-modules/prefetch-pmu-event/probe_prefetch_pmu
 
 # Ignore local editor/OS files
 *.swp

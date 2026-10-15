@@ -1,7 +1,0 @@
-# DMP existence test; PMU and cache probe are separate runs
-case	probes	hits	hits_per_1000	avg_latency_ns	l1_pmu_per_sample	l2_pmu_per_sample
-idle_no_activation	16384	2086	127	138.88	-	-
-nonpointer_control	16384	1032	62	146.00	-	-
-nonpointer_shuffled_targets	16384	1302	79	147.00	-	-
-pointer_content_no_deref	16384	1021	62	149.38	-	-
-pointer_array_two_dereferences	16384	1339	81	150.38	-	-

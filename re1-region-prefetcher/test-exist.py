@@ -285,16 +285,9 @@ def unload_direct_pmu_module():
 def load_direct_pmu_module(args):
     module_dir = Path("/sys/module") / PMU_MODULE_NAME
     if module_dir.is_dir():
-        target_path = module_dir / "parameters" / "target_cpu"
-        try:
-            target = target_path.read_text().strip()
-        except OSError:
-            target = "unknown"
-        raise RuntimeError(
-            f"{PMU_MODULE_NAME} is already loaded for CPU{target}; refusing "
-            "to replace an externally loaded instance. Unload it once with: "
-            f"sudo {PMU_MODULE_DIR / 'module_unload.sh'}"
-        )
+        print(f"# direct PMU: {PMU_MODULE_NAME} is already loaded; reusing it")
+        validate_direct_pmu_module(args)
+        return False
 
     run_module_script(PMU_MODULE_DIR / "module_load.sh", "--cpu", args.core)
     try:
@@ -302,6 +295,7 @@ def load_direct_pmu_module(args):
     except Exception:
         unload_direct_pmu_module()
         raise
+    return True
 
 
 def validate_direct_pmu_module(args):
@@ -646,7 +640,7 @@ def main():
         return 0
 
     try:
-        load_direct_pmu_module(args)
+        module_loaded_by_test = load_direct_pmu_module(args)
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -666,11 +660,12 @@ def main():
         make_plots(args, pmu_text, cache_text)
         return pmu_code or cache_code
     finally:
-        try:
-            unload_direct_pmu_module()
-        except RuntimeError as exc:
-            print(f"error: automatic module unload failed: {exc}",
-                  file=sys.stderr)
+        if module_loaded_by_test:
+            try:
+                unload_direct_pmu_module()
+            except RuntimeError as exc:
+                print(f"error: automatic module unload failed: {exc}",
+                      file=sys.stderr)
 
 
 if __name__ == "__main__":

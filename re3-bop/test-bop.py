@@ -22,14 +22,29 @@ PMU_MODULE_DIR = REPO / "kernel-modules" / "prefetch-pmu-event"
 
 ARCH_CONFIG = {
     "X925": {"core": 6, "threshold_ns": 80},
-    "A725": {"core": 4, "threshold_ns": 120},
+    "A725": {"core": 4, "threshold_ns": 100},
 }
 
 CASE_ORDER = [
     "untrained",
+    "random_delta_control",
     "fixed_offset_expected",
+    # "trained_wrong_target",
 ]
-TRAIN_PAIR_SWEEP = tuple(range(100, 3001, 100))
+TRAIN_PAIR_SWEEP = (0, *range(0, 2000, 50))
+OFFSET_SWEEP = tuple(range(0, 129))
+DEFAULT_OFFSET_LINES = 16
+MAX_OFFSET_LINES = OFFSET_SWEEP[-1]
+LINES_PER_PAGE = 64
+POOL_PAGES = 8192
+PRE_TRIGGER_ACTIONS = {
+    "none": 0,
+    "syscall": 1,
+    "yield": 2,
+    "nanosleep": 3,
+    "cpp_rctx": 4,
+    "process": 5,
+}
 
 PMU_RE = re.compile(
     r"^# PMU\s+(\S+)\s+total=(\d+)\s+per_trigger=([0-9.]+)$"
@@ -40,7 +55,9 @@ CACHE_RE = re.compile(
     r"threshold_ns=(\d+)$"
 )
 META_RE = re.compile(
-    r"^# train_mode=(\d+)\s+probe_delta_lines=(\d+)\s+rounds=(\d+)$"
+    r"^# train_mode=(\d+)\s+"
+    r"(?:train_offset_lines=(\d+|-)\s+)?"
+    r"probe_delta_lines=(\d+)\s+rounds=(\d+)$"
 )
 
 
@@ -57,9 +74,8 @@ def default_compiler():
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Build and run the BOP existence test. The experiment compares "
-            "an untrained baseline with fixed-offset training at the "
-            "expected probe offset."
+            "Build and run the strict BOP existence test with untrained, "
+            "matched random-delta, fixed-offset, and wrong-target cases."
         )
     )
     parser.add_argument("--arch", choices=ARCH_CONFIG, default="X925")
@@ -67,11 +83,29 @@ def parse_args():
     parser.add_argument("--rounds", type=int, default=100)
     parser.add_argument("--threshold-ns", type=int)
     parser.add_argument("--train-pairs", type=int, default=1024)
+    parser.add_argument("--type", choices=("load", "store"), default="load",
+                        help="Training and trigger access type (probes remain loads).")
+    parser.add_argument(
+        "--offset", "--offset-lines", dest="offset_lines", type=int,
+        default=DEFAULT_OFFSET_LINES,
+        help="BOP train/probe offset in cache lines.",
+    )
     parser.add_argument(
         "--sweep-train-pairs", action="store_true",
-        help="Run train-pairs=100,200,...,3000 and generate a line plot.",
+        help="Run train-pairs=0,100,200,...,3000 and generate a line plot.",
     )
-    parser.add_argument("--trigger-batch", type=int, default=2)
+    parser.add_argument(
+        "--sweep-offsets", action="store_true",
+        help="Run offset=0,1,...,128 and generate a summary table.",
+    )
+    parser.add_argument("--trigger-batch", type=int, default=1)
+    parser.add_argument(
+        "--pre-trigger-action", choices=PRE_TRIGGER_ACTIONS, default="none",
+        help=(
+            "Action to run after training/setup and before trigger accesses: "
+            "none, syscall, yield, nanosleep, cpp_rctx, or process."
+        ),
+    )
     parser.add_argument("--wait-nops", type=int, default=2000)
     parser.add_argument(
         "--pmu", action=argparse.BooleanOptionalAction, default=True,
@@ -96,31 +130,44 @@ def parse_args():
         args.core = config["core"]
     if args.threshold_ns is None:
         args.threshold_ns = config["threshold_ns"]
-    positive = ("rounds", "threshold_ns", "train_pairs", "trigger_batch")
+    if args.sweep_train_pairs and args.sweep_offsets:
+        parser.error("choose at most one of --sweep-train-pairs and --sweep-offsets")
+    positive = ("rounds", "threshold_ns", "trigger_batch")
     if any(getattr(args, name) <= 0 for name in positive):
         parser.error(
-            "rounds, threshold-ns, train-pairs, and trigger-batch "
-            "must be positive"
+            "rounds, threshold-ns, and trigger-batch must be positive"
         )
+    if args.train_pairs < 0:
+        parser.error("train-pairs must be non-negative")
     if args.core < 0 or args.wait_nops < 0:
         parser.error("core and wait-nops must be non-negative")
-    if args.trigger_batch % 2:
-        parser.error("trigger-batch must be even")
+    if args.offset_lines < 0:
+        parser.error("offset must be non-negative")
+    if args.offset_lines > MAX_OFFSET_LINES:
+        parser.error(f"offset must be at most {MAX_OFFSET_LINES} cache lines")
     max_train_pairs = (TRAIN_PAIR_SWEEP[-1] if args.sweep_train_pairs
                        else args.train_pairs)
-    if max_train_pairs + (max_train_pairs + 6) // 7 + args.trigger_batch > 4096:
-        parser.error("train-pairs plus noise and trigger pages exceeds 4096")
+    max_offset_lines = (OFFSET_SWEEP[-1] if args.sweep_offsets
+                        else args.offset_lines)
+    span_pages = max_offset_lines // LINES_PER_PAGE + 1
+    slots_needed = max_train_pairs + args.trigger_batch
+    if slots_needed * span_pages > POOL_PAGES:
+        parser.error(
+            "train-pairs plus trigger pages exceeds mapped pool "
+            f"({slots_needed * span_pages} > {POOL_PAGES})"
+        )
     if not args.pmu and not args.cache_probe:
         parser.error("enable at least one of --pmu and --cache-probe")
     return args
 
 
-def binary_path(kind):
-    return BIN_DIR / f"test-bop-{kind}"
+def binary_path(kind, access_type="load"):
+    suffix = "-store" if access_type == "store" else ""
+    return BIN_DIR / f"test-bop-{kind}{suffix}"
 
 
 def build(args, kind, enable_pmu, enable_cache_probe):
-    output = binary_path(kind)
+    output = binary_path(kind, args.type)
     BIN_DIR.mkdir(parents=True, exist_ok=True)
     command = [
         args.cc,
@@ -134,6 +181,7 @@ def build(args, kind, enable_pmu, enable_cache_probe):
         f"-DENABLE_PMU={int(enable_pmu)}",
         f"-DENABLE_CACHE_PROBE={int(enable_cache_probe)}",
         f"-DPREFETCH_WAIT_NOPS={args.wait_nops}",
+        f"-DTRAIN_STORE={int(args.type == 'store')}",
         f"-DPMU_CORE_X925={int(args.arch == 'X925')}",
         str(SRC),
         str(UTIL_SRC),
@@ -145,12 +193,16 @@ def build(args, kind, enable_pmu, enable_cache_probe):
 
 
 def run_arguments(args):
-    return [
+    arguments = [
         str(args.rounds),
         str(args.threshold_ns),
         str(args.train_pairs),
         str(args.trigger_batch),
+        str(args.offset_lines),
     ]
+    if args.pre_trigger_action != "none":
+        arguments.append(str(PRE_TRIGGER_ACTIONS[args.pre_trigger_action]))
+    return arguments
 
 
 def run_binary(args, binary, kind):
@@ -159,7 +211,7 @@ def run_binary(args, binary, kind):
     command = [
         "taskset", "-c", str(args.core), str(binary), *run_arguments(args)
     ]
-    print(f"# run {kind}:", " ".join(command))
+    print(f"# run {kind} offset_lines={args.offset_lines}:", " ".join(command))
     completed = subprocess.run(
         command, check=False, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -198,24 +250,38 @@ def module_script(name, *arguments):
 def load_pmu_module(args):
     module_dir = Path("/sys/module") / PMU_MODULE_NAME
     if module_dir.is_dir():
-        raise RuntimeError(
-            f"{PMU_MODULE_NAME} is already loaded; refusing to replace it"
-        )
-    module_script("module_load.sh", "--cpu", args.core)
-    try:
         target_path = module_dir / "parameters" / "target_cpu"
         target_cpu = int(target_path.read_text().strip(), 0)
-        if target_cpu != args.core:
-            raise RuntimeError(
-                f"PMU module targets CPU{target_cpu}, expected CPU{args.core}"
-            )
-        perf_access = Path("/proc/sys/kernel/perf_user_access")
-        if perf_access.is_file() and perf_access.read_text().strip() != "1":
-            raise RuntimeError("kernel.perf_user_access must be 1")
+        if target_cpu == args.core:
+            validate_pmu_module(args)
+            print(f"# direct PMU module already targets CPU{args.core}; reuse it")
+            return False
+        print(
+            f"# direct PMU module targets CPU{target_cpu}; "
+            f"unload it before binding CPU{args.core}"
+        )
+        module_script("module_unload.sh")
+    module_script("module_load.sh", "--cpu", args.core)
+    try:
+        validate_pmu_module(args)
     except Exception:
         module_script("module_unload.sh")
         raise
     print(f"# direct PMU module targets CPU{args.core}")
+    return True
+
+
+def validate_pmu_module(args):
+    module_dir = Path("/sys/module") / PMU_MODULE_NAME
+    target_path = module_dir / "parameters" / "target_cpu"
+    target_cpu = int(target_path.read_text().strip(), 0)
+    if target_cpu != args.core:
+        raise RuntimeError(
+            f"PMU module targets CPU{target_cpu}, expected CPU{args.core}"
+        )
+    perf_access = Path("/proc/sys/kernel/perf_user_access")
+    if perf_access.is_file() and perf_access.read_text().strip() != "1":
+        raise RuntimeError("kernel.perf_user_access must be 1")
 
 
 def unload_pmu_module():
@@ -235,10 +301,16 @@ def parse_output(text):
             continue
         match = META_RE.match(line)
         if match:
+            train_offset = match.group(2)
             cases[section].update({
                 "train_mode": int(match.group(1)),
-                "probe_delta_lines": int(match.group(2)),
-                "rounds": int(match.group(3)),
+                "train_offset_lines": (
+                    None if train_offset == "-" else
+                    int(train_offset) if train_offset is not None else
+                    int(match.group(3))
+                ),
+                "probe_delta_lines": int(match.group(3)),
+                "rounds": int(match.group(4)),
             })
             continue
         match = PMU_RE.match(line)
@@ -266,7 +338,8 @@ def merged_table(pmu_text, cache_text):
     remaining = (set(pmu_cases) | set(cache_cases)) - set(CASE_ORDER)
     order = [*CASE_ORDER, *sorted(remaining)]
     header = (
-        "case\ttrain_mode\tprobe_delta_lines\trounds\tprobes\thits\t"
+        "case\ttrain_mode\ttrain_offset_lines\tprobe_delta_lines\t"
+        "rounds\tprobes\thits\t"
         "hits_per_1000\tavg_latency_ns\tl1_total\tl1_per_trigger\t"
         "l2_total\tl2_per_trigger"
     )
@@ -281,6 +354,9 @@ def merged_table(pmu_text, cache_text):
         values = [
             case,
             cache.get("train_mode", pmu.get("train_mode", "-")),
+            format_optional(cache.get(
+                "train_offset_lines", pmu.get("train_offset_lines")
+            )),
             cache.get("probe_delta_lines", pmu.get("probe_delta_lines", "-")),
             cache.get("rounds", pmu.get("rounds", "-")),
             cache.get("probes", "-"),
@@ -340,13 +416,19 @@ def print_summary(pmu_text, cache_text):
 
 
 def output_paths(args):
+    type_part = "-store" if args.type == "store" else ""
+    offset_part = f"-off{args.offset_lines}"
+    action_part = (
+        "" if args.pre_trigger_action == "none"
+        else f"-pre{args.pre_trigger_action}"
+    )
     if args.output:
         combined = Path(args.output)
     else:
         RESULT_DIR.mkdir(parents=True, exist_ok=True)
         combined = RESULT_DIR / (
             f"bop-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
-            f"pairs{args.train_pairs}.txt"
+            f"pairs{args.train_pairs}{offset_part}{action_part}{type_part}.txt"
         )
     combined.parent.mkdir(parents=True, exist_ok=True)
     return (
@@ -441,13 +523,19 @@ def parsed_sweep(samples):
 
 
 def sweep_output_paths(args):
+    type_part = "-store" if args.type == "store" else ""
+    offset_part = f"-off{args.offset_lines}"
+    action_part = (
+        "" if args.pre_trigger_action == "none"
+        else f"-pre{args.pre_trigger_action}"
+    )
     if args.output:
         table_path = Path(args.output)
     else:
         RESULT_DIR.mkdir(parents=True, exist_ok=True)
         table_path = RESULT_DIR / (
             f"bop-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
-            "train-pairs-sweep.tsv"
+            f"train-pairs-sweep{offset_part}{action_part}{type_part}.tsv"
         )
     plot_path = (Path(args.plot) if args.plot
                  else table_path.with_suffix(".png"))
@@ -540,7 +628,7 @@ def plot_sweep_results(args, samples):
     axes[0].set_ylim(0, max(1000, axes[0].get_ylim()[1]))
     axes[1].set_ylim(0, max(1, axes[1].get_ylim()[1]))
     axes[1].set_xlabel("Training pairs per round")
-    axes[1].set_xticks(TRAIN_PAIR_SWEEP[::2] + (TRAIN_PAIR_SWEEP[-1],))
+    axes[1].set_xticks(TRAIN_PAIR_SWEEP[::2])
     axes[0].set_title(
         f"BOP train-pairs sweep: {args.arch} CPU{args.core}"
     )
@@ -551,15 +639,319 @@ def plot_sweep_results(args, samples):
     print(f"# sweep plot: {plot_path}")
 
 
+def offset_sweep_output_path(args):
+    type_part = "-store" if args.type == "store" else ""
+    if args.output:
+        path = Path(args.output)
+    else:
+        RESULT_DIR.mkdir(parents=True, exist_ok=True)
+        suffix = "pmu-offset-sweep" if args.pmu and not args.cache_probe else "offset-sweep"
+        action_part = (
+            "" if args.pre_trigger_action == "none"
+            else f"-pre{args.pre_trigger_action}"
+        )
+        path = RESULT_DIR / (
+            f"bop-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
+            f"pairs{args.train_pairs}-{suffix}-off{OFFSET_SWEEP[0]}-{OFFSET_SWEEP[-1]}"
+            f"{action_part}{type_part}.tsv"
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def offset_sweep_plot_path(args):
+    if args.plot:
+        path = Path(args.plot)
+    else:
+        path = offset_sweep_output_path(args).with_suffix(".png")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def offset_sweep_delta_plot_path(args):
+    path = offset_sweep_plot_path(args)
+    return path.with_name(path.stem + "-delta" + path.suffix)
+
+
+def format_optional(value, places=None):
+    if value is None:
+        return "-"
+    if places is None:
+        return str(value)
+    return f"{value:.{places}f}"
+
+
+def offset_sweep_row(offset, pmu, cache):
+    untrained = cache.get("untrained", {})
+    random_control = cache.get("random_delta_control", {})
+    fixed = cache.get("fixed_offset_expected", {})
+    wrong_target = cache.get("trained_wrong_target", {})
+    untrained_hits = untrained.get("hits_per_1000")
+    fixed_hits = fixed.get("hits_per_1000")
+    untrained_latency = untrained.get("avg_latency_ns")
+    fixed_latency = fixed.get("avg_latency_ns")
+    hit_delta = (
+        fixed_hits - untrained_hits
+        if fixed_hits is not None and untrained_hits is not None else None
+    )
+    latency_delta = (
+        fixed_latency - untrained_latency
+        if fixed_latency is not None and untrained_latency is not None
+        else None
+    )
+    observed = (
+        "-" if offset == 0 else
+        int(hit_delta > 0) if hit_delta is not None else "-"
+    )
+
+    pmu_untrained = pmu.get("untrained", {})
+    pmu_random = pmu.get("random_delta_control", {})
+    pmu_fixed = pmu.get("fixed_offset_expected", {})
+    pmu_wrong = pmu.get("trained_wrong_target", {})
+    l1_untrained = pmu_untrained.get("l1d_cache_hwprf", {}).get("per_trigger")
+    l1_fixed = pmu_fixed.get("l1d_cache_hwprf", {}).get("per_trigger")
+    l2_untrained = pmu_untrained.get("l2d_cache_hwprf", {}).get("per_trigger")
+    l2_fixed = pmu_fixed.get("l2d_cache_hwprf", {}).get("per_trigger")
+    l1_delta = (
+        l1_fixed - l1_untrained
+        if l1_fixed is not None and l1_untrained is not None else None
+    )
+    l2_delta = (
+        l2_fixed - l2_untrained
+        if l2_fixed is not None and l2_untrained is not None else None
+    )
+    random_l1 = pmu_random.get("l1d_cache_hwprf", {}).get("per_trigger")
+    wrong_l1 = pmu_wrong.get("l1d_cache_hwprf", {}).get("per_trigger")
+    random_l2 = pmu_random.get("l2d_cache_hwprf", {}).get("per_trigger")
+    wrong_l2 = pmu_wrong.get("l2d_cache_hwprf", {}).get("per_trigger")
+
+    return [
+        offset,
+        observed,
+        format_optional(untrained_hits),
+        format_optional(fixed_hits),
+        format_optional(hit_delta),
+        format_optional(untrained_latency, 2),
+        format_optional(fixed_latency, 2),
+        format_optional(latency_delta, 2),
+        format_optional(l1_delta, 6),
+        format_optional(l2_delta, 6),
+        format_optional(random_control.get("hits_per_1000")),
+        format_optional(wrong_target.get("hits_per_1000")),
+        format_optional(random_control.get("avg_latency_ns"), 2),
+        format_optional(wrong_target.get("avg_latency_ns"), 2),
+        format_optional(
+            fixed_hits - random_control.get("hits_per_1000")
+            if fixed_hits is not None and
+            random_control.get("hits_per_1000") is not None else None
+        ),
+        format_optional(
+            wrong_target.get("hits_per_1000") - untrained_hits
+            if wrong_target.get("hits_per_1000") is not None and
+            untrained_hits is not None else None
+        ),
+        format_optional(random_l1, 6),
+        format_optional(wrong_l1, 6),
+        format_optional(random_l2, 6),
+        format_optional(wrong_l2, 6),
+        "degenerate_same_address" if offset == 0 else "measurable",
+    ]
+
+
+def parsed_offset_sweep(samples):
+    return [
+        (
+            offset,
+            parse_output(outputs.get("pmu", "")),
+            parse_output(outputs.get("cache", "")),
+        )
+        for offset, outputs in samples
+    ]
+
+
+def save_offset_sweep_results(args, samples):
+    header = (
+        "offset_lines\tobserved\tuntrained_hits_per_1000\t"
+        "fixed_hits_per_1000\tdelta_hits_per_1000\t"
+        "untrained_avg_latency_ns\tfixed_avg_latency_ns\t"
+        "delta_avg_latency_ns\tl1_delta_per_trigger\tl2_delta_per_trigger\t"
+        "random_hits_per_1000\twrong_target_hits_per_1000\t"
+        "random_avg_latency_ns\twrong_target_avg_latency_ns\t"
+        "fixed_minus_random_hits_per_1000\t"
+        "wrong_minus_untrained_hits_per_1000\trandom_l1_per_trigger\t"
+        "wrong_target_l1_per_trigger\trandom_l2_per_trigger\t"
+        "wrong_target_l2_per_trigger\tinterpretation"
+    )
+    lines = ["# BOP offset sweep", header]
+    observed_offsets = []
+    missing_offsets = []
+    for offset, pmu, cache in parsed_offset_sweep(samples):
+        row = offset_sweep_row(offset, pmu, cache)
+        if row[1] == 1:
+            observed_offsets.append(offset)
+        elif row[1] == 0:
+            missing_offsets.append(offset)
+        lines.append("\t".join(str(value) for value in row))
+
+    path = offset_sweep_output_path(args)
+    path.write_text("\n".join(lines) + "\n")
+    print(f"# output offset sweep: {path}")
+    if observed_offsets or missing_offsets:
+        print_green(
+            "# offset sweep observed: "
+            f"{len(observed_offsets)}/{len(observed_offsets) + len(missing_offsets)} "
+            "offsets have fixed_hits_per_1000 > untrained_hits_per_1000"
+        )
+    if missing_offsets:
+        joined = ",".join(str(offset) for offset in missing_offsets)
+        print(f"# offsets without positive cache delta: {joined}")
+
+
+def pmu_average_row(offset, pmu):
+    pmu_untrained = pmu.get("untrained", {})
+    pmu_random = pmu.get("random_delta_control", {})
+    pmu_fixed = pmu.get("fixed_offset_expected", {})
+    pmu_wrong = pmu.get("trained_wrong_target", {})
+    l1_untrained = pmu_untrained.get("l1d_cache_hwprf", {}).get("per_trigger")
+    l1_fixed = pmu_fixed.get("l1d_cache_hwprf", {}).get("per_trigger")
+    l2_untrained = pmu_untrained.get("l2d_cache_hwprf", {}).get("per_trigger")
+    l2_fixed = pmu_fixed.get("l2d_cache_hwprf", {}).get("per_trigger")
+    l1_delta = (
+        l1_fixed - l1_untrained
+        if l1_fixed is not None and l1_untrained is not None else None
+    )
+    l2_delta = (
+        l2_fixed - l2_untrained
+        if l2_fixed is not None and l2_untrained is not None else None
+    )
+    return [
+        offset,
+        format_optional(l1_untrained, 6),
+        format_optional(l1_fixed, 6),
+        format_optional(l1_delta, 6),
+        format_optional(l2_untrained, 6),
+        format_optional(l2_fixed, 6),
+        format_optional(l2_delta, 6),
+        format_optional(
+            pmu_random.get("l1d_cache_hwprf", {}).get("per_trigger"), 6
+        ),
+        format_optional(
+            pmu_wrong.get("l1d_cache_hwprf", {}).get("per_trigger"), 6
+        ),
+        format_optional(
+            pmu_random.get("l2d_cache_hwprf", {}).get("per_trigger"), 6
+        ),
+        format_optional(
+            pmu_wrong.get("l2d_cache_hwprf", {}).get("per_trigger"), 6
+        ),
+        "degenerate_same_address" if offset == 0 else "measurable",
+    ]
+
+
+def save_offset_pmu_results(args, samples):
+    header = (
+        "offset_lines\tuntrained_l1_per_trigger\tfixed_l1_per_trigger\t"
+        "delta_l1_per_trigger\tuntrained_l2_per_trigger\t"
+        "fixed_l2_per_trigger\tdelta_l2_per_trigger\t"
+        "random_l1_per_trigger\twrong_target_l1_per_trigger\t"
+        "random_l2_per_trigger\twrong_target_l2_per_trigger\tinterpretation"
+    )
+    lines = ["# BOP offset sweep average PMU events", header]
+    for offset, pmu, _ in parsed_offset_sweep(samples):
+        lines.append("\t".join(str(value) for value in pmu_average_row(offset, pmu)))
+
+    path = offset_sweep_output_path(args)
+    path.write_text("\n".join(lines) + "\n")
+    print(f"# output offset PMU averages: {path}")
+
+
+def plot_offset_pmu_results(args, samples):
+    if args.no_plot:
+        return
+    parsed = parsed_offset_sweep(samples)
+    if not parsed:
+        return
+    rows = [
+        pmu_average_row(offset, pmu)
+        for offset, pmu, _ in parsed
+    ]
+    if not any(row[1] != "-" or row[4] != "-" for row in rows):
+        return
+    try:
+        os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-cache")
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("# matplotlib unavailable; skip offset PMU plot", file=sys.stderr)
+        return
+
+    def series(index):
+        return [float(row[index]) if row[index] != "-" else 0.0 for row in rows]
+
+    offsets = [row[0] for row in rows]
+    figure, axis = plt.subplots(figsize=(12, 5.5),
+                                constrained_layout=True)
+    axis.axvspan(0, 32, color="#b7e4c7", alpha=0.32,
+                 label="offset 0..32")
+    axis.axhline(0, color="0.25", linewidth=0.8)
+    axis.axvline(32, color="#2d6a4f", linestyle="--", linewidth=1)
+    axis.axvline(33, color="#7f1d1d", linestyle=":", linewidth=1)
+    axis.plot(offsets, series(2), color="#d62728", linewidth=1.4,
+              label="fixed-offset L1")
+    axis.plot(offsets, series(5), color="#1f77b4", linewidth=1.6,
+              label="fixed-offset L2")
+    axis.plot(offsets, series(1), color="#d62728", linewidth=1.0,
+              linestyle="--", alpha=0.55, label="untrained L1")
+    axis.plot(offsets, series(4), color="#1f77b4", linewidth=1.0,
+              linestyle="--", alpha=0.55, label="untrained L2")
+    axis.grid(axis="both", alpha=0.25)
+    axis.legend(fontsize=8, frameon=False, loc="upper right")
+    axis.set_xlabel("Offset (cache lines)")
+    axis.set_ylabel("PMU events / trigger")
+    axis.set_xlim(min(offsets), max(offsets))
+    axis.set_title(
+        f"BOP average PMU events by offset: {args.arch} CPU{args.core}"
+    )
+    path = offset_sweep_plot_path(args)
+    figure.savefig(path, dpi=300)
+    plt.close(figure)
+    print(f"# offset PMU plot: {path}")
+
+    figure, axis = plt.subplots(figsize=(12, 5.5),
+                                constrained_layout=True)
+    axis.axvspan(0, 32, color="#b7e4c7", alpha=0.32,
+                 label="offset 0..32")
+    axis.axhline(0, color="0.25", linewidth=0.8)
+    axis.axvline(32, color="#2d6a4f", linestyle="--", linewidth=1)
+    axis.axvline(33, color="#7f1d1d", linestyle=":", linewidth=1)
+    axis.plot(offsets, series(6), color="#1f77b4", linewidth=1.6,
+              label="L2 delta / trigger")
+    axis.plot(offsets, series(3), color="#d62728", linewidth=1.3,
+              label="L1 delta / trigger")
+    axis.grid(axis="both", alpha=0.25)
+    axis.legend(fontsize=8, frameon=False, loc="upper right")
+    axis.set_xlabel("Offset (cache lines)")
+    axis.set_ylabel("Delta PMU events / trigger")
+    axis.set_xlim(min(offsets), max(offsets))
+    axis.set_title(
+        f"BOP PMU delta by offset: {args.arch} CPU{args.core}"
+    )
+    path = offset_sweep_delta_plot_path(args)
+    figure.savefig(path, dpi=300)
+    plt.close(figure)
+    print(f"# offset PMU delta plot: {path}")
+
+
 def main():
     args = parse_args()
     binaries = {}
     if args.pmu:
-        binaries["pmu"] = binary_path("pmu") if args.no_build else build(
+        binaries["pmu"] = binary_path("pmu", args.type) if args.no_build else build(
             args, "pmu", enable_pmu=True, enable_cache_probe=False
         )
     if args.cache_probe:
-        binaries["cache"] = binary_path("cache") if args.no_build else build(
+        binaries["cache"] = binary_path("cache", args.type) if args.no_build else build(
             args, "cache", enable_pmu=False, enable_cache_probe=True
         )
 
@@ -575,8 +967,42 @@ def main():
     pmu_loaded = False
     try:
         if args.pmu:
-            load_pmu_module(args)
-            pmu_loaded = True
+            pmu_loaded = load_pmu_module(args)
+
+        if args.sweep_offsets:
+            original_offset = args.offset_lines
+            for offset in OFFSET_SWEEP:
+                args.offset_lines = offset
+                outputs = {}
+                print(f"\n# offset sweep: {offset}")
+
+                if args.pmu:
+                    code, text = run_binary(args, binaries["pmu"], "PMU-only")
+                    if report_failure("PMU-only", code, text):
+                        return 128 - code if code < 0 else code
+                    outputs["pmu"] = text
+                    print(text, end="" if text.endswith("\n") else "\n")
+
+                if args.cache_probe:
+                    code, text = run_binary(
+                        args, binaries["cache"], "cache-only"
+                    )
+                    if report_failure("cache-only", code, text):
+                        return 128 - code if code < 0 else code
+                    outputs["cache"] = text
+                    print(text, end="" if text.endswith("\n") else "\n")
+
+                samples.append((offset, outputs))
+                print_summary(outputs.get("pmu", ""),
+                              outputs.get("cache", ""))
+
+            args.offset_lines = original_offset
+            if args.pmu and not args.cache_probe:
+                save_offset_pmu_results(args, samples)
+                plot_offset_pmu_results(args, samples)
+            else:
+                save_offset_sweep_results(args, samples)
+            return 0
 
         train_pairs_values = (TRAIN_PAIR_SWEEP if args.sweep_train_pairs
                               else (args.train_pairs,))
@@ -584,7 +1010,7 @@ def main():
             args.train_pairs = train_pairs
             outputs = {}
             if args.sweep_train_pairs:
-                print(f"\n# train-pairs sweep: {train_pairs}")
+                print(f"\n# train-pairs sweep: {train_pairs} offset_lines={args.offset_lines}")
 
             if args.pmu:
                 code, text = run_binary(args, binaries["pmu"], "PMU-only")
