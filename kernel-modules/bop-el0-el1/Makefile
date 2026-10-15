@@ -3,6 +3,7 @@ USER_CC ?= cc
 USER_CFLAGS ?= -O2 -Wall -Wextra -march=armv8.5-a+predres
 
 obj-m += bop_el0_el1.o
+ccflags-y += $(EXTRA_CFLAGS)
 
 .PHONY: all clean probe
 

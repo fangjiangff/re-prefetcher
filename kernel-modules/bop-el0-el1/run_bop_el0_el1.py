@@ -8,11 +8,12 @@ from pathlib import Path
 
 
 CASE_NAMES = (
-    "untrained_kernel",
+    "untrained_user_trigger",
     "el0_only_user_trigger",
-    "kernel_trigger",
-    "kernel_train_user_trigger",
-    "kernel_stride_user_trigger",
+    "el_switch_user_train",
+    "split_train_user_trigger",
+    "untrained_kernel_trigger",
+    "el0_train_kernel_trigger",
 )
 HERE = Path(__file__).resolve().parent
 ARCH_CONFIG = {
@@ -24,8 +25,8 @@ ARCH_CONFIG = {
 def make_parser():
     parser = argparse.ArgumentParser(
         description=(
-            "Run the EL0/EL1 BOP cases in separate processes and compare "
-            "X+D cache hits."
+            "Compare an EL0-only offset sequence with the same sequence "
+            "split between EL0 and EL1 (shared userspace pages by default)."
         )
     )
     parser.add_argument("--arch", choices=ARCH_CONFIG, default="X925")

@@ -31,7 +31,7 @@ CASE_ORDER = [
     "fixed_offset_expected",
     # "trained_wrong_target",
 ]
-TRAIN_PAIR_SWEEP = (0, *range(0, 1200, 50))
+TRAIN_PAIR_SWEEP = (0, *range(0, 2000, 50))
 OFFSET_SWEEP = tuple(range(0, 129))
 DEFAULT_OFFSET_LINES = 16
 MAX_OFFSET_LINES = OFFSET_SWEEP[-1]

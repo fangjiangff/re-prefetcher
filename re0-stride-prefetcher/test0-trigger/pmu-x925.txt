@@ -1,2 +1,0 @@
-train_step	access	l1d_cache_hwprf	l2d_cache_hwprf	status
-20	load	1.01	1.0	0

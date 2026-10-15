@@ -38,9 +38,13 @@
 #endif
 
 #if TRAIN_STORE
-#define TRAIN_ACCESS_ASM(reg) "str xzr, [%0]"
+#define TRAIN_ACCESS_ASM(reg) "mov w17, #1\n\tstrb w17, [%0]"
+#define TRAIN_ACCESS_CLOBBERS(reg) #reg, "x17", "memory"
+#define TRIGGER_ACCESS_CLOBBERS "x17", "memory"
 #else
 #define TRAIN_ACCESS_ASM(reg) "ldr " #reg ", [%0]"
+#define TRAIN_ACCESS_CLOBBERS(reg) #reg, "memory"
+#define TRIGGER_ACCESS_CLOBBERS "x17", "memory"
 #endif
 
 #define TRAIN_NOISE_ACCESSES 0
@@ -146,7 +150,7 @@ static inline uint64_t ticks_to_ns(uint64_t ticks)
     __attribute__((noinline)) static void train_pc##number(void *addr)   \
     {                                                                    \
         asm volatile(TRAIN_ACCESS_ASM(reg)                             \
-                     :: "r"(addr) : #reg, "memory");                    \
+                     :: "r"(addr) : TRAIN_ACCESS_CLOBBERS(reg));       \
     }
 
 DEFINE_ACCESS(0, x1)
@@ -176,7 +180,8 @@ static access_function const train_pcs[TRAIN_PC_COUNT] = {
 /* No training access uses this PC. */
 __attribute__((noinline)) static void bop_trigger_access(void *addr)
 {
-    asm volatile(TRAIN_ACCESS_ASM(x17) :: "r"(addr) : "x17", "memory");
+    asm volatile(TRAIN_ACCESS_ASM(x17)
+                 :: "r"(addr) : TRIGGER_ACCESS_CLOBBERS);
 }
 
 static inline __attribute__((always_inline)) void wait_for_prefetch(void)
@@ -663,12 +668,7 @@ static void run_case(const char *name, enum train_mode mode,
 
         flush_pool_mapping();
         cpp_rctx();
-        // post_train_accesses(round, 500);
-
         train_bop(mode, 0, train_pairs, train_offset, span_pages);
-        // run_pre_trigger_action(pre_trigger_action);
-       
-
 #if ENABLE_PMU
         if (pmu_ready)
             before = prefetch_pmu_read();
