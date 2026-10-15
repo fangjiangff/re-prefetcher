@@ -42,6 +42,12 @@
 #ifndef BOP_TRAINING_PC_POLICY
 #define BOP_TRAINING_PC_POLICY "rotating_split_functions"
 #endif
+#ifndef BOP_TRAINING_ADDRESS_POLICY
+#define BOP_TRAINING_ADDRESS_POLICY "varying_pages_and_lines"
+#endif
+#ifndef BOP_TRAINING_PAIR_FLUSH_POLICY
+#define BOP_TRAINING_PAIR_FLUSH_POLICY "none"
+#endif
 
 #if TRAIN_STORE
 #define TRAIN_ACCESS_ASM(reg) "mov w17, #1\n\tstrb w17, [%0]"
@@ -210,16 +216,32 @@ static void flush_pool_mapping(void)
     mfence();
 }
 
-static size_t offset_span_pages(size_t offset_lines)
+static size_t offset_magnitude(ptrdiff_t offset_lines)
 {
-    return offset_lines / LINES_PER_PAGE + 1u;
+    return offset_lines < 0 ? (size_t)-offset_lines : (size_t)offset_lines;
 }
 
-static size_t offset_base_line_count(size_t offset_lines)
+static size_t offset_span_pages(ptrdiff_t offset_lines)
 {
-    size_t remainder = offset_lines % LINES_PER_PAGE;
+    return offset_magnitude(offset_lines) / LINES_PER_PAGE + 1u;
+}
+
+static size_t offset_base_line_count(ptrdiff_t offset_lines)
+{
+    size_t remainder = offset_magnitude(offset_lines) % LINES_PER_PAGE;
 
     return remainder == 0 ? LINES_PER_PAGE : LINES_PER_PAGE - remainder;
+}
+
+static size_t offset_base_line(size_t index, ptrdiff_t offset_lines)
+{
+    return offset_lines < 0 ? index + offset_magnitude(offset_lines) : index;
+}
+
+static size_t offset_target_line(size_t base_line, ptrdiff_t offset_lines)
+{
+    return offset_lines < 0 ? base_line - offset_magnitude(offset_lines) :
+                              base_line + offset_magnitude(offset_lines);
 }
 
 static size_t round_slot_page(size_t round, size_t position,
@@ -231,7 +253,7 @@ static size_t round_slot_page(size_t round, size_t position,
     return slot_order[slot] * span_pages;
 }
 
-static void init_slot_order(size_t slot_count, size_t offset_lines)
+static void init_slot_order(size_t slot_count, ptrdiff_t offset_lines)
 {
     uint64_t rng = PAGE_SEED ^ 0x9e3779b97f4a7c15ULL ^ offset_lines;
 
@@ -303,7 +325,7 @@ static void post_train_accesses(size_t round, size_t count)
 }
 
 static void train_bop(enum train_mode mode, size_t round, size_t train_pairs,
-                      size_t offset_lines, size_t span_pages)
+                      ptrdiff_t offset_lines, size_t span_pages)
 {
     uint64_t rng = PAGE_SEED ^ ((uint64_t)round * 0xd1b54a32d192ed03ULL)
                    ^ ((uint64_t)offset_lines << 32);
@@ -314,28 +336,38 @@ static void train_bop(enum train_mode mode, size_t round, size_t train_pairs,
         return;
 
     for (size_t i = 0; i < train_pairs; i++) {
+#ifdef BOP_FIXED_TRAIN_ADDRESS
+        size_t page = round_slot_page(round, 0, span_pages);
+        size_t base_line = offset_base_line(0, offset_lines);
+#else
         size_t page = round_slot_page(round, i, span_pages);
-        size_t base_line = (size_t)(splitmix64_next(&rng) % base_line_count);
+        size_t base_line = offset_base_line(
+            (size_t)(splitmix64_next(&rng) % base_line_count), offset_lines);
+#endif
         size_t mate_line;
         uint8_t *base = page_addr(page, base_line);
         uint8_t *mate;
 
         if (mode == TRAIN_RANDOM_DELTA) {
-            size_t fixed_mate_line = base_line + offset_lines;
+            size_t fixed_mate_line = offset_target_line(base_line, offset_lines);
             size_t random_base_line;
 
             if (base_line_count == 1) {
                 /* Keep the same target-page class at the degenerate edge. */
-                mate_line = offset_lines == 0 ? 1 : offset_lines - 1;
+                mate_line = offset_lines == 0 ? 1 :
+                            fixed_mate_line == 0 ? 1 : fixed_mate_line - 1;
             } else {
                 do {
-                    random_base_line =(size_t)(splitmix64_next(&mate_rng) % base_line_count);
-                    mate_line = random_base_line + offset_lines;
+                    random_base_line = offset_base_line(
+                        (size_t)(splitmix64_next(&mate_rng) % base_line_count),
+                        offset_lines);
+                    mate_line = offset_target_line(
+                        random_base_line, offset_lines);
                 } while (mate_line == base_line ||
                          mate_line == fixed_mate_line);
             }
         } else {
-            mate_line = base_line + offset_lines;
+            mate_line = offset_target_line(base_line, offset_lines);
         }
         mate = page_addr(page, mate_line);
 
@@ -366,7 +398,8 @@ static void train_bop(enum train_mode mode, size_t round, size_t train_pairs,
 }
 
 static void prepare_trigger_batch(size_t round, size_t trigger_batch,
-                                  size_t probe_delta, size_t layout_offset,
+                                  ptrdiff_t probe_delta,
+                                  ptrdiff_t layout_offset,
                                   size_t span_pages,
                                   void **triggers, void **targets)
 {
@@ -378,10 +411,11 @@ static void prepare_trigger_batch(size_t round, size_t trigger_batch,
 
     for (size_t i = 0; i < trigger_batch; i++) {
         size_t page = round_slot_page(round, first_slot + i, span_pages);
-        size_t line = (size_t)(splitmix64_next(&rng) % base_line_count);
+        size_t line = offset_base_line(
+            (size_t)(splitmix64_next(&rng) % base_line_count), layout_offset);
 
         triggers[i] = page_addr(page, line);
-        targets[i] = page_addr(page, line + probe_delta);
+        targets[i] = page_addr(page, offset_target_line(line, probe_delta));
     }
 }
 
@@ -632,8 +666,8 @@ static uint64_t timed_reload_ns(void *addr)
 #endif
 
 static void run_case(const char *name, enum train_mode mode,
-                     size_t train_offset, size_t probe_delta,
-                     size_t layout_offset, size_t span_pages, size_t rounds,
+                     ptrdiff_t train_offset, ptrdiff_t probe_delta,
+                     ptrdiff_t layout_offset, size_t span_pages, size_t rounds,
                      uint64_t threshold_ns, size_t train_pairs,
                      size_t trigger_batch,
                      enum pre_trigger_action pre_trigger_action)
@@ -714,11 +748,11 @@ static void run_case(const char *name, enum train_mode mode,
     printf("\n[%s]\n", name);
     if (mode == TRAIN_RANDOM_DELTA)
         printf("# train_mode=%d train_offset_lines=- "
-               "probe_delta_lines=%zu rounds=%llu\n",
+               "probe_delta_lines=%td rounds=%llu\n",
                mode, probe_delta, (unsigned long long)stats.rounds);
     else
-        printf("# train_mode=%d train_offset_lines=%zu "
-               "probe_delta_lines=%zu rounds=%llu\n",
+        printf("# train_mode=%d train_offset_lines=%td "
+               "probe_delta_lines=%td rounds=%llu\n",
                mode, train_offset, probe_delta,
                (unsigned long long)stats.rounds);
     printf("# pre_trigger_action=%s\n",
@@ -770,9 +804,9 @@ int main(int argc, char **argv)
     uint64_t threshold_ns = DEFAULT_THRESHOLD_NS;
     size_t train_pairs = DEFAULT_TRAIN_PAIRS;
     size_t trigger_batch = DEFAULT_TRIGGER_BATCH;
-    size_t offset_lines = DEFAULT_BOP_OFFSET_LINES;
-    size_t wrong_probe_offset;
-    size_t layout_offset;
+    ptrdiff_t offset_lines = DEFAULT_BOP_OFFSET_LINES;
+    ptrdiff_t wrong_probe_offset;
+    ptrdiff_t layout_offset;
     enum pre_trigger_action pre_trigger_action = PRE_TRIGGER_NONE;
     size_t span_pages;
     size_t slots_needed;
@@ -789,17 +823,31 @@ int main(int argc, char **argv)
         train_pairs = strtoull(argv[3], NULL, 0);
         trigger_batch = strtoull(argv[4], NULL, 0);
     }
-    if (argc == 6) {
-        offset_lines = strtoull(argv[5], NULL, 0);
+    if (argc >= 6) {
+        char *end;
+        long long parsed_offset;
+
+        errno = 0;
+        parsed_offset = strtoll(argv[5], &end, 0);
+        if (errno != 0 || *argv[5] == '\0' || *end != '\0' ||
+            parsed_offset <= -(long long)(POOL_PAGES * LINES_PER_PAGE) ||
+            parsed_offset >= (long long)(POOL_PAGES * LINES_PER_PAGE)) {
+            usage(argv[0]);
+            return 1;
+        }
+        offset_lines = (ptrdiff_t)parsed_offset;
     }
     if (argc == 7) {
-        offset_lines = strtoull(argv[5], NULL, 0);
         pre_trigger_action =
             (enum pre_trigger_action)strtoull(argv[6], NULL, 0);
     }
     wrong_probe_offset = offset_lines == 0 ? 1 :
-                         offset_lines == 1 ? 2 : offset_lines - 1;
-    layout_offset = offset_lines > wrong_probe_offset ?
+                         offset_magnitude(offset_lines) == 1 ?
+                         (offset_lines < 0 ? -2 : 2) :
+                         offset_lines < 0 ? offset_lines + 1 :
+                                            offset_lines - 1;
+    layout_offset = offset_magnitude(offset_lines) >
+                    offset_magnitude(wrong_probe_offset) ?
                     offset_lines : wrong_probe_offset;
     span_pages = offset_span_pages(layout_offset);
     slots_needed = train_pairs + trigger_batch;
@@ -810,7 +858,7 @@ int main(int argc, char **argv)
         usage(argv[0]);
         fprintf(stderr,
                 "pages_needed=%zu, limit=%d; trigger_batch must be positive; "
-                "offset_lines must be non-negative and fit in the mapped pool; "
+                "absolute offset_lines must fit in the mapped pool; "
                 "pre_trigger_action must be 0..5\n",
                 pages_needed, POOL_PAGES);
         return 1;
@@ -860,7 +908,7 @@ int main(int argc, char **argv)
     cpp_rctx();
 
     printf("# %s\n", BOP_TEST_TITLE);
-    printf("# offset_lines=%zu offset_bytes=%zu\n",
+    printf("# offset_lines=%td offset_bytes=%td\n",
            offset_lines, offset_lines * LINE_SIZE);
     printf("# rounds=%zu train_pairs=%zu trigger_batch=%zu pages=%d "
            "threshold_ns=%llu wait_nops=%d train_pcs=%d TRAIN_NOISE_ACCESSES=%d\n",
@@ -876,6 +924,8 @@ int main(int argc, char **argv)
     printf("# sequence_round_policy=fixed_round_0\n");
     printf("# training_access_type=%s\n", TRAIN_STORE ? "store" : "load");
     printf("# training_pc_policy=%s\n", BOP_TRAINING_PC_POLICY);
+    printf("# training_address_policy=%s\n", BOP_TRAINING_ADDRESS_POLICY);
+    printf("# training_pair_flush=%s\n", BOP_TRAINING_PAIR_FLUSH_POLICY);
     printf("# random_control_match=%s\n",
            offset_base_line_count(offset_lines) == 1 ?
            "partial_singleton_line_range" :

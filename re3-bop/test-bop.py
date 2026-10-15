@@ -64,8 +64,8 @@ CACHE_RE = re.compile(
 )
 META_RE = re.compile(
     r"^# train_mode=(\d+)\s+"
-    r"(?:train_offset_lines=(\d+|-)\s+)?"
-    r"probe_delta_lines=(\d+)\s+rounds=(\d+)$"
+    r"(?:train_offset_lines=(-?\d+|-)\s+)?"
+    r"probe_delta_lines=(-?\d+)\s+rounds=(\d+)$"
 )
 
 
@@ -146,14 +146,16 @@ def parse_args():
         parser.error("train-pairs must be non-negative")
     if args.core < 0 or args.wait_nops < 0:
         parser.error("core and wait-nops must be non-negative")
-    if args.offset_lines < 0:
-        parser.error("offset must be non-negative")
-    if args.offset_lines > MAX_OFFSET_LINES:
-        parser.error(f"offset must be at most {MAX_OFFSET_LINES} cache lines")
+    if abs(args.offset_lines) > MAX_OFFSET_LINES:
+        parser.error(
+            f"absolute offset must be at most {MAX_OFFSET_LINES} cache lines"
+        )
     max_train_pairs = (TRAIN_PAIR_SWEEP[-1] if args.sweep_train_pairs
                        else args.train_pairs)
-    max_offset_lines = (OFFSET_SWEEP[-1] if args.sweep_offsets
-                        else args.offset_lines)
+    max_offset_lines = (
+        max(abs(offset) for offset in OFFSET_SWEEP)
+        if args.sweep_offsets else abs(args.offset_lines)
+    )
     span_pages = max_offset_lines // LINES_PER_PAGE + 1
     slots_needed = max_train_pairs + args.trigger_batch
     if slots_needed * span_pages > POOL_PAGES:

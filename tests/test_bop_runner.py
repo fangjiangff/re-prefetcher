@@ -177,7 +177,11 @@ class BopRunnerPmuBindingTests(unittest.TestCase):
         source = (REPO / "re3-bop" / "test-bop.c").read_text()
 
         self.assertIn("random_base_line", source)
-        self.assertIn("mate_line = random_base_line + offset_lines", source)
+        self.assertIn(
+            "mate_line = offset_target_line(\n"
+            "                        random_base_line, offset_lines)",
+            source,
+        )
         self.assertNotIn("span_pages * LINES_PER_PAGE", source)
 
 

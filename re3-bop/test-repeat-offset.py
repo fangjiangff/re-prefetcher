@@ -14,9 +14,12 @@ driver.BINARY_STEM = "test-repeat-offset"
 driver.RESULT_STEM = "repeat-offset"
 driver.DISPLAY_NAME = "BOP repeated-function offset test"
 driver.TRAINING_ACCESS_TYPES = ("load",)
+driver.OFFSET_SWEEP = tuple(range(-driver.LINES_PER_PAGE + 1,
+                                  driver.LINES_PER_PAGE))
+driver.MAX_OFFSET_LINES = driver.LINES_PER_PAGE - 1
 driver.RUNNER_DESCRIPTION = (
     "Build and run the BOP test that repeatedly calls one function whose "
-    "fixed load PCs access A_i and A_i+d."
+    "fixed load PCs access the same flushed A and A+d within one page."
 )
 
 
