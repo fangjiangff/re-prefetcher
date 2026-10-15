@@ -1,9 +1,0 @@
-# PMU source=direct-mrs core=Cortex-X925 counter4=0x8154 counter5=0x8155 window=trigger-plus-wait-per-round rearm=once-per-experiment
-# CMC next-node test
-# access_mode=load test_mode=node cpp_rctx=each_round
-# timer=cntvct_el0 cntfrq_el0=1000000000Hz rounds=40000 threshold_ns=80 training_replays=10 wait_nops=1000
-# chain_nodes=128 control_nodes=16 mapping_pages=512 enable_pmu=1 enable_cache_probe=0
-
-[node_next]
-# PMU l1d_cache_hwprf          per_round=0.65
-# PMU l2d_cache_hwprf          per_round=0.43

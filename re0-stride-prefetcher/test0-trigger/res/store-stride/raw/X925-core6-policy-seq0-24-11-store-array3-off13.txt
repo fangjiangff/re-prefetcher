@@ -1,8 +1,0 @@
-# arm64 policy access prefetch map
-# access mode: store
-# sequence_lines: 0 24 11
-# rounds=40000 probe_positions=100
-# timer: clock_gettime(CLOCK_MONOTONIC) ns
-# position	offset_bytes	avg_ns	probes
-# array3: store line 0 at a different PC; reload line 13 once
- 13	         832	        48	    1

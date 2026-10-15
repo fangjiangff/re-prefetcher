@@ -1,9 +1,0 @@
-# arm64 policy access prefetch map
-# access mode: load
-# sequence_lines: 53
-# rounds=1 probe_positions=100
-# timer: clock_gettime(CLOCK_MONOTONIC) ns
-# training PCs: 16; one PC per round, rotating
-# ENABLE_CPP_RCTX=1
-# position	offset_bytes	avg_ns	probes
- 21	        1344	       128	    1

@@ -1,1 +1,0 @@
-savedcmd_bop_el0_el1.ko := ld -r -EL  -maarch64elf -z noexecstack --no-warn-rwx-segments --build-id=sha1  -T /usr/src/linux-headers-6.17.0-1018-nvidia/scripts/module.lds -o bop_el0_el1.ko bop_el0_el1.o bop_el0_el1.mod.o .module-common.o
