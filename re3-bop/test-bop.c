@@ -36,6 +36,12 @@
 #ifndef TRAIN_STORE
 #define TRAIN_STORE 0
 #endif
+#ifndef BOP_TEST_TITLE
+#define BOP_TEST_TITLE "BOP existence and offset-relocation test"
+#endif
+#ifndef BOP_TRAINING_PC_POLICY
+#define BOP_TRAINING_PC_POLICY "rotating_split_functions"
+#endif
 
 #if TRAIN_STORE
 #define TRAIN_ACCESS_ASM(reg) "mov w17, #1\n\tstrb w17, [%0]"
@@ -333,6 +339,9 @@ static void train_bop(enum train_mode mode, size_t round, size_t train_pairs,
         }
         mate = page_addr(page, mate_line);
 
+#ifdef BOP_TRAIN_PAIR
+        BOP_TRAIN_PAIR(base, mate);
+#else
         train_pcs[(i * 5u) % TRAIN_PC_COUNT](base);
         nops();
         /* Insert unrelated memory accesses between Xi and Xi+d. */
@@ -352,6 +361,7 @@ static void train_bop(enum train_mode mode, size_t round, size_t train_pairs,
 
         train_pcs[(i * 7u + 3u) % TRAIN_PC_COUNT](mate);
         nops();
+#endif
     }
 }
 
@@ -849,7 +859,7 @@ int main(int argc, char **argv)
 
     cpp_rctx();
 
-    printf("# BOP existence and offset-relocation test\n");
+    printf("# %s\n", BOP_TEST_TITLE);
     printf("# offset_lines=%zu offset_bytes=%zu\n",
            offset_lines, offset_lines * LINE_SIZE);
     printf("# rounds=%zu train_pairs=%zu trigger_batch=%zu pages=%d "
@@ -865,6 +875,7 @@ int main(int argc, char **argv)
     printf("# trigger_address_policy=precomputed_before_rounds\n");
     printf("# sequence_round_policy=fixed_round_0\n");
     printf("# training_access_type=%s\n", TRAIN_STORE ? "store" : "load");
+    printf("# training_pc_policy=%s\n", BOP_TRAINING_PC_POLICY);
     printf("# random_control_match=%s\n",
            offset_base_line_count(offset_lines) == 1 ?
            "partial_singleton_line_range" :

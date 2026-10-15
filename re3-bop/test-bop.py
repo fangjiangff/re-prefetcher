@@ -19,6 +19,14 @@ BIN_DIR = REPO / "bin"
 RESULT_DIR = HERE / "res"
 PMU_MODULE_NAME = "prefetch_pmu_event"
 PMU_MODULE_DIR = REPO / "kernel-modules" / "prefetch-pmu-event"
+BINARY_STEM = "test-bop"
+RESULT_STEM = "bop"
+DISPLAY_NAME = "BOP"
+TRAINING_ACCESS_TYPES = ("load", "store")
+RUNNER_DESCRIPTION = (
+    "Build and run the strict BOP existence test with untrained, "
+    "matched random-delta, fixed-offset, and wrong-target cases."
+)
 
 ARCH_CONFIG = {
     "X925": {"core": 6, "threshold_ns": 80},
@@ -73,17 +81,14 @@ def default_compiler():
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description=(
-            "Build and run the strict BOP existence test with untrained, "
-            "matched random-delta, fixed-offset, and wrong-target cases."
-        )
+        description=RUNNER_DESCRIPTION
     )
     parser.add_argument("--arch", choices=ARCH_CONFIG, default="X925")
     parser.add_argument("--core", "--cpu", dest="core", type=int)
     parser.add_argument("--rounds", type=int, default=100)
     parser.add_argument("--threshold-ns", type=int)
     parser.add_argument("--train-pairs", type=int, default=1024)
-    parser.add_argument("--type", choices=("load", "store"), default="load",
+    parser.add_argument("--type", choices=TRAINING_ACCESS_TYPES, default="load",
                         help="Training and trigger access type (probes remain loads).")
     parser.add_argument(
         "--offset", "--offset-lines", dest="offset_lines", type=int,
@@ -163,7 +168,7 @@ def parse_args():
 
 def binary_path(kind, access_type="load"):
     suffix = "-store" if access_type == "store" else ""
-    return BIN_DIR / f"test-bop-{kind}{suffix}"
+    return BIN_DIR / f"{BINARY_STEM}-{kind}{suffix}"
 
 
 def build(args, kind, enable_pmu, enable_cache_probe):
@@ -427,7 +432,7 @@ def output_paths(args):
     else:
         RESULT_DIR.mkdir(parents=True, exist_ok=True)
         combined = RESULT_DIR / (
-            f"bop-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
+            f"{RESULT_STEM}-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
             f"pairs{args.train_pairs}{offset_part}{action_part}{type_part}.txt"
         )
     combined.parent.mkdir(parents=True, exist_ok=True)
@@ -499,7 +504,7 @@ def plot_results(args, pmu_text, cache_text):
     axes[1].set_ylabel("PMU events / trigger")
     axes[1].set_ylim(0, max(1, axes[1].get_ylim()[1]))
     axes[1].legend(fontsize=8)
-    axes[0].set_title(f"BOP test: {args.arch} CPU{args.core}")
+    axes[0].set_title(f"{DISPLAY_NAME}: {args.arch} CPU{args.core}")
     for axis in axes:
         axis.grid(axis="y", alpha=0.25)
         axis.tick_params(axis="x", labelsize=7)
@@ -534,7 +539,7 @@ def sweep_output_paths(args):
     else:
         RESULT_DIR.mkdir(parents=True, exist_ok=True)
         table_path = RESULT_DIR / (
-            f"bop-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
+            f"{RESULT_STEM}-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
             f"train-pairs-sweep{offset_part}{action_part}{type_part}.tsv"
         )
     plot_path = (Path(args.plot) if args.plot
@@ -630,7 +635,7 @@ def plot_sweep_results(args, samples):
     axes[1].set_xlabel("Training pairs per round")
     axes[1].set_xticks(TRAIN_PAIR_SWEEP[::2])
     axes[0].set_title(
-        f"BOP train-pairs sweep: {args.arch} CPU{args.core}"
+        f"{DISPLAY_NAME} train-pairs sweep: {args.arch} CPU{args.core}"
     )
     _, plot_path = sweep_output_paths(args)
     plot_path.parent.mkdir(parents=True, exist_ok=True)
@@ -651,7 +656,7 @@ def offset_sweep_output_path(args):
             else f"-pre{args.pre_trigger_action}"
         )
         path = RESULT_DIR / (
-            f"bop-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
+            f"{RESULT_STEM}-{args.arch}-cpu{args.core}-thr{args.threshold_ns}-"
             f"pairs{args.train_pairs}-{suffix}-off{OFFSET_SWEEP[0]}-{OFFSET_SWEEP[-1]}"
             f"{action_part}{type_part}.tsv"
         )
@@ -911,7 +916,8 @@ def plot_offset_pmu_results(args, samples):
     axis.set_ylabel("PMU events / trigger")
     axis.set_xlim(min(offsets), max(offsets))
     axis.set_title(
-        f"BOP average PMU events by offset: {args.arch} CPU{args.core}"
+        f"{DISPLAY_NAME} average PMU events by offset: "
+        f"{args.arch} CPU{args.core}"
     )
     path = offset_sweep_plot_path(args)
     figure.savefig(path, dpi=300)
